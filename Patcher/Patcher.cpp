@@ -80,6 +80,29 @@ int main(int argc, char** argv)
         return 0;
     };
 
+    // GlueXML signature unlock
+    // Byte set ported from WotLK-Extensions (MIT, (c) Alyst3r).
+    {
+        struct BytePatch { uint32_t va; uint8_t bytes[8]; uint32_t len; };
+        const BytePatch glueUnlock[] = {
+            { 0x5F4DBF, { 0xEB }, 1 },
+            { 0x816625, { 0xEB }, 1 },
+            { 0x81663F, { 0x03 }, 1 },
+            { 0x816695, { 0x03 }, 1 },
+            { 0x816746, { 0xEB }, 1 },
+            { 0x81675F, { 0xB8, 0x03, 0x00, 0x00, 0x00, 0xEB, 0xED }, 7 },
+        };
+        for (const BytePatch& bp : glueUnlock)
+        {
+            uint32_t off = RvaToOffset(bp.va - (uint32_t)oh.ImageBase);
+            if (off == 0 || off + bp.len > file.size())
+            { printf("[WRAITH] glue-unlock VA 0x%X not mapped to file\n", bp.va); return 1; }
+            memcpy(file.data() + off, bp.bytes, bp.len);
+        }
+        printf("[WRAITH] applied GlueXML Lua/XML unlock (%zu patches)\n",
+               sizeof(glueUnlock) / sizeof(glueUnlock[0]));
+    }
+
     // Count the existing import descriptors (terminated by an all-zero entry).
     uint32_t impRva = oh.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
     uint32_t impOff = RvaToOffset(impRva);

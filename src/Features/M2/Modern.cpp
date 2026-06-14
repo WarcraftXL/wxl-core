@@ -317,11 +317,17 @@ namespace
         return base;
     }
 
+    // SM3 vertex-constant ceiling: the bone palette starts at c31, 3 registers per bone matrix, so
+    // (256 - 31) / 3 = 75 bones per draw.
+    // staging buffer and corrupts the adjacent state-descriptor table (ERROR #132).
+    constexpr uint16_t kMaxBonesPerDraw = 75;
+
     // A level>0 submesh is a (level<<16|id) sub-batch the 264 engine cannot draw. Park it by zeroing its
     // geometry and marking badSubmesh so its batch is skipped, but KEEP boneCount/boneInfluences intact:
     // native FinalizeSkin divides boneCountMax by every submesh boneCount (parked or not), so a zeroed
-    // boneCount is a divide-by-zero. A drawn (level 0) submesh just gets a >=1 bone-influence floor.
-    void FixSubmeshes(sdk::M2SkinProfile* skin, std::vector<uint8_t>& badSubmesh)
+    // boneCount is a divide-by-zero. A drawn (level 0) submesh gets boneCount clamped to the SM3 ceiling
+    // and to the boneCombos array bounds (>=1), plus a >=1 bone-influence floor.
+    void FixSubmeshes(sdk::M2Header* md, sdk::M2SkinProfile* skin, std::vector<uint8_t>& badSubmesh)
     {
         badSubmesh.assign(skin->submeshCount, 0);
         for (uint32_t i = 0; i < skin->submeshCount; ++i)
@@ -338,9 +344,16 @@ namespace
                 s->centerBoneIndex = 0;
                 badSubmesh[i] = 1;
             }
-            else if (s->boneInfluences == 0)
+            else
             {
-                s->boneInfluences = 1;
+                uint16_t cap = kMaxBonesPerDraw;
+                uint16_t byCombo = md->boneCombos.count > s->boneComboIndex
+                                 ? static_cast<uint16_t>(md->boneCombos.count - s->boneComboIndex) : 1;
+                if (byCombo < cap) cap = byCombo;
+                if (cap < 1)       cap = 1;
+                if (s->boneCount > cap) s->boneCount = cap;
+                if (s->boneCount < 1)   s->boneCount = 1;
+                if (s->boneInfluences == 0) s->boneInfluences = 1;
             }
             reinterpret_cast<uint8_t*>(s)[0x11] = 0;
         }
@@ -553,7 +566,7 @@ namespace
         std::vector<sdk::M2Batch> batches;
         uint32_t nTransparencyLookup = md->textureWeightCombos.count;   // transparency-lookup count (header +0x90)
 
-        FixSubmeshes(skin, badSubmesh);
+        FixSubmeshes(md, skin, badSubmesh);
         FixTexUnits(skin, badSubmesh, batches, texUnitLookup, blendOverride, nTransparencyLookup);
 
         // Commit the grown batch array into an owned heap buffer and repoint the skin BEFORE the native

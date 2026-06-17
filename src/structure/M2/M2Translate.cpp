@@ -17,6 +17,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <string>
 
 // De-chunk the modern container into the model layout the native loader expects, then compact each
 // Source record layout (cameras / particle emitters / ribbon emitters) onto the Client strides and
@@ -273,9 +274,84 @@ namespace wraith::structure::m2
                 seqs[i].blendTime &= 0xFFFF;
             }
         }
+
+        // Container chunk magic carrying the texture FileDataID table (one u32 per header.textures entry).
+        constexpr uint32_t kChunkTXID = 0x44495854; // 'TXID'
+
+        // Walk the container's IFF chunks and copy out the TXID payload as a FileDataID array. Each chunk is
+        // {magic, u32 size, size bytes}; the MD21 chunk's body is skipped over by its size, so an inner-body
+        // dword that happens to read as 'TXID' is never mistaken for a chunk. Empty if there is no TXID.
+        std::vector<uint32_t> ScanTxid(std::span<const uint8_t> in)
+        {
+            std::vector<uint32_t> ids;
+            size_t i = 0;
+            while (i + 8 <= in.size())
+            {
+                uint32_t magic = Rd32(in.data() + i);
+                uint32_t size  = Rd32(in.data() + i + 4);
+                if (static_cast<size_t>(i) + 8 + size > in.size())
+                    break;
+                if (magic == kChunkTXID)
+                {
+                    ids.resize(size / 4);
+                    for (uint32_t k = 0; k < size / 4; ++k)
+                        ids[k] = Rd32(in.data() + i + 8 + k * 4);
+                    break;
+                }
+                i += 8 + size;
+            }
+            return ids;
+        }
+
+        // Re-inline TXID texture FileDataIDs as native filename strings. Modern type-0 textures carry an
+        // empty filename and reference the file by FileDataID in the container TXID chunk; the native loader
+        // reads the inline filename, so each empty type-0 slot is resolved to a path appended to the model
+        // tail and its filename M2Array is pointed at it. Existing inline names and runtime-replaced slots
+        // (type != 0) are left untouched. Returns true if any name was inlined.
+        bool ReinlineTextures(std::vector<uint8_t>& model, const std::vector<uint32_t>& txid,
+                              const ResolveCtx& rc)
+        {
+            if (txid.empty() || !rc.resolve)
+                return false;
+
+            auto* md = reinterpret_cast<M2Header*>(model.data());
+            const uint32_t texCount = md->textures.count;
+            const uint32_t texOff   = md->textures.offset;
+            if (!texCount || !texOff ||
+                static_cast<size_t>(texOff) + static_cast<size_t>(texCount) * sizeof(M2Texture) > model.size())
+                return false;
+
+            bool inlined = false;
+            for (uint32_t i = 0; i < texCount; ++i)
+            {
+                // Re-read through the buffer base each step: an append below can reallocate `model`.
+                auto* tex = reinterpret_cast<M2Texture*>(model.data() + texOff + i * sizeof(M2Texture));
+                if (tex->type != kTexTypeHardcoded)
+                    continue; // runtime-replaced slot: no file
+                if (tex->filename.count > 1 && tex->filename.offset &&
+                    static_cast<size_t>(tex->filename.offset) < model.size())
+                    continue; // already has an inline name
+                if (i >= txid.size() || txid[i] == 0)
+                    continue;
+
+                std::string path;
+                if (!rc.resolve(rc.user, txid[i], path) || path.empty())
+                    continue;
+
+                const uint32_t newOff = static_cast<uint32_t>(model.size());
+                model.insert(model.end(), path.begin(), path.end());
+                model.push_back(0);
+
+                tex = reinterpret_cast<M2Texture*>(model.data() + texOff + i * sizeof(M2Texture));
+                tex->filename.count  = static_cast<uint32_t>(path.size()) + 1;
+                tex->filename.offset = newOff;
+                inlined = true;
+            }
+            return inlined;
+        }
     }
 
-    bool TranslateM2(std::span<const uint8_t> in, std::vector<uint8_t>& out)
+    bool TranslateM2(std::span<const uint8_t> in, const ResolveCtx& rc, std::vector<uint8_t>& out)
     {
         if (in.size() < sizeof(ContainerHeader)) return false;
 
@@ -307,10 +383,19 @@ namespace wraith::structure::m2
 
         const uint32_t fileSize = static_cast<uint32_t>(out.size());
 
+        // TXID lives in the container chunks dropped by DeChunk, so read it from the original input.
+        std::vector<uint32_t> txid;
+        if (isContainer)
+            txid = ScanTxid(in);
+
         CompactCameras(md);
         CompactParticles(md, fileSize);
         CompactRibbons(md, fileSize);
         FixAnimations(md);
+
+        // Re-inline the externalized texture paths last: it appends to `out` and may reallocate, so it must
+        // run after every transform that holds an M2Header pointer into the buffer.
+        ReinlineTextures(out, txid, rc);
 
         return true;
     }

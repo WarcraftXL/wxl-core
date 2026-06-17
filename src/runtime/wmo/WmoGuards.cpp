@@ -16,6 +16,7 @@
 
 #include "WmoGuards.hpp"
 
+#include "WmoMultiPass.hpp"
 #include "WMO.hpp"
 #include "Hook.hpp"
 #include "Logger.hpp"
@@ -44,6 +45,33 @@ namespace wraith::runtime::wmo
         MatResolveFn    g_origMatResolve    = nullptr;
         PortalVisFn     g_origPortalVis     = nullptr;
         GroupResidentFn g_origGroupResident = nullptr;
+        off::Wmo_GroupBatchDrawFn g_origBatchDraw = nullptr;
+
+        // Per-batch draw guard. The native draw walks the group's parent root (grp+0x18C) -> material base
+        // (root+0x160) -> per-material/per-batch fields with NO validity checks, and faults when any of those
+        // is garbage (AV @0x007AC776/0x7AC77E: a valid root whose material-base pointer is junk, etc.). The
+        // garbage comes from a specific WMO whose material/batch data does not survive our down-convert cleanly;
+        // a narrow pointer probe just chases the fault one deref deeper, so wrap the whole native draw in SEH
+        // (same approach as the portal-visibility guard) - any fault aborts THIS group's draw for the frame
+        // instead of crashing. A WMO that faults every frame shows up in the log so its data can be fixed.
+        void __stdcall BatchDrawGuard(int groupObj, int pass)
+        {
+            bool drew = false;
+            __try
+            {
+                g_origBatchDraw(groupObj, pass);
+                drew = true;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                static int s_log = 0;
+                if (s_log < 20) { ++s_log; WLOG_INFO("WMO batch-draw caught (group=%p pass=%d)", reinterpret_cast<void*>(groupObj), pass); }
+            }
+
+            // Compose any dropped layer textures (shine / emissive) over the base draw, geometry still bound.
+            if (drew)
+                multipass::RunExtraPasses(groupObj);
+        }
 
         // Read the model's material count through SEH. Returns false (treated as count 0) on a fault.
         bool ReadMaterialCount(void* model, uint32_t& count)
@@ -130,6 +158,8 @@ namespace wraith::runtime::wmo
                       &PortalVisDetour, reinterpret_cast<void**>(&g_origPortalVis));
         hook::Install("Wmo::GroupResidentAccessor", off::kGroupResidentAccessor,
                       &GroupResidentDetour, reinterpret_cast<void**>(&g_origGroupResident));
+        hook::Install("Wmo::GroupBatchDraw", off::kGroupBatchDraw,
+                      &BatchDrawGuard, reinterpret_cast<void**>(&g_origBatchDraw));
         WLOG_INFO("WMO: runtime guards installed");
     }
 }

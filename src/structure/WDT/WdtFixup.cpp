@@ -49,8 +49,7 @@ namespace wraith::structure::wdt
         out.assign(in.begin(), in.end());
 
         uint32_t flags = rd32(out.data() + kFlagsOffset);
-        if (flags & 0x80) flags |= 0x4;   // height-texturing -> big-alpha
-        flags &= 0x1F;                    // keep only the bits the target reader understands
+        flags &= 0x1F;                    // keep only the bits the target reader understands (drops 0x80)
         for (int i = 0; i < 4; ++i) out[kFlagsOffset + i] = uint8_t(flags >> (i * 8));
 
         for (size_t i = kMainOffset; i + 8 <= out.size() && i < kMainOffset + kMainBytes; i += 8)

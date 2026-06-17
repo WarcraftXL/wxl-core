@@ -83,6 +83,11 @@ namespace wraith::structure::wmo
     constexpr uint32_t kMomtTexOffsets[2] = { 0x0C, 0x18 }; // two MOTX texture-name offsets (+0x24 is a float)
     constexpr uint32_t kMomtTexCount      = 2;
     constexpr uint32_t kMaxNativeShader   = 6;              // valid shader range is 0..6
+    // runTimeData (+0x30..+0x3F): device texture handles the loader fills at load. The resolver skips a
+    // material whose tex1 handle (+0x38) is already non-zero, so packed junk here leaves a wild pointer
+    // bound at draw. The target ships these zero on disk; the transform clears them.
+    constexpr uint32_t kMomtRunTimeOffset = 0x30;
+    constexpr uint32_t kMomtRunTimeLen    = 0x10;
 
     // Group fixed header (MOGP). 0x44 bytes in every WMO version; sub-chunks follow it.
     constexpr uint32_t kMogpHeader335   = 0x44;
@@ -94,11 +99,21 @@ namespace wraith::structure::wmo
     constexpr uint32_t kMogpExtBatchCountOffset   = 0x2C;
 
     // Group flag bits the target loader gates optional sub-chunk consumption on.
-    constexpr uint32_t kGrpFlagBSP  = 0x1;    // MOBN + MOBR
-    constexpr uint32_t kGrpFlagMOCV = 0x4;    // vertex colors
-    constexpr uint32_t kGrpFlagMOLR = 0x200;  // light refs
-    constexpr uint32_t kGrpFlagMODR = 0x800;  // doodad refs
-    constexpr uint32_t kGrpFlagMLIQ = 0x1000; // liquid
+    constexpr uint32_t kGrpFlagBSP   = 0x1;        // MOBN + MOBR
+    constexpr uint32_t kGrpFlagMOCV  = 0x4;        // vertex colors
+    constexpr uint32_t kGrpFlagMOLR  = 0x200;      // light refs
+    constexpr uint32_t kGrpFlagMODR  = 0x800;      // doodad refs
+    constexpr uint32_t kGrpFlagMLIQ  = 0x1000;     // liquid
+    constexpr uint32_t kGrpFlagMOCV2 = 0x1000000;  // 2nd vertex-color set (group+0x10c)
+    constexpr uint32_t kGrpFlagMOTV2 = 0x2000000;  // 2nd texcoord set (group+0xf4)
+
+    // The ONLY flags the target loader uses to gate chunk consumption. The transform re-derives these from
+    // the chunks it emits and PRESERVES every other bit: clearing an unmanaged bit a native group legitimately
+    // sets makes the positional parser misgate and build a corrupt group. Modern-only chunks are not gated by
+    // flag in the target (it does not know them), so stripping them physically is sufficient. MOCV2/MOTV2 are
+    // gated and always cleared (the 2nd sets are stripped).
+    constexpr uint32_t kGrpGatedFlags =
+        kGrpFlagBSP | kGrpFlagMOCV | kGrpFlagMOLR | kGrpFlagMODR | kGrpFlagMLIQ | kGrpFlagMOCV2 | kGrpFlagMOTV2;
 
     // Render-batch record layout (MOBA) as the target reads it.
     constexpr uint32_t kMobaEntryStride = 0x18;

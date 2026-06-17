@@ -45,12 +45,15 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
         ${WRAITH_SRC}/runtime/storage/ShmClient.cpp
         ${WRAITH_SRC}/runtime/storage/StorageHook.cpp
         ${WRAITH_SRC}/runtime/wmo/WmoGuards.cpp
+        ${WRAITH_SRC}/runtime/wmo/WmoMultiPass.cpp
         ${WRAITH_SRC}/runtime/m2/Loader.cpp
         ${WRAITH_SRC}/runtime/m2/Anim.cpp
         ${WRAITH_SRC}/runtime/m2/Ribbon.cpp
         ${WRAITH_SRC}/runtime/m2/Particle.cpp
         ${WRAITH_SRC}/runtime/m2/Bone.cpp
         ${WRAITH_SRC}/runtime/m2/Mahjong.cpp
+        ${WRAITH_SRC}/runtime/adt/Adt.cpp
+        ${WRAITH_SRC}/runtime/multipass/MultiPass.cpp
         ${WRAITH_SRC}/runtime/bonessplitter/BonesSplitter.cpp
         ${WRAITH_SRC}/runtime/db2/DB2Mgr.cpp
         ${WRAITH_SRC}/runtime/db2/MapOverride.cpp
@@ -66,6 +69,9 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
         ${WRAITH_SRC}/runtime/storage
         ${WRAITH_SRC}/runtime/wmo
         ${WRAITH_SRC}/runtime/m2
+        ${WRAITH_SRC}/runtime/adt
+        ${WRAITH_SRC}/runtime/multipass
+        ${WRAITH_SRC}/runtime/dynamic_scaling
         ${WRAITH_SRC}/runtime/bonessplitter
         ${WRAITH_SRC}/runtime/db2
         ${WRAITH_SRC}/host/db2

@@ -275,8 +275,11 @@ namespace
         if (!mpq.ReadAll(name, raw))
             return false;
 
+        const wraith::structure::ResolveCtx rc{ &ResolveTextureThunk, &g_db2 };
+
         // ADT is a multi-input merge: `raw` is the split root; read the _tex0/_obj0 siblings and assemble
-        // the monolithic tile. Absent siblings (a vanilla monolithic tile) -> serve the root raw.
+        // the monolithic tile. Absent siblings (a vanilla monolithic tile) -> serve the root raw. `rc`
+        // resolves the modern texture FileDataIDs (MDID) the merged MTEX needs.
         if (fmt == wraith::structure::Format::Adt)
         {
             const std::string base = name.substr(0, name.size() - 4); // strip ".adt"
@@ -284,7 +287,7 @@ namespace
             mpq.ReadAll(base + "_tex0.adt", tex0);
             mpq.ReadAll(base + "_obj0.adt", obj0);
             std::vector<uint8_t> merged;
-            if (wraith::structure::adt::MergeSplitAdt(raw, tex0, obj0, merged))
+            if (wraith::structure::adt::MergeSplitAdt(raw, tex0, obj0, merged, name, rc))
             {
                 out = std::move(merged);
                 return true;
@@ -293,9 +296,9 @@ namespace
         // Single-input translation (Wmo/Wdt/Wdl/M2). A false return means "needs no change" -> serve raw.
         else if (fmt != wraith::structure::Format::Raw)
         {
-            const wraith::structure::ResolveCtx rc{ &ResolveTextureThunk, &g_db2 };
             std::vector<uint8_t> trans;
-            if (wraith::structure::Dispatch(name, raw, rc, trans))
+            const bool transformed = wraith::structure::Dispatch(name, raw, rc, trans);
+            if (transformed)
             {
                 out = std::move(trans);
                 return true;

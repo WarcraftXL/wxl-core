@@ -27,6 +27,7 @@
 #include "runtime/m2/Particle.hpp"
 #include "runtime/m2/Bone.hpp"
 #include "runtime/m2/Mahjong.hpp"
+#include "runtime/adt/Adt.hpp"
 #include "runtime/db2/DB2Mgr.hpp"
 #include "runtime/db2/MapOverride.hpp"
 
@@ -47,6 +48,7 @@ namespace
         wraith::runtime::particle::Install();
         wraith::runtime::bone::Install();
         wraith::runtime::mahjong::Install();
+        wraith::runtime::adt::Install();
 
         // Data tables: feed the engine modern table data and serve the modern Map.db2 over the stock
         // map storage so modern maps load.

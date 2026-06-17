@@ -18,7 +18,10 @@
 
 #include <cstdint>
 #include <span>
+#include <string_view>
 #include <vector>
+
+#include "../Resolver.hpp"
 
 // Client.hpp / Source.hpp declare this format's two layouts (335 target / modern superset). The
 // transform keeps its own local constants for now; consuming the declarations is a later no-op pass.
@@ -27,7 +30,10 @@
 // The transform gates on chunk/field presence. See structure/WMO for the worked example of the contract pattern.
 namespace wraith::structure::adt
 {
-    // Merge split root + _tex0 + _obj0 into one monolithic 335 ADT.
+    // Merge split root + _tex0 + _obj0 into one monolithic 335 ADT. `name` is used only for the probe log
+    // that surfaces tiles exceeding the native 4-layer cap. `rc` resolves texture FileDataIDs (MDID) to
+    // paths when the source references textures by id instead of an MTEX name table (the modern default).
     bool MergeSplitAdt(std::span<const uint8_t> root, std::span<const uint8_t> tex0,
-                       std::span<const uint8_t> obj0, std::vector<uint8_t>& out);
+                       std::span<const uint8_t> obj0, std::vector<uint8_t>& out, std::string_view name,
+                       const ResolveCtx& rc);
 }

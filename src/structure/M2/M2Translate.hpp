@@ -22,6 +22,7 @@
 
 #include "Client.hpp"
 #include "Source.hpp"
+#include "../Resolver.hpp"
 
 // HOST-only. M2 structural translator: de-chunk the modern container and emit a target-shaped model.
 // Pure bytes -> bytes. Only the structural rewrites that are independent of the live engine run here
@@ -33,8 +34,10 @@
 // RANGE, never an external version flag. See structure/WMO for the worked contract pattern.
 namespace wraith::structure::m2
 {
-    // De-chunk the container, compact the Source record layouts onto the Client strides, and emit a
-    // target-shaped model. Returns false (serve raw) when the input is already a target-shaped model or
-    // is not a model the Source path handles.
-    bool TranslateM2(std::span<const uint8_t> in, std::vector<uint8_t>& out);
+    // De-chunk the container, compact the Source record layouts onto the Client strides, re-inline the
+    // container TXID texture FileDataIDs as native filename strings, and emit a target-shaped model. rc
+    // resolves a texture FileDataID to a path; pass an empty ResolveCtx to skip the re-inline. Returns
+    // false (serve raw) when the input is already a target-shaped model or is not a model the Source path
+    // handles.
+    bool TranslateM2(std::span<const uint8_t> in, const ResolveCtx& rc, std::vector<uint8_t>& out);
 }

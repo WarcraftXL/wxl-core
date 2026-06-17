@@ -15,169 +15,37 @@
 
 #include "WmoTranslate.hpp"
 
+#include "WmoChunks.hpp"
+#include "WmoPassPlan.hpp"
+#include "../ChunkIO.hpp"
+#include "Logger.hpp"
+
 #include <cmath>
 #include <cstring>
 #include <string>
 
-// Down-convert a modern WMO into the chunk layout the target client (335) loader expects, working on the
-// file bytes in memory. The target loader walks chunks POSITIONALLY (it assumes the classic order and
-// advances by each chunk [size]; only a trailing MCVP is magic-checked), so any modern-only chunk left in
-// the stream shifts every following read and corrupts the parse. The transform STRIPS modern chunks and
-// normalizes modern fields. It is DATA-GATED (keyed off chunk presence / field values), so one path serves
-// every modern source (the format only adds data; gating is by presence, not version).
 namespace wraith::structure::wmo
 {
     namespace
     {
-        constexpr uint32_t FourCC(char a, char b, char c, char d)
-        {
-            return (static_cast<uint32_t>(static_cast<uint8_t>(a)) << 24) |
-                   (static_cast<uint32_t>(static_cast<uint8_t>(b)) << 16) |
-                   (static_cast<uint32_t>(static_cast<uint8_t>(c)) << 8) |
-                    static_cast<uint32_t>(static_cast<uint8_t>(d));
-        }
+        using iff::Rd16;
+        using iff::Rd32;
+        using iff::Rdf;
+        using iff::Wr16;
+        using iff::Wr32;
 
-        constexpr uint32_t kMVER = FourCC('M', 'V', 'E', 'R');
-        constexpr uint32_t kMOHD = FourCC('M', 'O', 'H', 'D'); // root header (marks a root .wmo)
-        constexpr uint32_t kMOGP = FourCC('M', 'O', 'G', 'P'); // group header (marks a group .wmo)
-        constexpr uint32_t kMOMT = FourCC('M', 'O', 'M', 'T'); // materials
-
-        // Root chunks the target loader has no slot for; left in the stream they break the positional walk.
-        // MCVP is kept (read as an optional trailing chunk once GFID after it is gone).
-        constexpr uint32_t kGFID = FourCC('G', 'F', 'I', 'D'); // group FileDataIDs (modern)
-        constexpr uint32_t kMOUV = FourCC('M', 'O', 'U', 'V'); // animated UV translations (modern)
-        constexpr uint32_t kMODI = FourCC('M', 'O', 'D', 'I'); // doodad FileDataIDs (modern)
-        constexpr uint32_t kMOSI = FourCC('M', 'O', 'S', 'I'); // skybox FileDataID (modern)
-        constexpr uint32_t kMCVP = FourCC('M', 'C', 'V', 'P'); // convex volume planes (kept, trailing)
-
-        // Group sub-chunks the target group loader knows. Anything else in a group is stripped; a second
-        // MOCV or an extra MOTV beyond the first is also stripped (the target keeps one of each).
-        constexpr uint32_t kMOPY = FourCC('M', 'O', 'P', 'Y');
-        constexpr uint32_t kMOVI = FourCC('M', 'O', 'V', 'I');
-        constexpr uint32_t kMOVT = FourCC('M', 'O', 'V', 'T');
-        constexpr uint32_t kMONR = FourCC('M', 'O', 'N', 'R');
-        constexpr uint32_t kMOTV = FourCC('M', 'O', 'T', 'V');
-        constexpr uint32_t kMOBA = FourCC('M', 'O', 'B', 'A');
-        constexpr uint32_t kMOLR = FourCC('M', 'O', 'L', 'R');
-        constexpr uint32_t kMODR = FourCC('M', 'O', 'D', 'R');
-        constexpr uint32_t kMOBN = FourCC('M', 'O', 'B', 'N');
-        constexpr uint32_t kMOBR = FourCC('M', 'O', 'B', 'R');
-        constexpr uint32_t kMOCV = FourCC('M', 'O', 'C', 'V');
-        constexpr uint32_t kMLIQ = FourCC('M', 'L', 'I', 'Q');
-
-        constexpr uint32_t kMOTX = FourCC('M', 'O', 'T', 'X'); // texture name blob (offsets referenced by MOMT)
-
-        // Remaining target root chunks consumed by position.
-        constexpr uint32_t kMOGN = FourCC('M', 'O', 'G', 'N');
-        constexpr uint32_t kMOGI = FourCC('M', 'O', 'G', 'I');
-        constexpr uint32_t kMOSB = FourCC('M', 'O', 'S', 'B');
-        constexpr uint32_t kMOPV = FourCC('M', 'O', 'P', 'V');
-        constexpr uint32_t kMOPT = FourCC('M', 'O', 'P', 'T');
-        constexpr uint32_t kMOPR = FourCC('M', 'O', 'P', 'R');
-        constexpr uint32_t kMOVV = FourCC('M', 'O', 'V', 'V');
-        constexpr uint32_t kMOVB = FourCC('M', 'O', 'V', 'B');
-        constexpr uint32_t kMOLT = FourCC('M', 'O', 'L', 'T');
-        constexpr uint32_t kMODS = FourCC('M', 'O', 'D', 'S');
-        constexpr uint32_t kMODN = FourCC('M', 'O', 'D', 'N');
-        constexpr uint32_t kMODD = FourCC('M', 'O', 'D', 'D');
-        constexpr uint32_t kMFOG = FourCC('M', 'F', 'O', 'G');
-
-        // Material record: stride 0x40, shader at +0x04. The target valid shader range is 0..6; a modern
-        // shader id (7..22) is an unchecked out-of-range index at draw time, collapsed to the nearest family.
-        constexpr uint32_t kMomtStride       = 0x40;
-        constexpr uint32_t kMomtShaderOffset = 0x04;
-        // Texture name offsets into MOTX (target MOMT has two; +0x24 is a float, not a texture). A modern
-        // FDID-textured material stores a FileDataID here instead of a MOTX offset.
-        constexpr uint32_t kMomtTexOffsets[2] = { 0x0C, 0x18 };
-        constexpr uint32_t kMomtTexCount      = 2;
-        constexpr uint32_t kMaxNativeShader   = 6;
-
-        // Placeholder name used when a texture FileDataID does not resolve, so the material's texture offset
-        // still points at a valid NUL-terminated string in MOTX.
-        constexpr const char kFallbackTexture[] = "createcrappygreentexture.blp";
-
-        // The MOGP fixed header is 0x44 in every WMO version; sub-chunks follow it. Group flags at payload+0x08.
-        constexpr uint32_t kMogpHeader335   = 0x44;
-        constexpr uint32_t kMogpFlagsOffset = 0x08;
-
-        // Batch counts inside the MOGP fixed header (u16 each). Zeroed when an empty MOBA is injected.
-        constexpr uint32_t kMogpTransBatchCountOffset = 0x28;
-        constexpr uint32_t kMogpIntBatchCountOffset   = 0x2A;
-        constexpr uint32_t kMogpExtBatchCountOffset   = 0x2C;
-
-        // Group flag bits the target loader gates optional sub-chunk consumption on (it reads the full u32).
-        constexpr uint32_t kGrpFlagBSP  = 0x1;    // MOBN + MOBR
-        constexpr uint32_t kGrpFlagMOCV = 0x4;    // vertex colors
-        constexpr uint32_t kGrpFlagMOLR = 0x200;  // light refs
-        constexpr uint32_t kGrpFlagMODR = 0x800;  // doodad refs
-        constexpr uint32_t kGrpFlagMLIQ = 0x1000; // liquid
-
-        // Every chunk-gating bit plus the modern-only high bits, cleared before recomputing the flags.
-        constexpr uint32_t kGrpFlagClear =
-            0x1u | 0x2u | 0x4u | 0x200u | 0x400u | 0x800u | 0x1000u | 0x20000u |
-            0x1000000u | 0x2000000u | 0x4000000u | 0x8000000u | 0x10000000u | 0x20000000u | 0x40000000u | 0x80000000u;
-
-        uint32_t Rd32(const uint8_t* p) { return *reinterpret_cast<const uint32_t*>(p); }
-        void     Wr32(uint8_t* p, uint32_t v) { *reinterpret_cast<uint32_t*>(p) = v; }
-        void     Wr16(uint8_t* p, int16_t v) { *reinterpret_cast<int16_t*>(p) = v; }
-        float    Rdf(const uint8_t* p) { return *reinterpret_cast<const float*>(p); }
-
-        bool IsKnownGroupChunk(uint32_t magic)
-        {
-            switch (magic)
-            {
-                case kMOPY: case kMOVI: case kMOVT: case kMONR: case kMOTV: case kMOBA:
-                case kMOLR: case kMODR: case kMOBN: case kMOBR: case kMOCV: case kMLIQ:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        bool IsRootKeepChunk(uint32_t magic)
-        {
-            switch (magic)
-            {
-                case kMVER: case kMOHD: case kMOTX: case kMOMT: case kMOGN: case kMOGI:
-                case kMOSB: case kMOPV: case kMOPT: case kMOPR: case kMOVV: case kMOVB:
-                case kMOLT: case kMODS: case kMODN: case kMODD: case kMFOG: case kMCVP:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        // Modern WMO shader id (0..22) -> nearest target 0..6 family. Anything past the table degrades to 0.
+        // Modern shader id -> target. 0..6 pass through; anything higher collapses to 0 (Diffuse).
         uint32_t RemapShader(uint32_t shader)
         {
-            static const uint8_t kMap[23] = {
-                0, 1, 2, 3, 4, 5, 6, // identity for the target range
-                5,                   // 7  TwoLayerEnvMetal     -> EnvMetal
-                6,                   // 8  TwoLayerTerrain      -> TwoLayerDiffuse
-                0,                   // 9  DiffuseEmissive      -> Diffuse
-                0, 0, 0, 0, 0,       // 10..14 unused           -> Diffuse
-                6,                   // 15 TwoLayerDiffuseEmiss -> TwoLayerDiffuse
-                0,                   // 16 Diffuse alias        -> Diffuse
-                5,                   // 17 AdditiveMaskedEnvMet -> EnvMetal
-                6,                   // 18 TwoLayerDiffuseMod2x -> TwoLayerDiffuse
-                6,                   // 19 ..Mod2xNA            -> TwoLayerDiffuse
-                6,                   // 20 ..DiffuseAlpha       -> TwoLayerDiffuse
-                4,                   // 21 Lod impostor         -> Opaque
-                0,                   // 22 Parallax             -> Diffuse
-            };
-            return (shader < 23) ? kMap[shader] : 0;
+            return (shader <= kMaxNativeShader) ? shader : 0;
         }
 
-        // Growable MOTX string blob. Appends NUL-terminated texture names and dedups identical paths so the
-        // same texture referenced by several materials shares one entry. Returns the byte offset of the name.
+        // Growable MOTX blob: appends NUL-terminated texture names, dedups, returns the byte offset.
         struct MotxBuilder
         {
             std::vector<uint8_t> data;
 
-            void Seed(const uint8_t* blob, uint32_t len)
-            {
-                data.assign(blob, blob + len);
-            }
+            void Seed(const uint8_t* blob, uint32_t len) { data.assign(blob, blob + len); }
 
             uint32_t Find(const char* path) const
             {
@@ -205,34 +73,7 @@ namespace wraith::structure::wmo
             }
         };
 
-        // Append one chunk (8-byte header [magic][size] then payload) to out.
-        void EmitChunk(std::vector<uint8_t>& out, uint32_t magic, const uint8_t* payload, uint32_t payloadLen)
-        {
-            uint8_t hdr[8];
-            Wr32(hdr + 0, magic);
-            Wr32(hdr + 4, payloadLen);
-            out.insert(out.end(), hdr, hdr + 8);
-            if (payloadLen)
-                out.insert(out.end(), payload, payload + payloadLen);
-        }
-
-        // MOBA render-batch layout. Modern builds relocate the material id: when the flag byte at +0x16 has
-        // bit 0x2 set, the real material id sits at +0x0A and the leading bytes overlap what the target reads
-        // as the i16 bounding box. The target reads the material id at +0x17, so an unfixed modern batch
-        // yields a garbage out-of-range material index that faults at render. The fix moves the id to +0x17,
-        // clears the flag, and rebuilds the i16 bounding box from the group's vertices.
-        constexpr uint32_t kMobaEntryStride  = 0x18;
-        constexpr uint32_t kMobaBBoxOffset   = 0x00; // 6 i16: min x,y,z then max x,y,z
-        constexpr uint32_t kMobaMinIndexOff  = 0x12; // u16 first vertex index in this batch
-        constexpr uint32_t kMobaMaxIndexOff  = 0x14; // u16 last vertex index in this batch
-        constexpr uint32_t kMobaModernMatOff = 0x0A; // u8 modern material id
-        constexpr uint32_t kMobaFlagOffset   = 0x16; // u8 relocation flag (bit 0x2)
-        constexpr uint32_t kMobaMatIdOffset  = 0x17; // u8 target material id
-        constexpr uint8_t  kMobaRelocFlag    = 0x02;
-        constexpr uint32_t kMovtStride       = 0x0C; // C3Vector per vertex
-
-        // Recompute the i16 bounding box of one MOBA entry over its vertex index range [start..end], reading
-        // C3Vector vertices from the MOVT payload. Indices out of range are skipped so reads stay in bounds.
+        // Recompute one MOBA i16 bounding box over its vertex range, reading C3Vector from MOVT.
         void FixMobaBox(uint8_t* entry, const uint8_t* movtData, uint32_t movtVerts, uint16_t start, uint16_t end)
         {
             float mn[3] = { 3.4e38f, 3.4e38f, 3.4e38f };
@@ -254,7 +95,7 @@ namespace wraith::structure::wmo
             }
 
             if (!any)
-                return; // no valid vertices: leave the box bytes as-is
+                return;
 
             for (int k = 0; k < 3; ++k)
             {
@@ -263,8 +104,8 @@ namespace wraith::structure::wmo
             }
         }
 
-        // Walk a MOBA payload (entries of 0x18) and apply the material-id relocation + bbox rebuild to each
-        // flagged entry. Returns the number of entries relocated.
+        // MOBA material-id relocation: modern builds put the id at +0x0A behind a flag at +0x16; the target
+        // reads +0x17. Move it, clear the flag, rebuild the bbox. Returns the count relocated.
         uint32_t FixMobaChunk(uint8_t* mobaData, uint32_t mobaLen, const uint8_t* movtData, uint32_t movtLen)
         {
             const uint32_t n         = mobaLen / kMobaEntryStride;
@@ -280,8 +121,8 @@ namespace wraith::structure::wmo
                 e[kMobaMatIdOffset] = e[kMobaModernMatOff];
                 e[kMobaFlagOffset]  = 0;
 
-                const uint16_t start = *reinterpret_cast<const uint16_t*>(e + kMobaMinIndexOff);
-                const uint16_t end   = *reinterpret_cast<const uint16_t*>(e + kMobaMaxIndexOff);
+                const uint16_t start = Rd16(e + kMobaMinIndexOff);
+                const uint16_t end   = Rd16(e + kMobaMaxIndexOff);
                 FixMobaBox(e, movtData, movtVerts, start, end);
                 ++relocated;
             }
@@ -289,68 +130,101 @@ namespace wraith::structure::wmo
         }
     }
 
-    bool TranslateWmoRoot(std::span<const uint8_t> in,
-                          const ResolveCtx& rc, std::vector<uint8_t>& out)
+    bool TranslateWmoRoot(std::span<const uint8_t> in, const ResolveCtx& rc, std::vector<uint8_t>& out)
     {
-        const uint8_t* buf = in.data();
         const uint32_t size = static_cast<uint32_t>(in.size());
+        const iff::Reader reader(in);
 
-        // Pass 1: locate MOTX and MOMT, and detect modern markers. MOTX precedes MOMT in file order, but the
-        // blob can still grow because of MOMT, so the rebuild emits MOTX with its FINAL (grown) bytes.
-        uint32_t motxPos = 0xFFFFFFFFu, motxLen = 0;
-        uint32_t momtPos = 0xFFFFFFFFu, momtLen = 0;
-        bool modern = false;
-        bool strippedUnknown = false; // source carries any chunk outside the keep-list
-
-        uint32_t pos = 0;
-        while (pos + 8 <= size)
+        // Pass 1: locate MOTX/MOMT, detect modern markers and any non-keep chunk.
+        iff::Chunk motxC{}, momtC{};
+        bool modern = false, strippedUnknown = false;
+        reader.ForEach([&](const iff::Chunk& c)
         {
-            const uint32_t magic = Rd32(buf + pos);
-            const uint32_t clen  = 8 + Rd32(buf + pos + 4);
-            if (clen < 8 || pos + clen > size)
-                break; // malformed / truncated: do not touch it
+            if (IsRootModernMarker(c.magic)) modern = true;
+            else if (c.magic == kMOTX)       motxC = c;
+            else if (c.magic == kMOMT)       momtC = c;
+            if (!IsRootKeepChunk(c.magic))   strippedUnknown = true;
+            return true;
+        });
 
-            if (magic == kGFID || magic == kMOUV || magic == kMODI || magic == kMOSI)
-                modern = true;
-            else if (magic == kMOTX) { motxPos = pos; motxLen = clen - 8; }
-            else if (magic == kMOMT) { momtPos = pos; momtLen = clen - 8; }
-
-            if (!IsRootKeepChunk(magic))
-                strippedUnknown = true;
-
-            pos += clen;
-        }
-
-        // Build the final MOTX blob and resolve any FileDataID texture references in MOMT against it.
+        // Build the final MOTX blob and resolve FileDataID texture references in MOMT against it.
         MotxBuilder motx;
-        if (motxPos != 0xFFFFFFFFu)
-            motx.Seed(buf + motxPos + 8, motxLen);
+        if (motxC.data)
+            motx.Seed(motxC.data, motxC.size);
 
-        // A copy of the material data we can rewrite (offsets and shader) before emitting.
+        // Extra-pass plan: per material, a dropped layer texture to compose at draw time (shipped as WMP1).
+        std::vector<PassPlanEntry> plan;
+        // Resolve a material texture-slot value to a path: an in-blob MOTX offset reads the name; an
+        // out-of-blob value is a FileDataID resolved through the host.
+        auto pathOf = [&](uint32_t off) -> std::string
+        {
+            if (off < motx.data.size())
+                return std::string(reinterpret_cast<const char*>(motx.data.data() + off));
+            std::string p;
+            if (rc.resolve && rc.resolve(rc.user, off, p) && !p.empty())
+                return p;
+            return std::string();
+        };
+
         std::vector<uint8_t> mats;
         uint32_t matCount = 0, fdidResolved = 0, fdidFallback = 0;
-        if (momtPos != 0xFFFFFFFFu)
+        bool runTimeDirty = false; // a non-zero runTimeData makes the clear a real change
+        if (momtC.data)
         {
-            mats.assign(buf + momtPos + 8, buf + momtPos + 8 + momtLen);
-            matCount = momtLen / kMomtStride;
+            mats.assign(momtC.data, momtC.data + momtC.size);
+            matCount = momtC.size / kMomtStride;
 
-            // The first material's resolved tex1 path doubles as a per-WMO fallback for unresolved FDIDs.
-            uint32_t fallbackOff = 0xFFFFFFFFu;
+            uint32_t fallbackOff = 0xFFFFFFFFu; // first resolved tex1 doubles as per-WMO fallback
+
+            uint32_t dbgShader = 0; std::string dbgPath[2]; // probe: what we bind on material 0
 
             for (uint32_t i = 0; i < matCount; ++i)
             {
                 uint8_t* m = mats.data() + i * kMomtStride;
+                if (i == 0) dbgShader = Rd32(m + kMomtShaderOffset);
+
+                for (uint32_t b = 0; b < kMomtRunTimeLen; ++b)
+                    if (m[kMomtRunTimeOffset + b]) { runTimeDirty = true; break; }
+                memset(m + kMomtRunTimeOffset, 0, kMomtRunTimeLen);
+
                 const uint32_t shader = Rd32(m + kMomtShaderOffset);
-                if (shader > kMaxNativeShader)
+                if (modern)
+                {
+                    // The layer slot dropped by the collapse, captured before promotion: shader 23 = tex1
+                    // (shine), shader 9 = tex2 (emissive). Both compose additively at draw time.
+                    const uint32_t layerOff =
+                        (shader == kShaderDFSurface)       ? Rd32(m + kMomtTexOffsets[0]) :
+                        (shader == kShaderDiffuseEmissive) ? Rd32(m + kMomtTexOffsets[1]) : 0xFFFFFFFFu;
+                    // The base diffuse slot, captured before promotion (shader 23 = tex2, shader 9 = tex1).
+                    const uint32_t baseOff =
+                        (shader == kShaderDFSurface)       ? Rd32(m + kMomtTexOffsets[1]) :
+                        (shader == kShaderDiffuseEmissive) ? Rd32(m + kMomtTexOffsets[0]) : 0xFFFFFFFFu;
+
+                    // Collapse to Diffuse on the real surface texture. Shader 23 keeps its diffuse in tex2
+                    // (tex1 is a shared effects map that painted the WMO as a color soup); promote tex2.
+                    if (shader == kShaderDFSurface)
+                        Wr32(m + kMomtTexOffsets[0], Rd32(m + kMomtTexOffsets[1]));
+                    Wr32(m + kMomtShaderOffset, 0);
+
+                    if (layerOff != 0xFFFFFFFFu)
+                    {
+                        std::string layer = pathOf(layerOff);
+                        // Skip a layer identical to the base diffuse (adding a copy of the surface to itself
+                        // doubles it to blown-out white). A real shine/emissive is a distinct, additive map.
+                        if (!layer.empty() && layer != pathOf(baseOff))
+                            plan.push_back({ static_cast<uint16_t>(i), PassBlend::Add, std::move(layer) });
+                    }
+                }
+                else if (shader > kMaxNativeShader)
                     Wr32(m + kMomtShaderOffset, RemapShader(shader));
 
                 for (uint32_t t = 0; t < kMomtTexCount; ++t)
                 {
                     const uint32_t off = Rd32(m + kMomtTexOffsets[t]);
                     if (off < motx.data.size())
-                        continue; // genuine in-blob offset, leave it
+                        continue; // genuine in-blob offset
 
-                    // Out of MOTX bounds -> treat as a FileDataID and resolve it to a real path.
+                    // Out of MOTX bounds -> a FileDataID; resolve to a path or fall back.
                     std::string path;
                     const bool resolved = rc.resolve && rc.resolve(rc.user, off, path) && !path.empty();
                     uint32_t newOff;
@@ -361,16 +235,16 @@ namespace wraith::structure::wmo
                     }
                     else
                     {
-                        // No resolution: reuse the per-WMO fallback (first appended path) or a placeholder.
                         if (fallbackOff == 0xFFFFFFFFu)
                             fallbackOff = motx.Append(kFallbackTexture);
                         newOff = fallbackOff;
                         ++fdidFallback;
                     }
                     Wr32(m + kMomtTexOffsets[t], newOff);
+                    if (i == 0 && t < 2)
+                        dbgPath[t] = resolved ? path : std::string("<fdid ") + std::to_string(off) + ">";
                 }
 
-                // Remember the first material's tex1 as the fallback for later materials.
                 if (fallbackOff == 0xFFFFFFFFu)
                 {
                     const uint32_t tex1 = Rd32(m + kMomtTexOffsets[0]);
@@ -378,73 +252,44 @@ namespace wraith::structure::wmo
                         fallbackOff = tex1;
                 }
             }
+            wraith::core::log::Printf("wmo-mat: mats=%u mat0 shader=%u tex1=%s tex2=%s",
+                matCount, dbgShader, dbgPath[0].c_str(), dbgPath[1].c_str());
         }
 
-        // Guarantee a MOTX always exists so the loader's MOTX base pointer is never wild. An empty blob still
-        // needs one byte (a single NUL) so any 0 offset dereferences to an empty string, not past the buffer.
+        // A MOTX must always exist (loader base pointer); an empty blob still needs one NUL.
         if (motx.data.empty())
             motx.data.push_back(0);
 
-        // Leave the bytes as-is for a pure target-shaped root: nothing modern, no FDID textures, no MOTX had
-        // to be created, and no chunk outside the keep-list to strip. Anything else needs a rebuild.
-        const bool createdMotx = (motxPos == 0xFFFFFFFFu);
-        if (!strippedUnknown && !modern && fdidResolved == 0 && fdidFallback == 0 && !createdMotx)
+        // Pure target-shaped root with nothing to change: serve raw.
+        const bool createdMotx = (motxC.data == nullptr);
+        if (!strippedUnknown && !modern && fdidResolved == 0 && fdidFallback == 0 && !createdMotx && !runTimeDirty)
             return false;
 
-        // Pass 2: rebuild the root as a WHITELIST. Emit ONLY the keep-list chunks, in the exact canonical
-        // order the positional parser expects, pulling each from the source by magic (first occurrence) and
-        // synthesizing an empty header for any mandatory chunk the source lacks. MOTX and MOMT keep their
-        // special payloads (grown blob / rewritten materials). MCVP is emitted last only if present. Every
-        // chunk outside the keep-list (GFID/MOUV/MODI/MOSI and any unknown modern chunk) is dropped.
-        struct SrcChunk { uint32_t pos; uint32_t len; }; // pos/len of payload (past the 8-byte header)
-        auto findSrc = [&](uint32_t wantMagic, SrcChunk& dst) -> bool
-        {
-            uint32_t p = 0;
-            while (p + 8 <= size)
-            {
-                const uint32_t magic = Rd32(buf + p);
-                const uint32_t clen  = 8 + Rd32(buf + p + 4);
-                if (clen < 8 || p + clen > size)
-                    break;
-                if (magic == wantMagic) { dst = { p + 8, clen - 8 }; return true; }
-                p += clen;
-            }
-            return false;
-        };
-
+        // Pass 2: rebuild as a whitelist in canonical order. MOTX/MOMT carry rebuilt payloads; missing
+        // mandatory chunks are synthesized empty to keep the positional walk aligned; MCVP trails.
         out.clear();
         out.reserve(size + motx.data.size() + 16);
 
-        // The 16 mandatory-by-position chunks in canonical order. MOTX and MOMT are handled specially below.
-        static const uint32_t kCanonical[] = {
-            kMVER, kMOHD, kMOTX, kMOMT, kMOGN, kMOGI, kMOSB, kMOPV,
-            kMOPT, kMOPR, kMOVV, kMOVB, kMOLT, kMODS, kMODN, kMODD, kMFOG,
-        };
-
-        for (uint32_t magic : kCanonical)
+        for (uint32_t magic : kCanonicalRoot)
         {
-            if (magic == kMOTX)
-            {
-                EmitChunk(out, kMOTX, motx.data.data(), static_cast<uint32_t>(motx.data.size()));
-                continue;
-            }
-            if (magic == kMOMT)
-            {
-                EmitChunk(out, kMOMT, mats.data(), static_cast<uint32_t>(mats.size()));
-                continue;
-            }
-            SrcChunk c{0, 0};
-            if (findSrc(magic, c))
-                EmitChunk(out, magic, buf + c.pos, c.len);
-            else
-                EmitChunk(out, magic, nullptr, 0); // synthesize empty to keep the positional walk aligned
+            if (magic == kMOTX) { iff::Emit(out, kMOTX, motx.data.data(), static_cast<uint32_t>(motx.data.size())); continue; }
+            if (magic == kMOMT) { iff::Emit(out, kMOMT, mats.data(), static_cast<uint32_t>(mats.size())); continue; }
+            iff::Chunk c{};
+            if (reader.Find(magic, c)) iff::Emit(out, magic, c.data, c.size);
+            else                       iff::Emit(out, magic, nullptr, 0);
         }
 
-        // MCVP: the only optional/trailing chunk and the only one the parser magic-checks. Emit it last.
+        iff::Chunk mcvp{};
+        if (reader.Find(kMCVP, mcvp))
+            iff::Emit(out, kMCVP, mcvp.data, mcvp.size);
+
+        // Ship the extra-pass plan as a trailing WMP1 chunk. The DLL reads it and hides it from the loader
+        // by shortening the served length, so the native positional walk never sees it.
+        if (!plan.empty())
         {
-            SrcChunk c{0, 0};
-            if (findSrc(kMCVP, c))
-                EmitChunk(out, kMCVP, buf + c.pos, c.len);
+            std::vector<uint8_t> planBytes;
+            SerializePassPlan(plan, planBytes);
+            iff::Emit(out, kWMP1, planBytes.data(), static_cast<uint32_t>(planBytes.size()));
         }
 
         return true;
@@ -470,109 +315,122 @@ namespace wraith::structure::wmo
         if (mogpEnd > size || mogpData + kMogpHeader335 + 8 > mogpEnd)
             return false;
 
-        // Sub-chunks begin immediately after the fixed 0x44 header.
+        // Sub-chunks begin after the fixed 0x44 header. A down-convertible group leads with a known chunk
+        // (MOPY) or the newer MOGX/MPY2; anything else is left as-is.
         const uint32_t subStart = mogpData + kMogpHeader335;
-        if (!IsKnownGroupChunk(Rd32(buf + subStart)))
-            return false; // sub-chunks not at +0x44: leave as-is
+        if (!IsTranslatableGroupFirst(Rd32(buf + subStart)))
+            return false;
 
-        // Locate every sub-chunk once. Record pos+len for the mandatory six (first occurrence) and remember
-        // the optional chunks (in source order) for the kept set. MOTV beyond the mandatory one and a second
-        // MOCV are dropped; everything unknown is dropped.
-        struct ChunkRef { uint32_t pos; uint32_t clen; };
-        ChunkRef mopy{0,0}, movi{0,0}, movt{0,0}, monr{0,0}, motv{0,0}, moba{0,0};
+        // Walk the sub-chunk region. Keep the first occurrence of each mandatory chunk and the first MOTV /
+        // first MOCV; collect optional kept chunks in source order. A 2nd MOTV/MOCV and unknowns are dropped.
+        const iff::Reader gr(in.subspan(subStart, mogpEnd - subStart));
 
-        std::vector<ChunkRef> kept;
+        iff::Chunk mopy{}, movi{}, movt{}, monr{}, motv{}, moba{}, mpy2{};
+        std::vector<iff::Chunk> kept;
         bool hasMOBN = false, hasMOCV = false, hasMOLR = false, hasMODR = false, hasMLIQ = false;
-        bool seenMOTV = false, seenMOCV = false;
+        bool seenMOTV = false;
 
-        uint32_t sub = subStart;
-        while (sub + 8 <= mogpEnd)
+        gr.ForEach([&](const iff::Chunk& c)
         {
-            const uint32_t magic = Rd32(buf + sub);
-            const uint32_t clen  = 8 + Rd32(buf + sub + 4);
-            if (clen < 8 || sub + clen > mogpEnd) break;
-
-            switch (magic)
+            switch (c.magic)
             {
-                case kMOPY: if (!mopy.clen) mopy = {sub, clen}; break;
-                case kMOVI: if (!movi.clen) movi = {sub, clen}; break;
-                case kMOVT: if (!movt.clen) movt = {sub, clen}; break;
-                case kMONR: if (!monr.clen) monr = {sub, clen}; break;
-                case kMOBA: if (!moba.clen) moba = {sub, clen}; break;
-                case kMOTV:
-                    if (!seenMOTV) { motv = {sub, clen}; seenMOTV = true; } // first MOTV is the mandatory one
-                    break;
-                case kMOCV:
-                    if (!seenMOCV) { seenMOCV = true; hasMOCV = true; kept.push_back({sub, clen}); }
-                    break;
-                case kMOLR: hasMOLR = true; kept.push_back({sub, clen}); break;
-                case kMODR: hasMODR = true; kept.push_back({sub, clen}); break;
-                case kMOBN: hasMOBN = true; kept.push_back({sub, clen}); break;
-                case kMOBR: kept.push_back({sub, clen}); break;
-                case kMLIQ: hasMLIQ = true; kept.push_back({sub, clen}); break;
-                default: break; // unknown / stripped
+                case kMOPY: if (!mopy.data) mopy = c; break;
+                case kMPY2: if (!mpy2.data) mpy2 = c; break;
+                case kMOVI: if (!movi.data) movi = c; break;
+                case kMOVT: if (!movt.data) movt = c; break;
+                case kMONR: if (!monr.data) monr = c; break;
+                case kMOBA: if (!moba.data) moba = c; break;
+                case kMOTV: if (!seenMOTV) { motv = c; seenMOTV = true; } break;
+                case kMOCV: if (!hasMOCV) { hasMOCV = true; kept.push_back(c); } break;
+                case kMOLR: hasMOLR = true; kept.push_back(c); break;
+                case kMODR: hasMODR = true; kept.push_back(c); break;
+                case kMOBN: hasMOBN = true; kept.push_back(c); break;
+                case kMOBR: kept.push_back(c); break;
+                case kMLIQ: hasMLIQ = true; kept.push_back(c); break;
+                default: break; // dropped
             }
-            sub += clen;
-        }
+            return true;
+        });
 
-        // Build the rebuilt sub-chunk region: the six mandatory chunks (source bytes if present, else an empty
-        // size-0 chunk), then the kept optional chunks in source order.
+        // The 2nd texcoord/color sets are NOT preserved: the target consumes optional sub-chunks
+        // positionally by group flag, so a 2nd set not laid out where it expects misparses the group.
+        // Two-layer composition belongs to the multipass module, not the single-pass native path.
+
+        // Vertex colors (MOCV) are emitted verbatim: the native lighting is preserved, never rewritten.
+
+        // Build the rebuilt sub-chunk region: the six mandatory chunks (source bytes, else empty), then
+        // the kept optional chunks in source order.
         std::vector<uint8_t> subRegion;
         subRegion.reserve(mogpSize);
 
-        const bool injMOPY = mopy.clen == 0, injMOVI = movi.clen == 0, injMOVT = movt.clen == 0;
-        const bool injMONR = monr.clen == 0, injMOTV = motv.clen == 0, injMOBA = moba.clen == 0;
+        const bool injMOPY = !mopy.data, injMOVI = !movi.data, injMOVT = !movt.data;
+        const bool injMONR = !monr.data, injMOTV = !motv.data, injMOBA = !moba.data;
 
-        // Track where MOVT and MOBA land inside subRegion so the MOBA material-id fix can locate both payloads
-        // after the region is assembled.
+        // Track MOVT/MOBA payload positions inside subRegion for the MOBA fix.
         uint32_t movtPayloadOff = 0, movtPayloadLen = 0;
         uint32_t mobaPayloadOff = 0, mobaPayloadLen = 0;
 
-        auto emitMandatory = [&](const ChunkRef& c, uint32_t magic, uint32_t* outPayloadOff, uint32_t* outPayloadLen)
+        auto emitMandatory = [&](const iff::Chunk& c, uint32_t magic, uint32_t* poff, uint32_t* plen)
         {
             const uint32_t payloadOff = static_cast<uint32_t>(subRegion.size()) + 8;
-            const uint32_t payloadLen = c.clen ? c.clen - 8 : 0;
-            if (c.clen)
-                subRegion.insert(subRegion.end(), buf + c.pos, buf + c.pos + c.clen);
-            else
-                EmitChunk(subRegion, magic, nullptr, 0); // empty 8-byte header
-            if (outPayloadOff) *outPayloadOff = payloadOff;
-            if (outPayloadLen) *outPayloadLen = payloadLen;
+            const uint32_t payloadLen = c.data ? c.size : 0;
+            if (c.data) iff::EmitRaw(subRegion, c);
+            else        iff::Emit(subRegion, magic, nullptr, 0);
+            if (poff) *poff = payloadOff;
+            if (plen) *plen = payloadLen;
         };
 
-        emitMandatory(mopy, kMOPY, nullptr, nullptr);
+        // MOPY: from source, or synthesized from MPY2 (4B/tri {u16 flags, u16 mat} -> 2B/tri {u8, u8}).
+        // 0xFFFF mat (collision-only) maps to 0xFF; triangle count is identical so MOVI still indexes 1:1.
+        std::vector<uint8_t> synthMopy;
+        if (!mopy.data && mpy2.data)
+        {
+            const uint32_t tris = mpy2.size / 4;
+            synthMopy.resize(static_cast<size_t>(tris) * 2);
+            for (uint32_t t = 0; t < tris; ++t)
+            {
+                const uint8_t* s = mpy2.data + t * 4;
+                const uint16_t fl  = Rd16(s);
+                const uint16_t mat = Rd16(s + 2);
+                synthMopy[t * 2]     = static_cast<uint8_t>(fl & 0xFF);
+                synthMopy[t * 2 + 1] = (mat == 0xFFFF) ? 0xFF : static_cast<uint8_t>(mat & 0xFF);
+            }
+        }
+
+        if (!synthMopy.empty())
+            iff::Emit(subRegion, kMOPY, synthMopy.data(), static_cast<uint32_t>(synthMopy.size()));
+        else
+            emitMandatory(mopy, kMOPY, nullptr, nullptr);
         emitMandatory(movi, kMOVI, nullptr, nullptr);
         emitMandatory(movt, kMOVT, &movtPayloadOff, &movtPayloadLen);
         emitMandatory(monr, kMONR, nullptr, nullptr);
         emitMandatory(motv, kMOTV, nullptr, nullptr);
         emitMandatory(moba, kMOBA, &mobaPayloadOff, &mobaPayloadLen);
 
-        for (const ChunkRef& c : kept)
-            subRegion.insert(subRegion.end(), buf + c.pos, buf + c.pos + c.clen);
+        for (const iff::Chunk& c : kept)
+            iff::EmitRaw(subRegion, c);
 
-        // MOBA material-id relocation fix. Operates on the freshly emitted MOBA payload using the freshly
-        // emitted MOVT payload for the bounding-box rebuild. An injected empty MOBA has no entries.
+        // MOBA material-id fix on the freshly emitted MOBA/MOVT payloads. Injected MOBA has no entries.
         if (mobaPayloadLen != 0)
             FixMobaChunk(subRegion.data() + mobaPayloadOff, mobaPayloadLen,
                          subRegion.data() + movtPayloadOff, movtPayloadLen);
 
-        // Assemble the output: MVER verbatim, MOGP wrapper + fixed 0x44 header verbatim (with patched flags /
-        // batch counts), then the rebuilt sub-chunk region.
+        // Assemble: MVER verbatim, MOGP wrapper + fixed 0x44 header (patched), then the rebuilt region.
         out.clear();
         out.reserve(mverLen + 8 + kMogpHeader335 + subRegion.size());
 
-        // MVER (whole chunk, header + payload).
         out.insert(out.end(), buf, buf + mverLen);
 
-        // MOGP 8-byte header + 0x44 fixed header, copied verbatim then patched.
         const size_t mogpHeaderStart = out.size();
         out.insert(out.end(), buf + mogpHdr, buf + mogpData + kMogpHeader335);
 
         uint8_t* outMogpData = out.data() + mogpHeaderStart + 8;
 
-        // Recompute group flags: clear gating bits, re-set only for the chunks actually emitted.
+        // Recompute group flags: clear ONLY the flags the target gates chunk consumption on, re-set them for
+        // the chunks actually emitted, and preserve every other bit. Clearing an unmanaged bit a native group
+        // legitimately sets makes the positional parser misgate and build a corrupt group.
         const uint32_t oldFlags = Rd32(outMogpData + kMogpFlagsOffset);
-        uint32_t newFlags = oldFlags & ~kGrpFlagClear;
+        uint32_t newFlags = oldFlags & ~kGrpGatedFlags;
         if (hasMOBN) newFlags |= kGrpFlagBSP;
         if (hasMOCV) newFlags |= kGrpFlagMOCV;
         if (hasMOLR) newFlags |= kGrpFlagMOLR;
@@ -580,27 +438,24 @@ namespace wraith::structure::wmo
         if (hasMLIQ) newFlags |= kGrpFlagMLIQ;
         Wr32(outMogpData + kMogpFlagsOffset, newFlags);
 
-        // An injected empty MOBA means zero render batches; zero the header batch counts to match.
+        // Injected empty MOBA means zero batches; zero the header counts to match.
         if (injMOBA)
         {
-            *reinterpret_cast<uint16_t*>(outMogpData + kMogpTransBatchCountOffset) = 0;
-            *reinterpret_cast<uint16_t*>(outMogpData + kMogpIntBatchCountOffset)   = 0;
-            *reinterpret_cast<uint16_t*>(outMogpData + kMogpExtBatchCountOffset)   = 0;
+            Wr16(outMogpData + kMogpTransBatchCountOffset, 0);
+            Wr16(outMogpData + kMogpIntBatchCountOffset,   0);
+            Wr16(outMogpData + kMogpExtBatchCountOffset,   0);
         }
 
-        // Patch the MOGP chunk size = fixed header + rebuilt sub-chunk region.
         const uint32_t newMogpSize = kMogpHeader335 + static_cast<uint32_t>(subRegion.size());
         Wr32(out.data() + mogpHeaderStart + 4, newMogpSize);
 
-        // Append the rebuilt sub-chunk region.
         out.insert(out.end(), subRegion.begin(), subRegion.end());
 
-        // No-op detection: if nothing was injected, no flag change, and the rebuilt region matches the
-        // original sub-chunk span, the file is already target-shaped and need not be replaced.
+        // No-op: nothing injected, no whiten, no flag change, region byte-identical to the source span.
         const bool injected = injMOPY || injMOVI || injMOVT || injMONR || injMOTV || injMOBA;
         const uint32_t origSubLen = mogpEnd - subStart;
-        if (!injected && newFlags == oldFlags && subRegion.size() == origSubLen &&
-            memcmp(subRegion.data(), buf + subStart, origSubLen) == 0)
+        if (!injected && newFlags == oldFlags &&
+            subRegion.size() == origSubLen && memcmp(subRegion.data(), buf + subStart, origSubLen) == 0)
             return false;
 
         return true;

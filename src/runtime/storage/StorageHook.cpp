@@ -20,6 +20,8 @@
 #include "Io.hpp"
 #include "Hook.hpp"
 #include "Logger.hpp"
+#include "WmoMultiPass.hpp"
+#include "Adt.hpp"
 
 #include <windows.h>
 #include <cstdint>
@@ -165,6 +167,13 @@ namespace
                     f->buffer = nullptr;
                     f->hostId = r.id;
                     mode = "stream";
+                }
+
+                // A served WMO root may carry a trailing WMP1 multi-pass plan, and a merged ADT a trailing ATSC texture-scale table.
+                if (ok && f->buffer)
+                {
+                    f->size = wraith::runtime::wmo::multipass::IngestWmoBytes(name, f->buffer, f->size);
+                    f->size = wraith::runtime::adt::IngestAdtBytes(name, f->buffer, f->size);
                 }
 
                 if (ok)

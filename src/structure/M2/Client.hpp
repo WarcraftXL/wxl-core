@@ -113,6 +113,20 @@ namespace wraith::structure::m2
         uint16_t aliasNext;      // 0x3E
     };
 
+    // One texture definition, 0x10 bytes. type 0 = hardcoded: the filename M2Array holds a NUL-terminated
+    // path (count includes the NUL). type != 0 = a runtime-replaced slot (skin/hair/...), no file. Modern
+    // models externalize the type-0 path into the container TXID chunk and leave filename empty; the host
+    // re-inlines it so the native name-based loader resolves the texture.
+    struct M2Texture
+    {
+        uint32_t type;     // 0x00  0 = hardcoded filename; else runtime-replaced slot
+        uint32_t flags;    // 0x04  0x1 = wrap x, 0x2 = wrap y
+        M2Array  filename; // 0x08  NUL-terminated path (count includes the NUL)
+    };
+
+    // texture.type 0 = hardcoded: the only type whose pixels come from a named file.
+    constexpr uint32_t kTexTypeHardcoded = 0;
+
     // One render batch (texunit), 0x18 bytes.
     struct M2Batch
     {
@@ -201,6 +215,8 @@ namespace wraith::structure::m2
     static_assert(offsetof(M2Header, cameras) == 0x110, "cameras");
     static_assert(offsetof(M2Header, particleEmitters) == 0x128, "particleEmitters");
     static_assert(offsetof(M2Header, textureCombinerCombos) == 0x130, "textureCombinerCombos");
+    static_assert(sizeof(M2Texture) == 0x10, "M2Texture");
+    static_assert(offsetof(M2Texture, filename) == 0x08, "M2Texture.filename");
     static_assert(sizeof(M2Sequence) == 0x40, "M2Sequence");
     static_assert(offsetof(M2Sequence, duration) == 0x04, "duration");
     static_assert(offsetof(M2Sequence, flags) == 0x0C, "flags");

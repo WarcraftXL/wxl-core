@@ -41,6 +41,11 @@ namespace wraith::offsets::game::wmo
     // It does not bounds-check groupIndex.
     constexpr uintptr_t kGroupResidentAccessor = 0x007AEA80;
 
+    // Per-batch material draw callback (lit path; stored in DAT_00cfbec4). cb(groupObj, pass): walks the
+    // group's MOBA render batches and submits each. The replay point for native multi-pass shader composition
+    // this drives runtime/multipass.
+    constexpr uintptr_t kGroupBatchDraw = 0x007AC6A0;
+
     // --- root object fields ---
     constexpr size_t kOffRootBuffer    = 0x1CC; // root buffer pointer
     constexpr size_t kOffRootSize      = 0x1D0; // root buffer byte size
@@ -58,6 +63,27 @@ namespace wraith::offsets::game::wmo
     constexpr size_t kOffGroupBuffer = 0x184; // group buffer pointer
     constexpr size_t kOffGroupSize   = 0x188; // group buffer byte size
     constexpr size_t kOffGroupRoot   = 0x18C; // -> parent root object
+
+    // --- multi-pass overlay replay (extra additive/multiply layers per material) ---
+    // Get-or-load a texture by path -> texture object (0 = fail); resolves through gx::kResolveTextureHandle.
+    // Takes one reference the caller holds for the session.
+    constexpr uintptr_t kLoadTextureByName = 0x007D9990;
+    using Wmo_LoadTextureByNameFn = void*(__cdecl*)(const char* path);
+
+    // Material record (base = root+kOffMaterialBase, stride 0x40); blend restored after overlay passes.
+    constexpr size_t kMomtStride   = 0x40;
+    constexpr size_t kOffMomtBlend = 0x08; // EGxBlend
+
+    // Render batches on the group: base ptr at group+0xF8, u16 count at group+0x60, stride 0x18.
+    constexpr size_t kOffGroupMobaPtr       = 0xF8;
+    constexpr size_t kOffGroupExtBatchCount = 0x60;
+    constexpr size_t kMobaStride            = 0x18;
+    constexpr size_t kOffMobaStartIndex     = 0x0C; // u32
+    constexpr size_t kOffMobaIndexCount     = 0x10; // u16
+    constexpr size_t kOffMobaMinIndex       = 0x12; // u16
+    constexpr size_t kOffMobaMaxIndex       = 0x14; // u16
+    constexpr size_t kOffMobaDrawnFlag      = 0x16; // u8: &0xF0 = drawn this frame
+    constexpr size_t kOffMobaMatId          = 0x17; // u8 -> material index
 
     // --- visibility-probe entries and globals (cull path) ---
     constexpr uintptr_t kPortalRectAccum   = 0x007A8F20; // (portal, moprRef, portalState, exteriorFlag)
@@ -82,6 +108,9 @@ namespace wraith::offsets::game::wmo
     // Group-resident accessor: native this-in-ECX; declared with a dummy second parameter so the
     // trampoline keeps the trailing arguments on the stack.
     using Wmo_GroupResidentFn = unsigned int(__fastcall*)(void* model, void* edx, unsigned int groupIndex, unsigned int force);
+    // Per-batch material draw callback: cb(groupObj, pass). __stdcall: the callee cleans the 2 stack args
+    // (it ends with RET 0x8), so the detour MUST match or every batch draw imbalances the stack.
+    using Wmo_GroupBatchDrawFn = void(__stdcall*)(int groupObj, int pass);
     // Visibility-probe signatures.
     using Wmo_PortalRectAccumFn = void(__fastcall*)(void* portal, void* edx, void* moprRef, void* portalState, int exteriorFlag);
     using Wmo_FrustumAabbTestFn = uint32_t(__fastcall*)(void* frustum, void* edx, void* bbox);

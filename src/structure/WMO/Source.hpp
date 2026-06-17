@@ -31,26 +31,19 @@ namespace wraith::structure::wmo
     constexpr uint32_t kMODI = FourCC('M', 'O', 'D', 'I'); // doodad FileDataIDs
     constexpr uint32_t kMOSI = FourCC('M', 'O', 'S', 'I'); // skybox FileDataID
 
-    // Modern shader id range above the target's 0..6; collapsed to the nearest family.
-    constexpr uint32_t kModernShaderMin = 7;
-    constexpr uint32_t kModernShaderMax = 22;
+    // Newer-source group chunks (9.x+ group rewrite). MPY2 is MOPY v2 (4B/tri); it is converted back to
+    // MOPY. MOGX is the new leading sub-chunk and only marks the layout. Other new-only group chunks
+    // (MOQG/MOC2/...) carry nothing the target render path reads and are dropped.
+    constexpr uint32_t kMPY2 = FourCC('M', 'P', 'Y', '2'); // material/poly info v2 (-> MOPY)
+    constexpr uint32_t kMOGX = FourCC('M', 'O', 'G', 'X'); // ground-type query start (new first sub-chunk)
 
-    // Modern shader id (0..22) -> nearest target 0..6 family. Index past the table degrades to 0.
-    constexpr uint8_t kShaderRemap[23] = {
-        0, 1, 2, 3, 4, 5, 6, // identity for the target range
-        5,                   // 7  TwoLayerEnvMetal     -> EnvMetal
-        6,                   // 8  TwoLayerTerrain      -> TwoLayerDiffuse
-        0,                   // 9  DiffuseEmissive      -> Diffuse
-        0, 0, 0, 0, 0,       // 10..14 unused           -> Diffuse
-        6,                   // 15 TwoLayerDiffuseEmiss -> TwoLayerDiffuse
-        0,                   // 16 Diffuse alias        -> Diffuse
-        5,                   // 17 AdditiveMaskedEnvMet -> EnvMetal
-        6,                   // 18 TwoLayerDiffuseMod2x -> TwoLayerDiffuse
-        6,                   // 19 ..Mod2xNA            -> TwoLayerDiffuse
-        6,                   // 20 ..DiffuseAlpha       -> TwoLayerDiffuse
-        4,                   // 21 Lod impostor         -> Opaque
-        0,                   // 22 Parallax             -> Diffuse
-    };
+    // Modern shader ids above the target's 0..6 collapse to 0 (Diffuse on texture_1). Shader 23 keeps its
+    // real diffuse in texture_2 (texture_1 is a shared effects map), so the transform promotes tex2 first.
+    constexpr uint32_t kShaderDFSurface = 23;
+
+    // Shader ids whose dropped layer becomes an additive multi-pass overlay. 23: texture_1 is the additive
+    // shine. 9 (DiffuseEmissive): texture_2 is the additive emissive.
+    constexpr uint32_t kShaderDiffuseEmissive = 9;
 
     // Placeholder name written when a texture FileDataID does not resolve, keeping the material's MOTX
     // offset pointed at a valid NUL-terminated string.
@@ -62,11 +55,6 @@ namespace wraith::structure::wmo
     constexpr uint32_t kMobaModernMatOff = 0x0A; // u8 modern material id
     constexpr uint32_t kMobaFlagOffset   = 0x16; // u8 relocation flag
     constexpr uint8_t  kMobaRelocFlag    = 0x02;
-
-    // Every chunk-gating group flag bit plus the modern-only high bits, cleared before recomputing flags.
-    constexpr uint32_t kGrpFlagClear =
-        0x1u | 0x2u | 0x4u | 0x200u | 0x400u | 0x800u | 0x1000u | 0x20000u |
-        0x1000000u | 0x2000000u | 0x4000000u | 0x8000000u | 0x10000000u | 0x20000000u | 0x40000000u | 0x80000000u;
 
     struct Source {};
 }

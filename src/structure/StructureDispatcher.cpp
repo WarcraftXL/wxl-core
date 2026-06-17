@@ -69,7 +69,7 @@ namespace wraith::structure
         case Format::Wdl:
             return wdl::RebuildWdl(in, out);
         case Format::M2:
-            return m2::TranslateM2(in, out);
+            return m2::TranslateM2(in, rc, out);
         case Format::Adt:
         case Format::Raw:
         default:

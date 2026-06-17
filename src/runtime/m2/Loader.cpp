@@ -21,6 +21,7 @@
 #include "Mem.hpp"
 #include "Logger.hpp"
 #include "M2.hpp"
+#include "Texture.hpp"
 
 #include <windows.h>
 
@@ -31,6 +32,7 @@
 
 namespace sdk  = wraith::structure::m2;
 namespace off  = wraith::offsets::game::m2;
+namespace tex  = wraith::offsets::game::texture;
 namespace mem  = wraith::core::mem;
 namespace bs   = wraith::runtime::bonessplitter;
 
@@ -443,6 +445,11 @@ namespace wraith::runtime::m2
         mem::Fill(reinterpret_cast<void*>(off::kVersionGateInit), 0x90, 6); // NOP the version-too-high branch
         const uint8_t jmpShort = 0xEB;
         mem::Patch(reinterpret_cast<void*>(off::kVersionGateAnim), &jmpShort, 1); // turn the anim branch into a jump
+
+        // Force DXT texture uploads through the mip-copy path. The zero-copy fast path aliases the transient
+        // BLP file buffer, which is freed/recycled before the upload reads it -> a large host-served DXT
+        // texture (1024x1024) uploads from a stale pointer and faults. Native-safe, resolution preserved.
+        mem::Fill(reinterpret_cast<void*>(tex::kDxtZeroCopyGate), 0x90, tex::kDxtZeroCopyGateLen);
 
         hook::Install("M2::Init", off::kInit, &InitDetour,
                       reinterpret_cast<void**>(&g_initOriginal));

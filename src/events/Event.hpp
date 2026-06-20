@@ -45,6 +45,7 @@ namespace wxl::events
         OnWmoRootLoad,   // a WMO root buffer is read, before the walk (WmoRootLoadArgs)
         OnWmoGroupLoad,  // a WMO group buffer is read, before the walk(WmoGroupLoadArgs)
         OnTextureUpload, // a texture is about to upload to the device (TextureUploadArgs)
+        OnBlpLoad,       // a BLP texture was requested by name           (BlpLoadArgs)
         OnDoodadSpawn,   // a placed map doodad (CMapDoodad) was built (DoodadSpawnArgs)
         OnWorldEnter,    // the world/map finished loading, in-world   (WorldEnterArgs)
         OnWorldLeave,    // the world/map is being torn down           (WorldLeaveArgs)
@@ -133,6 +134,12 @@ namespace wxl::events
     struct WmoGroupLoadArgs  { void* group; };
     /** @brief Args for OnTextureUpload. */
     struct TextureUploadArgs { void* texture; uint32_t width; uint32_t height; };
+    /**
+     * @brief Args for OnBlpLoad, fired after a by-name texture request resolves. name is the full virtual
+     *        path requested (match case-insensitively, slash-normalized); handle is the resolved texture
+     *        handle (may be null on failure). Fires on every reference, cached or not. Read-only.
+     */
+    struct BlpLoadArgs       { const char* name; void* handle; };
     /** @brief Args for OnDoodadSpawn; read the transform via wxl::game::doodad. */
     struct DoodadSpawnArgs   { void* doodad; };
     /** @brief Args for OnWorldEnter. */

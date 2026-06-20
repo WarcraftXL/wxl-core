@@ -30,6 +30,9 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <mutex>
+#include <string>
+#include <unordered_set>
 
 namespace
 {
@@ -47,6 +50,7 @@ namespace
     m2::M2_SetupBatchAlphaFn   g_origSetupAlpha   = nullptr;
     dd::SpawnFromMDDFFn        g_origDoodadSpawn  = nullptr;
     gxoff::TextureUpdateFn     g_origTexUpdate    = nullptr;
+    gxoff::TextureCreateFn     g_origTexCreate    = nullptr;
     adt::Map_ChunkBuildFn      g_origChunkBuild   = nullptr;
     wmo::Wmo_RootCompleteFn    g_origWmoRoot      = nullptr;
     wmo::WmoGroup_ParseFn      g_origWmoGroup     = nullptr;
@@ -148,6 +152,29 @@ namespace
     }
 
     /**
+     * @brief Detours the by-name texture create, emitting OnBlpLoad after the request resolves.
+     *
+     * Fires on every reference (returns the cached handle on a hit), so the event carries the requested
+     * name and a subscriber can watch for one specific BLP. Logs each distinct name once, so the log lists
+     * BLPs as they first load without flooding. The name set is mutex-guarded as the request can arrive
+     * from a loader thread.
+     * @param name    requested texture path (full virtual path).
+     * @param flags   native load flags.
+     * @param status  native status out-pointer.
+     * @param flags2  native load flags.
+     * @return the resolved texture handle (null on failure).
+     */
+    void* __cdecl hkTexCreate(const char* name, uint32_t flags, int* status, uint32_t flags2)
+    {
+        void* handle = g_origTexCreate(name, flags, status, flags2);
+
+        ev::BlpLoadArgs a{ name, handle };
+        ev::Emit(ev::Event::OnBlpLoad, &a);
+
+        return handle;
+    }
+
+    /**
      * @brief Detours map-chunk build, emitting OnAdtChunkBuild with the chunk and its layer count.
      *
      * Runs after the native build populates the sub-chunk pointers and layer units, so the
@@ -246,6 +273,9 @@ namespace wxl::runtime::game
         wxl::core::hook::Install("TextureUpdate", gxoff::kTextureUpdate,
                                  reinterpret_cast<void*>(&hkTexUpdate),
                                  reinterpret_cast<void**>(&g_origTexUpdate));
+        wxl::core::hook::Install("TextureCreate", gxoff::kTextureCreate,
+                                 reinterpret_cast<void*>(&hkTexCreate),
+                                 reinterpret_cast<void**>(&g_origTexCreate));
         wxl::core::hook::Install("ChunkBuild", adt::kChunkBuild,
                                  reinterpret_cast<void*>(&hkChunkBuild),
                                  reinterpret_cast<void**>(&g_origChunkBuild));
@@ -262,6 +292,6 @@ namespace wxl::runtime::game
                                  reinterpret_cast<void*>(&hkFramePump),
                                  reinterpret_cast<void**>(&g_origFramePump));
 
-        WLOG_INFO("game: hooks installed (M2Init, M2FinalizeSkin, M2SetupBatchAlpha, DoodadSpawn, TextureUpdate, ChunkBuild, WmoRootComplete, WmoGroupParse, CWorldEnter, FramePump)");
+        WLOG_INFO("game: hooks installed (M2Init, M2FinalizeSkin, M2SetupBatchAlpha, DoodadSpawn, TextureUpdate, TextureCreate, ChunkBuild, WmoRootComplete, WmoGroupParse, CWorldEnter, FramePump)");
     }
 }

@@ -78,6 +78,15 @@ namespace wxl::offsets::engine::gx
     constexpr uintptr_t kTextureUpdate = 0x00681F20;
     using TextureUpdateFn = void(__cdecl*)(void* deviceTex, int x, int y, int x2, int y2, int flag);
 
+    // Central by-name texture create API (__cdecl). The single choke point all texture requests funnel
+    // through; fires on every reference (returns the cached handle on a hit), so it sees the name of each
+    // BLP requested. fileName is the full null-terminated virtual path (e.g. "World\...\foo.blp"); match
+    // case-insensitively, slash-normalized. The returned texture handle carries the same name at
+    // kTexHandleNameField. flags/flags2 control load options and are not needed to identify the texture.
+    constexpr uintptr_t kTextureCreate      = 0x004B9760;
+    constexpr size_t    kTexHandleNameField = 0x6C; // texture handle -> stored name (capped 0x104)
+    using TextureCreateFn = void*(__cdecl*)(const char* fileName, uint32_t flags, int* status, uint32_t flags2);
+
     // Per-frame liquid render pass loop (this-in-ECX). Brackets every visible liquid instance of one pass;
     // both passes route through it (passType 0 main, 1 secondary). Runs late in the frame, after the liquid
     // textures are bound and the render queues flush, so the wave/ripple animation is already applied.

@@ -78,6 +78,28 @@ namespace wxl::offsets::engine::gx
     constexpr uintptr_t kTextureUpdate = 0x00681F20;
     using TextureUpdateFn = void(__cdecl*)(void* deviceTex, int x, int y, int x2, int y2, int flag);
 
+    // Per-frame liquid render pass loop (this-in-ECX). Brackets every visible liquid instance of one pass;
+    // both passes route through it (passType 0 main, 1 secondary). Runs late in the frame, after the liquid
+    // textures are bound and the render queues flush, so the wave/ripple animation is already applied.
+    // ECX is the liquid material-settings bank: an array of LiquidPassEntry indexed by passType.
+    constexpr uintptr_t kLiquidRenderPass = 0x008A2240;
+    using LiquidRenderPassFn = void(__fastcall*)(void* bank, void* edx, void* transform, int passType);
+
+#pragma pack(push, 1)
+    /** @brief One entry of the liquid material-settings bank (kLiquidRenderPass ECX, indexed by passType).
+     *  instances is a 4-byte client pointer; kept as a u32 so the layout is host-width independent. */
+    struct LiquidPassEntry
+    {
+        uint32_t _unk00;    // 0x00
+        uint32_t count;     // 0x04 visible instance count for this pass
+        uint32_t instances; // 0x08 -> instance array (4-byte client pointer)
+        uint32_t _unk0c;    // 0x0C
+    };
+    static_assert(sizeof(LiquidPassEntry) == 0x10, "LiquidPassEntry");
+    static_assert(offsetof(LiquidPassEntry, count)     == 0x04, "LiquidPassEntry.count");
+    static_assert(offsetof(LiquidPassEntry, instances) == 0x08, "LiquidPassEntry.instances");
+#pragma pack(pop)
+
     // IDirect3DDevice9 vtable indices used by the gx facade.
     namespace vt
     {

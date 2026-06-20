@@ -35,6 +35,7 @@ namespace wxl::events
         OnUpdate,        // once-per-frame logic tick, with delta time (UpdateArgs)
         OnWorldRender,   // per-frame world draw pass                  (WorldRenderArgs)
         OnWorldRenderEnd,// world -> UI boundary, the post-fx slot     (WorldRenderEndArgs)
+        OnLiquidRender,  // a liquid render pass is about to draw       (LiquidRenderArgs)
         OnM2BatchDraw,   // one M2 triangle batch is drawing           (M2BatchDrawArgs)
         OnM2SetupBatchAlpha, // an M2 batch's alpha/material is set up (M2SetupBatchAlphaArgs)
         OnRibbonDraw,    // a ribbon emitter is about to draw          (RibbonDrawArgs)
@@ -71,6 +72,12 @@ namespace wxl::events
     struct WorldRenderArgs    { void* device; };
     /** @brief Args for OnWorldRenderEnd. */
     struct WorldRenderEndArgs { void* device; };
+    /**
+     * @brief Args for OnLiquidRender, fired before the native liquid pass draws. passType is 0 for the
+     *        main pass, 1 for the secondary; instanceCount is the visible liquid instances in this pass;
+     *        transform is the shared liquid transform forwarded to each instance. Read-only.
+     */
+    struct LiquidRenderArgs  { void* bank; void* transform; int passType; uint32_t instanceCount; };
     /**
      * @brief Args for OnM2BatchDraw, fired just after the native draw with the same draw parameters,
      *        so a subscriber can re-issue the draw while the vertex/index buffers are still bound.

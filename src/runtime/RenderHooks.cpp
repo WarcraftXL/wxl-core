@@ -51,6 +51,7 @@ namespace
     EndSceneFn  g_origEndScene  = nullptr;
     PresentFn   g_origPresent   = nullptr;
     off::WorldRenderFinalizeFn g_origWorldFinalize = nullptr;
+    off::LiquidRenderPassFn    g_origLiquidRender  = nullptr;
 
     // Ribbon multi-texture: set true around a >= 3 layer ribbon's single native pass so the DIP override
     // folds its bound layers into one combine. The native ribbon draw is hooked separately below.
@@ -189,6 +190,26 @@ namespace
         ev::Emit(ev::Event::OnWorldRenderEnd, &a);
     }
 
+    /**
+     * @brief Detours the per-frame liquid render pass, emitting OnLiquidRender before the native draw.
+     *
+     * Fires once per pass (passType 0 main, 1 secondary). The liquid textures are already bound and the
+     * wave animation already applied at this point. Logs the first fire of each pass, then stays quiet.
+     * @param bank       liquid material-settings bank (this-in-ECX), indexed by passType.
+     * @param edx        unused register slot for the thiscall convention.
+     * @param transform  shared liquid transform forwarded to every instance draw.
+     * @param passType   liquid pass index (0 main, 1 secondary).
+     */
+    void __fastcall hkLiquidRender(void* bank, void* edx, void* transform, int passType)
+    {
+        const off::LiquidPassEntry& entry = static_cast<off::LiquidPassEntry*>(bank)[passType];
+
+        ev::LiquidRenderArgs a{ bank, transform, passType, entry.count };
+        ev::Emit(ev::Event::OnLiquidRender, &a);
+
+        g_origLiquidRender(bank, edx, transform, passType);
+    }
+
     /** @brief Returns the graphics-device object carrying the engine sampler-bind path (distinct from the D3D9 device). */
     void* GxDeviceObject() { return *reinterpret_cast<void**>(off::kGxDevicePtr); }
 
@@ -317,7 +338,10 @@ namespace wxl::runtime::render
         wxl::core::hook::Install("M2RibbonDraw", m2off::kRibbonDraw,
                                  reinterpret_cast<void*>(&hkRibbonDraw),
                                  reinterpret_cast<void**>(&g_origRibbonDraw));
+        wxl::core::hook::Install("LiquidRenderPass", off::kLiquidRenderPass,
+                                 reinterpret_cast<void*>(&hkLiquidRender),
+                                 reinterpret_cast<void**>(&g_origLiquidRender));
 
-        WLOG_INFO("render: hooks installed (DIP, EndScene, Present, DrawBatch, WorldFinalize, RibbonDraw)");
+        WLOG_INFO("render: hooks installed (DIP, EndScene, Present, DrawBatch, WorldFinalize, RibbonDraw, LiquidRenderPass)");
     }
 }

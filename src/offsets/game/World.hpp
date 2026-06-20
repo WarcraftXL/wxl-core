@@ -47,12 +47,23 @@ namespace wxl::offsets::game::world
     // --- cursor world pick ---
     // CWorldFrame singleton holder: *(void**)kWorldFrame is the world frame (pass as the this/ECX).
     constexpr uintptr_t kWorldFrame = 0x00B7436C;
+    // Full cursor pick: sets up the world projection, builds the ray, and intersects, in one call. This is the engine's own per-frame mouseover entry
+    // this = world frame; result[0..5] = {objLo, objHi, posX, posY, posZ, t}; returns the hit type.
+    constexpr uintptr_t kPickAtScreen = 0x004F9DA0;
+    using PickAtScreenFn = int(__thiscall*)(void* worldFrame, float ddcX, float ddcY, int mode, void* result12);
+    // Mode the per-frame mouseover pick uses (the safe, always-exercised path).
+    constexpr int kPickModeCursor = 0;
+
+    // Lower-level pieces the full pick uses internally; documented landmarks.
     // Screen (DDC pixels) -> world ray: fills near/far points, returns nonzero when inside the viewport.
     constexpr uintptr_t kScreenToRay = 0x004F6450;
     // Cursor pick: casts the ray, returns the hit type (0 miss, 2 M2/doodad, 3 terrain/WMO), fills result[6].
     constexpr uintptr_t kIntersectWrapper = 0x004F9930;
-    // Pick mask: terrain + WMO + M2/doodad ("pick anything under the cursor").
-    constexpr uint32_t kPickFlagsAnything = 0x01000124;
+    // Pick "flags" parameter for the wrapper: the value the engine's own cursor pick uses on a click. It
+    // runs the terrain + WMO + M2-geometry intersect (the wrapper applies kPickMaskAnything internally).
+    constexpr uint32_t kPickFlagsCursor = 1;
+    // The CWorld::Intersect mask the wrapper applies internally (terrain + WMO + M2/doodad geometry).
+    constexpr uint32_t kPickMaskAnything = 0x01000124;
     // Freshest cached cursor on the world frame, in DDC pixels (refreshed from mouse-move).
     constexpr size_t kWorldFrameCursorDdcX = 0x310;
     constexpr size_t kWorldFrameCursorDdcY = 0x314;

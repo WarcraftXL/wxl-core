@@ -55,11 +55,9 @@ namespace wxl::game::world
         void* wf = *reinterpret_cast<void**>(woff::kWorldFrame);
         if (!wf) return 0;
 
-        Vec3 nearP, farP;
-        if (!Native<woff::ScreenToRayFn>(woff::kScreenToRay)(wf, ddcX, ddcY, &nearP, &farP)) return 0;
-
-        int result[6] = { 0 };
-        const int type = Native<woff::IntersectFn>(woff::kIntersectWrapper)(&nearP, &farP, woff::kPickFlagsAnything, result);
+        // result[0..5] = {objLo, objHi, posX, posY, posZ, t}; [6..11] are the near/far ray the call fills.
+        int result[12] = { 0 };
+        const int type = Native<woff::PickAtScreenFn>(woff::kPickAtScreen)(wf, ddcX, ddcY, woff::kPickModeCursor, result);
         if (type == 0) return 0;
 
         out.type  = type;

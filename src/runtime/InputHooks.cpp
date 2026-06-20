@@ -75,7 +75,7 @@ namespace
         ev::Emit(ev::Event::OnInput, &a);
         if (handled) return 0;
 
-        // A world click the UI did not consume: resolve the cursor to a world point/object and publish it.
+        // An unconsumed world click: resolve the cursor to a world point/object and publish OnWorldClick.
         if (m == WM_LBUTTONDOWN || m == WM_RBUTTONDOWN)
         {
             world::WorldHit hit;

@@ -264,6 +264,7 @@ namespace
         }
 
         g_clientRoot = ClientRoot();
+        wxl::host::SetClientRoot(g_clientRoot);
 
         g_mpq = std::make_unique<MpqStore>();
         g_mpq->Mount(g_clientRoot);

@@ -18,6 +18,7 @@
 
 #include "core/Logger.hpp"
 
+#include <string>
 #include <vector>
 
 namespace wxl::host
@@ -88,6 +89,10 @@ namespace wxl::host
         for (const auto& h : Serveds())
             h.fn(name, bytes, origin);
     }
+
+    std::string& ClientRootRef() { static std::string s; return s; }
+    void SetClientRoot(std::string_view root) { ClientRootRef().assign(root); }
+    std::string ClientRoot() { return ClientRootRef(); }
 
     uint32_t HandlerCount()
     {

@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -50,6 +51,12 @@ namespace wxl::host
     bool Transform(std::string_view name, std::span<const uint8_t> raw, std::vector<uint8_t>& out);
     bool Exists(std::string_view name);
     void NotifyServed(std::string_view name, std::span<const uint8_t> bytes, ServedOrigin origin);
+
+    // --- host environment (set by the host at startup; read by modules that read the archives themselves,
+    //     e.g. the prefetch pool mounting its own per-thread MpqStore) ---
+
+    void SetClientRoot(std::string_view root);
+    std::string ClientRoot();
 
     // --- registry introspection ---
 

@@ -21,25 +21,42 @@
 #include "game/Binding.hpp"
 #include "offsets/engine/Camera.hpp"
 
-// The live matrices feed a 3D gizmo, screen<->world projection, and cursor ray picking.
-// Pointers alias the engine globals directly; valid only in-world.
+/**
+ * @brief Typed accessors for the live world view/projection matrices and camera position.
+ *
+ * The returned pointers alias the engine globals directly and are valid only in-world.
+ */
 namespace wxl::game::camera
 {
     namespace off = wxl::offsets::engine::camera;
 
-    // float[16], row-major (D3D row-vector). World -> view.
+    /**
+     * @brief Reads the world-to-view matrix.
+     * @return Pointer to a row-major float[16] (D3D row-vector).
+     */
     inline const float* View()       { return reinterpret_cast<const float*>(off::kView); }
-    // float[16], row-major.
+    /**
+     * @brief Reads the projection matrix.
+     * @return Pointer to a row-major float[16].
+     */
     inline const float* Projection() { return reinterpret_cast<const float*>(off::kProjection); }
-    // float[16], row-major. View * Projection.
+    /**
+     * @brief Reads the combined view-projection matrix (View * Projection).
+     * @return Pointer to a row-major float[16].
+     */
     inline const float* ViewProj()   { return reinterpret_cast<const float*>(off::kViewProj); }
 
+    /**
+     * @brief Reads the camera world position.
+     * @param out  Receives the position in out[0..2].
+     */
     inline void Position(float out[3])
     {
         const float* p = reinterpret_cast<const float*>(off::kCameraPos);
         out[0] = p[0]; out[1] = p[1]; out[2] = p[2];
     }
 
+    /** @brief Adds the camera bindings to the enumerable catalog. */
     inline void RegisterCatalog()
     {
         Register({ "Camera::View",       off::kView,       "const float[16] (world->view)" });

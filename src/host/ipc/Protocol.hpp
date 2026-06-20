@@ -19,9 +19,9 @@
 #include <cstdint>
 #include <cstdio>
 
-// Compiled into BOTH processes (32-bit DLL + 64-bit host). The shared-memory window is split into
+// Compiled into both processes (32-bit DLL and 64-bit host). The shared-memory window is split into
 // kChannels independent channels, each with its own control header and payload region. Payloads are
-// FlexBuffers (endian/arch neutral so the 32-bit DLL and 64-bit host agree on bytes). Any wire change
+// FlexBuffers, endian and arch neutral so the 32-bit DLL and 64-bit host agree on bytes. Any wire change
 // bumps kVersion; the DLL rejects a host whose version differs.
 namespace wxl::ipc
 {
@@ -48,7 +48,7 @@ namespace wxl::ipc
     constexpr uint32_t kChannelStride  = kHeaderSize + kChannelPayload;
     constexpr uint32_t kShmSize        = kChannels * kChannelStride;
 
-    // Request kind, carried inside the FlexBuffers payload.
+    /** @brief Request kind, carried inside the FlexBuffers payload. */
     enum Op : uint32_t
     {
         OpFileOpen   = 4, // name, flags     -> inline blob (small) OR blob id + size (zero-copy)
@@ -57,10 +57,11 @@ namespace wxl::ipc
         OpFileExists = 7, // name            -> status (StOk = present)
     };
 
+    /** @brief Response status carried inside the FlexBuffers payload. */
     enum Status : uint32_t { StOk = 0, StNotFound = 1, StBadRequest = 2 };
 
 #pragma pack(push, 4)
-    // Fixed-width, no pointers, identical across 32/64. Host creates; client opens.
+    /** @brief Per-channel control header: fixed-width, no pointers, identical across 32 and 64 bit. */
     struct ControlHeader
     {
         uint32_t magic;        // kMagic
@@ -76,20 +77,54 @@ namespace wxl::ipc
     static_assert(sizeof(ControlHeader) == kHeaderSize, "ControlHeader must be 64 bytes");
 
     // Channel layout helpers: window is [header|payload] * kChannels, contiguous.
+
+    /** @brief Returns the byte offset of channel `i`'s control header within the window. */
     inline uint32_t ChannelHeaderOffset(uint32_t i)  { return i * kChannelStride; }
+    /** @brief Returns the byte offset of channel `i`'s payload within the window. */
     inline uint32_t ChannelPayloadOffset(uint32_t i) { return i * kChannelStride + kHeaderSize; }
 
+    /**
+     * @brief Returns a pointer to channel `i`'s control header within the mapped window.
+     * @param base  base address of the mapped window
+     * @param i     channel index
+     * @return pointer to the channel's control header
+     */
     inline ControlHeader* ChannelHeader(uint8_t* base, uint32_t i)
     {
         return reinterpret_cast<ControlHeader*>(base + ChannelHeaderOffset(i));
     }
+    /**
+     * @brief Returns a pointer to channel `i`'s payload within the mapped window.
+     * @param base  base address of the mapped window
+     * @param i     channel index
+     * @return pointer to the channel's payload region
+     */
     inline uint8_t* ChannelPayload(uint8_t* base, uint32_t i)
     {
         return base + ChannelPayloadOffset(i);
     }
 
     // Format the per-channel request/response/blob names into the caller's buffer (>= 32 bytes).
+
+    /**
+     * @brief Formats channel `i`'s request event name into the caller's buffer.
+     * @param out  destination buffer (>= 32 bytes)
+     * @param cap  buffer capacity
+     * @param i    channel index
+     */
     inline void ReqEventName(char* out, size_t cap, uint32_t i)  { _snprintf_s(out, cap, _TRUNCATE, kReqEventFmt, i); }
+    /**
+     * @brief Formats channel `i`'s response event name into the caller's buffer.
+     * @param out  destination buffer (>= 32 bytes)
+     * @param cap  buffer capacity
+     * @param i    channel index
+     */
     inline void RespEventName(char* out, size_t cap, uint32_t i) { _snprintf_s(out, cap, _TRUNCATE, kRespEventFmt, i); }
+    /**
+     * @brief Formats the blob section name for `id` into the caller's buffer.
+     * @param out  destination buffer (>= 32 bytes)
+     * @param cap  buffer capacity
+     * @param id   blob id
+     */
     inline void BlobName(char* out, size_t cap, uint32_t id)     { _snprintf_s(out, cap, _TRUNCATE, kBlobNameFmt, id); }
 }

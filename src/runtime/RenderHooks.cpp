@@ -26,9 +26,9 @@
 #include <windows.h>
 #include <d3d9.h>
 
-// Only safe detours are used: two device-vtable pointer swaps (DrawIndexedPrimitive, EndScene) and one
-// function-entry hook (the M2 batch draw). No mid-function inline patch -> the world render pass is left
-// intact. The world->UI post-fx slot is served from the EndScene hook instead (minor UI overlap).
+// Uses two device-vtable pointer swaps (DrawIndexedPrimitive, EndScene) and one function-entry hook
+// (the M2 batch draw); no mid-function inline patch, so the world render pass stays intact. The
+// world->UI post-fx slot is served from the EndScene hook instead.
 namespace
 {
     namespace off   = wxl::offsets::engine::gx;
@@ -57,7 +57,11 @@ namespace
     m2off::M2_RibbonDrawFn g_origRibbonDraw = nullptr;
     bool                   g_ribbonModern   = false;
 
-    // Batch draw: record which model is drawing so the per-draw event can name it.
+    /**
+     * @brief Detours the M2 batch draw, recording the drawing model so the per-draw event can name it.
+     * @param ctx  draw context carrying the model field.
+     * @param edx  unused register slot for the thiscall convention.
+     */
     void __fastcall hkDrawBatch(void* ctx, void* edx)
     {
         g_curModel = *reinterpret_cast<void**>(
@@ -66,10 +70,20 @@ namespace
         g_curModel = nullptr;
     }
 
-    // Fold a >= 3 layer ribbon's three bound textures into one pass: tex0*tex1*tex2*color*4 in fixed
-    // function (MODULATE, MODULATE, MODULATE4X). The native N-texture ribbon draws N sequential
-    // single-texture passes on s0, which cannot reproduce that product. Stage state is saved and restored
-    // so the next draw is unaffected; the additive frame blend the emitter set stays in place.
+    /**
+     * @brief Folds a three-layer ribbon's bound textures into one fixed-function pass.
+     *
+     * Combines tex0*tex1*tex2*color*4 (MODULATE, MODULATE, MODULATE4X). Stage state is saved and
+     * restored so the next draw is unaffected; the additive frame blend the emitter set stays in place.
+     * @param dev  D3D9 device.
+     * @param pt   primitive type.
+     * @param bv   base vertex index.
+     * @param mi   minimum vertex index.
+     * @param nv   vertex count.
+     * @param si   start index.
+     * @param pc   primitive count.
+     * @return the DrawIndexedPrimitive result.
+     */
     long DrawRibbonMultiTexture(IDirect3DDevice9* dev, int pt, int bv, unsigned mi, unsigned nv, unsigned si, unsigned pc)
     {
         DWORD s[4][4];
@@ -105,9 +119,20 @@ namespace
         return r;
     }
 
-    // DrawIndexedPrimitive: a multi-texture ribbon's single pass is folded into one combine; otherwise,
-    // after the native draw, publish the M2 batch with its draw parameters so a subscriber can re-issue
-    // it. Guarded so the subscriber's own re-issue does not recurse.
+    /**
+     * @brief Detours DrawIndexedPrimitive, folding multi-texture ribbons and emitting OnM2BatchDraw.
+     *
+     * A multi-texture ribbon pass is folded into one combine; otherwise the native draw runs and the
+     * M2 batch is published with its draw parameters. Guarded so a subscriber re-issue does not recurse.
+     * @param dev  D3D9 device.
+     * @param pt   primitive type.
+     * @param bv   base vertex index.
+     * @param mi   minimum vertex index.
+     * @param nv   vertex count.
+     * @param si   start index.
+     * @param pc   primitive count.
+     * @return the DrawIndexedPrimitive result.
+     */
     long __stdcall hkDIP(void* dev, int pt, int bv, unsigned mi, unsigned nv, unsigned si, unsigned pc)
     {
         if (g_ribbonModern)
@@ -124,7 +149,11 @@ namespace
         return r;
     }
 
-    // EndScene: publish end-of-frame (list rebuild + post-fx composite), then run the native call.
+    /**
+     * @brief Detours EndScene, emitting OnEndScene before the native call.
+     * @param dev  D3D9 device.
+     * @return the EndScene result.
+     */
     long __stdcall hkEndScene(void* dev)
     {
         ev::EndSceneArgs a{ dev };
@@ -132,7 +161,15 @@ namespace
         return g_origEndScene(dev);
     }
 
-    // Present: the actual per-frame flip. Publish OnFrame just before the buffers swap.
+    /**
+     * @brief Detours Present, emitting OnFrame just before the buffers swap.
+     * @param dev    D3D9 device.
+     * @param src    source rect.
+     * @param dst    destination rect.
+     * @param wnd    target window override.
+     * @param dirty  dirty region.
+     * @return the Present result.
+     */
     long __stdcall hkPresent(void* dev, const void* src, const void* dst, void* wnd, const void* dirty)
     {
         ev::FrameArgs a{ dev };
@@ -140,8 +177,12 @@ namespace
         return g_origPresent(dev, src, dst, wnd, dirty);
     }
 
-    // World-frame finalize callback: the world 3D scene is done and the UI pass has not started, so this is
-    // the world -> UI boundary. Publish OnWorldRenderEnd after the original, the post-fx slot.
+    /**
+     * @brief Detours world-frame finalize, emitting OnWorldRenderEnd at the world -> UI boundary.
+     *
+     * Runs after the native finalize, when the 3D scene is done and the UI pass has not started.
+     * @param worldFrame  world frame being finalized.
+     */
     void __cdecl hkWorldFinalize(void* worldFrame)
     {
         g_origWorldFinalize(worldFrame);
@@ -149,11 +190,17 @@ namespace
         ev::Emit(ev::Event::OnWorldRenderEnd, &a);
     }
 
-    // The graphics-device object (carries the engine sampler-bind path); distinct from the D3D9 device.
+    /** @brief Returns the graphics-device object carrying the engine sampler-bind path (distinct from the D3D9 device). */
     void* GxDeviceObject() { return *reinterpret_cast<void**>(off::kGxDevicePtr); }
 
-    // Bind ribbon layers 1 and 2 to samplers s1/s2 through the engine so they survive into the single pass
-    // (the native ribbon loop only binds s0). Only called with layerCount >= 3, so [1] and [2] are in range.
+    /**
+     * @brief Binds ribbon layers 1 and 2 to samplers s1/s2 through the engine for the single pass.
+     *
+     * Called only with layerCount >= 3, so layers [1] and [2] are in range.
+     * @param gxDev    graphics-device object.
+     * @param emitter  ribbon emitter holding the texture handle array.
+     * @return true when both layers resolved and bound.
+     */
     bool BindRibbonExtraSamplers(void* gxDev, const uint8_t* emitter)
     {
         const void* const* arr = *reinterpret_cast<const void* const* const*>(emitter + m2off::kOffRibbonTexHandlePtr);
@@ -172,9 +219,17 @@ namespace
         return true;
     }
 
-    // Ribbon emitter draw (this-in-ECX). Publish OnRibbonDraw; if a subscriber opts a >= 3 layer ribbon
-    // into the multi-texture combine, pre-bind s1/s2, flag the draw so the DIP override folds the layers,
-    // and clamp the layer count to 1 so the native draw runs exactly one pass. Otherwise run it untouched.
+    /**
+     * @brief Detours the ribbon emitter draw, emitting OnRibbonDraw and optionally folding layers.
+     *
+     * When a subscriber opts a three-or-more-layer ribbon into the multi-texture combine, pre-binds
+     * s1/s2, flags the draw so the DIP override folds the layers, and clamps the layer count to 1 so
+     * the native draw runs exactly one pass. Otherwise the draw runs untouched.
+     * @param self        ribbon emitter.
+     * @param edx         unused register slot for the thiscall convention.
+     * @param stateBlock  native render state block.
+     * @return the native ribbon-draw result.
+     */
     int __fastcall hkRibbonDraw(void* self, void* edx, void* stateBlock)
     {
         g_ribbonModern = false;
@@ -218,6 +273,13 @@ namespace
         return r;
     }
 
+    /**
+     * @brief Replaces one vtable entry with a hook, returning the original through origOut.
+     * @param vtbl     vtable base.
+     * @param idx      entry index to swap.
+     * @param hook     replacement function pointer.
+     * @param origOut  receives the original entry.
+     */
     void SwapVtbl(void** vtbl, unsigned idx, void* hook, void** origOut)
     {
         DWORD old;
@@ -230,6 +292,9 @@ namespace
 
 namespace wxl::runtime::render
 {
+    /**
+     * @brief Installs the render detours via vtable swaps and function-entry hooks.
+     */
     void Install()
     {
         void* dev = gx::RawDevice();

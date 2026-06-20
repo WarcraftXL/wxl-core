@@ -21,9 +21,12 @@
 
 namespace wxl::game
 {
-    // Function-local static: the catalog builds at startup with no static-init-order dependency.
     namespace
     {
+        /**
+         * @brief Returns the function-local catalog store.
+         * @return reference to the single backing vector, built on first use.
+         */
         std::vector<BindingInfo>& Store()
         {
             static std::vector<BindingInfo> store;
@@ -31,10 +34,20 @@ namespace wxl::game
         }
     }
 
+    /**
+     * @brief Appends an entry to the catalog store.
+     * @param info  the catalog entry to register.
+     */
     void Register(const BindingInfo& info) { Store().push_back(info); }
 
+    /** @brief Returns a view over all registered catalog entries. */
     std::span<const BindingInfo> Catalog() { return Store(); }
 
+    /**
+     * @brief Looks up a catalog entry by name.
+     * @param name  the curated entry name to find.
+     * @return the matching entry, or null if no entry has that name.
+     */
     const BindingInfo* Find(const char* name)
     {
         for (const BindingInfo& b : Store())

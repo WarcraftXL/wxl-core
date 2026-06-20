@@ -1,4 +1,4 @@
-// PatchScript: the base a patcher script subclasses to declare static PE edits.
+// PatchScript: base class a patcher script subclasses to declare static PE edits.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -20,9 +20,10 @@
 
 #include "patcher/PeImage.hpp"
 
-// A patcher script subclasses PatchScript and is registered once by its file-scope ctor (the same
-// self-registration as the runtime/host scripts). The patcher runs every registered script against the
-// PE. This is how the dozens of separate third-party `.exe` patchers collapse into drop-in scripts.
+/**
+ * @brief Base class for a patcher script: a subclass self-registers via its file-scope constructor and
+ *        the patcher runs every registered script against the PE.
+ */
 namespace wxl::patcher
 {
     class PatchScript
@@ -30,19 +31,36 @@ namespace wxl::patcher
     public:
         virtual ~PatchScript() = default;
 
-        // Short identifier, for the patcher log.
+        /**
+         * @brief Returns a short identifier for the patcher log.
+         * @return Script name.
+         */
         virtual const char* name() const = 0;
 
-        // Apply this script's edits to the PE. Return false to abort the whole patch run.
+        /**
+         * @brief Applies this script's edits to the PE.
+         * @param pe  PE image to edit.
+         * @return True on success; false aborts the whole patch run.
+         */
         virtual bool Apply(PeImage& pe) const = 0;
 
     protected:
-        PatchScript(); // auto-registers
+        /** @brief Registers this script with the global registry. */
+        PatchScript();
     };
 
     namespace registry
     {
+        /**
+         * @brief Adds a script to the registry.
+         * @param script  script to register.
+         */
         void Add(PatchScript* script);
+
+        /**
+         * @brief Returns all registered scripts.
+         * @return Span over the registered scripts.
+         */
         std::span<PatchScript* const> Scripts();
     }
 }

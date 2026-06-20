@@ -18,22 +18,42 @@
 
 #include <cstdint>
 
-// Named hooking over MinHook. A feature installs a hook by NAME and address; the original
-// (trampoline) is returned through `original`.
+/// Named hooking over MinHook: a feature installs a hook by name and address; the trampoline is
+/// returned through the original out-pointer.
 namespace wxl::core::hook
 {
-    // Initialise the hooking engine once at startup.
+    /**
+     * @brief Initialises the hooking engine once at startup.
+     * @return true if initialisation succeeded.
+     */
     bool Init();
 
-    // Install one detour. `name` is for logging. `target` is the engine function address,
-    // `detour` is the replacement, `original` receives the trampoline.
+    /**
+     * @brief Installs one detour.
+     * @param name      label used for logging.
+     * @param target    engine function address to detour.
+     * @param detour    replacement function.
+     * @param original  receives the trampoline to the original function.
+     * @return true if the detour was created.
+     */
     bool Install(const char* name, void* target, void* detour, void** original);
 
+    /**
+     * @brief Installs one detour, taking the target as an integer address.
+     * @param name      label used for logging.
+     * @param target    engine function address to detour.
+     * @param detour    replacement function.
+     * @param original  receives the trampoline to the original function.
+     * @return true if the detour was created.
+     */
     inline bool Install(const char* name, uintptr_t target, void* detour, void** original)
     {
         return Install(name, reinterpret_cast<void*>(target), detour, original);
     }
 
-    // Enable every installed hook. Call after all features have registered.
+    /**
+     * @brief Enables every installed hook, called after all features have registered.
+     * @return true if all hooks were enabled.
+     */
     bool EnableAll();
 }

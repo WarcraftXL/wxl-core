@@ -1,4 +1,4 @@
-// world loading bindings: tick / load-gate, async-I/O queue pumps, and load-state globals.
+// world loading bindings: tick and load-gate, async-I/O queue pumps, and load-state globals.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,44 +21,56 @@
 #include "game/Binding.hpp"
 #include "offsets/game/World.hpp"
 
-// Curated world-loading bindings. A module writes wxl::game::world::AsyncPending() instead of
-// casting an address. The wrappers are inline typed calls (zero overhead); RegisterCatalog() adds
-// the names to the enumerable catalog for tooling and the future scripting bridge.
+/**
+ * @brief Typed inline wrappers over the world tick, async-I/O queue pumps, and load-state globals.
+ */
 namespace wxl::game::world
 {
     namespace woff = wxl::offsets::game::world;
 
-    // Run one world tick plus the loading-screen synchronous drain.
+    /**
+     * @brief Runs one world tick plus the loading-screen synchronous drain.
+     * @param param  Tick parameter passed through to the native call.
+     */
     inline void Tick(int param)
     {
         Native<woff::World_TickFn>(woff::kTick)(param);
     }
 
-    // Block pumping the async queues until no async file read is pending.
+    /** @brief Pumps the async queues, blocking until no async file read is pending. */
     inline void AsyncWaitAll()
     {
         Native<woff::World_AsyncWaitAllFn>(woff::kAsyncWaitAll)();
     }
 
-    // True while any async file request still has outstanding work.
+    /**
+     * @brief Reports whether any async file request still has outstanding work.
+     * @return True while an async request is pending.
+     */
     inline bool AsyncPending()
     {
         return Native<woff::World_AsyncPendingFn>(woff::kAsyncPending)() != 0;
     }
 
-    // Service the async queues one pump.
+    /** @brief Services the async queues for one pump. */
     inline void AsyncServiceQueues()
     {
         Native<woff::World_AsyncServiceQueuesFn>(woff::kAsyncServiceQueues)(0, 0);
     }
 
-    // True while the blocking load-gate drain runs.
+    /**
+     * @brief Reports whether the blocking load-gate drain is running.
+     * @return True while the load-gate drain runs.
+     */
     inline bool LoadActive()
     {
         return *reinterpret_cast<uint32_t*>(woff::kLoadActive) != 0;
     }
 
-    // Read the focus world position (center of the load box / player position) into out[0..2].
+    /**
+     * @brief Reads the focus world position (center of the load box / player position).
+     * @param out  Receives the position in out[0..2].
+     */
     inline void FocusPos(float out[3])
     {
         out[0] = *reinterpret_cast<float*>(woff::kFocusPosX);
@@ -66,7 +78,7 @@ namespace wxl::game::world
         out[2] = *reinterpret_cast<float*>(woff::kFocusPosZ);
     }
 
-    // Add the world-loading bindings to the enumerable catalog (cold, at startup).
+    /** @brief Adds the world-loading bindings to the enumerable catalog. */
     inline void RegisterCatalog()
     {
         Register({ "World::Tick",               woff::kTick,               "void(int param)" });

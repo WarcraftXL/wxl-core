@@ -28,6 +28,11 @@ namespace
     bool                g_firstUsed = false;
     FILE*               g_log       = nullptr;
 
+    /**
+     * @brief Creates a direct-type D3D12 command queue.
+     * @param dev  device that owns the queue.
+     * @return The new command queue, or null on failure.
+     */
     ID3D12CommandQueue* MakeQueue(ID3D12Device* dev)
     {
         D3D12_COMMAND_QUEUE_DESC desc = {};
@@ -37,13 +42,17 @@ namespace
         return q;
     }
 
+    /**
+     * @brief Lazily creates the shared device and queue on first use.
+     * @return True once the shared device and queue exist.
+     */
     bool EnsureDevice()
     {
         if (g_device) return true;
 
 #ifdef WXL_D3D12_DEBUG
-        // The D3D12 debug layer validates EVERY call. Since On12 funnels all of the engine's D3D9 calls
-        // through D3D12, leaving it on costs ~3-5x FPS. Build with -DWXL_D3D12_DEBUG only to chase a GPU bug.
+        // The D3D12 debug layer validates every call. With On12 funnelling all engine D3D9 calls through
+        // D3D12, leaving it on costs ~3-5x FPS. Built only with -DWXL_D3D12_DEBUG.
         ID3D12Debug* dbg = nullptr;
         if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dbg)))) { dbg->EnableDebugLayer(); dbg->Release(); }
 #endif
@@ -59,9 +68,23 @@ namespace
 
 namespace wxl::gpu
 {
+    /**
+     * @brief Returns the shared D3D12 device, created on first use.
+     * @return The shared device.
+     */
     ID3D12Device*       Device() { EnsureDevice(); return g_device; }
+
+    /**
+     * @brief Returns the shared render queue, created on first use.
+     * @return The shared command queue.
+     */
     ID3D12CommandQueue* Queue()  { EnsureDevice(); return g_queue; }
 
+    /**
+     * @brief Builds On12 args; the first call uses the shared device and queue, later calls use the shared
+     *        device with a fresh queue.
+     * @return Populated D3D9ON12_ARGS.
+     */
     D3D9ON12_ARGS MakeOn12Args()
     {
         D3D9ON12_ARGS args = {};
@@ -76,6 +99,7 @@ namespace wxl::gpu
         return args;
     }
 
+    /** @brief Drains the D3D12 debug layer's stored validation messages to the log, a no-op if absent. */
     void DrainDebug()
     {
         if (!g_infoQueue) return;
@@ -93,6 +117,10 @@ namespace wxl::gpu
         g_infoQueue->ClearStoredMessages();
     }
 
+    /**
+     * @brief Writes a formatted line to the shared diagnostic log, opening it on first use.
+     * @param fmt  printf-style format string followed by its arguments.
+     */
     void Log(const char* fmt, ...)
     {
         if (!g_log) g_log = fopen("Logs\\d3d9proxy.log", "w");

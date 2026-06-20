@@ -18,20 +18,37 @@
 
 #include <d3d9.h>
 
-// Captures the engine's D3D9 device by intercepting IDirect3D9::CreateDevice on the main thread.
+/**
+ * @brief Captures the engine's D3D9 device by intercepting IDirect3D9::CreateDevice on the main thread.
+ */
 namespace wxl::gpu::capture
 {
-    // Called at each EndScene, on the main thread, after the device is captured. device = engine device.
+    /** @brief Per-frame callback invoked at each EndScene on the main thread with the engine device. */
     using FrameFn = void (*)(IDirect3DDevice9* device);
 
-    // Wrap the real factory so CreateDevice/CreateDeviceEx are intercepted; returns a forwarding wrapper to
-    // hand back to the engine in place of the real IDirect3D9/Ex.
+    /**
+     * @brief Wraps the real factory so CreateDevice and CreateDeviceEx are intercepted.
+     * @param real  real IDirect3D9 factory.
+     * @return Forwarding wrapper to hand back to the engine, or null if real is null.
+     */
     IDirect3D9*   Wrap(IDirect3D9* real);
+
+    /**
+     * @brief Wraps the real Ex factory so CreateDevice and CreateDeviceEx are intercepted.
+     * @param real  real IDirect3D9Ex factory.
+     * @return Forwarding wrapper to hand back to the engine, or null if real is null.
+     */
     IDirect3D9Ex* WrapEx(IDirect3D9Ex* real);
 
-    // Register the per-frame callback (call before the engine creates its device).
+    /**
+     * @brief Registers the per-frame callback; call before the engine creates its device.
+     * @param fn  callback invoked at each EndScene.
+     */
     void OnFrame(FrameFn fn);
 
-    // The captured engine device, or null until the engine has called CreateDevice.
+    /**
+     * @brief Returns the captured engine device.
+     * @return The device, or null until the engine has called CreateDevice.
+     */
     IDirect3DDevice9* Device();
 }

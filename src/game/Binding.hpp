@@ -19,13 +19,19 @@
 #include <cstdint>
 #include <span>
 
-// A binding exposes one client function as a typed call. The call itself is a plain
-// function-pointer cast (zero overhead, no vtable, no std::function), so bindings are safe in any
-// path. The catalog is a parallel, ENUMERABLE registry of {name, address, signature}.
+/**
+ * @brief Exposes a client function as a typed call via a plain function-pointer cast.
+ *
+ * The call is a zero-overhead pointer cast (no vtable, no std::function), safe in any path.
+ * The catalog is a parallel enumerable registry of {name, address, signature}.
+ */
 namespace wxl::game
 {
-    // One catalog entry. Hand-named: a curated name is the whole point (Texture::UploadMip, not
-    // FUN_006b0075). signature is human-readable, for display and the future scripting bridge.
+    /**
+     * @brief One enumerable catalog entry for a curated client function.
+     *
+     * name is the curated, human-readable name; signature is a display/scripting-bridge string.
+     */
     struct BindingInfo
     {
         const char* name;
@@ -33,12 +39,27 @@ namespace wxl::game
         const char* signature;
     };
 
-    // Add an entry to the enumerable catalog (cold, at startup). Does not affect calling.
+    /**
+     * @brief Adds an entry to the enumerable catalog.
+     * @param info  the catalog entry to register.
+     */
     void Register(const BindingInfo& info);
+
+    /** @brief Returns a view over all registered catalog entries. */
     std::span<const BindingInfo> Catalog();
+
+    /**
+     * @brief Looks up a catalog entry by name.
+     * @param name  the curated entry name to find.
+     * @return the matching entry, or null if no entry has that name.
+     */
     const BindingInfo* Find(const char* name);
 
-    // Typed access to a client address. Use at a call site: Native<Fn>(addr)(args...).
+    /**
+     * @brief Returns a client address as a typed function pointer.
+     * @param address  the client address to cast.
+     * @return the address typed as Fn, for use at a call site: Native<Fn>(addr)(args...).
+     */
     template <class Fn>
     inline Fn Native(uintptr_t address) { return reinterpret_cast<Fn>(address); }
 }

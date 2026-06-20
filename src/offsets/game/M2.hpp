@@ -30,8 +30,8 @@ namespace wxl::offsets::game::m2
     // size their batch blocks. The point to rebuild the material contract a modern skin omits.
     constexpr uintptr_t kFinalizeSkin = 0x00837A40;
 
-    // Version gate: the stock loader accepts only one inner version. Relaxing these two branches lets
-    // it accept the modern inner versions too.
+    // Version-gate branches in the loader. The stock loader accepts only one inner version; these are
+    // the two compare branches that reject higher inner versions.
     constexpr uintptr_t kVersionGateInit = 0x0083CF51; // version-too-high branch
     constexpr uintptr_t kVersionGateAnim = 0x0083C745; // anim-parse version branch
 

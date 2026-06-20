@@ -21,20 +21,35 @@
 #include "game/Binding.hpp"
 #include "offsets/game/Unit.hpp"
 
-// Field reads and the reaction call, as typed accessors.
+/**
+ * @brief Typed accessors for unit model fields and the reaction call.
+ */
 namespace wxl::game::unit
 {
     namespace off = wxl::offsets::game::unit;
 
-    // The unit's body model, or null.
+    /**
+     * @brief Reads the unit's body model.
+     * @param unit  Unit object.
+     * @return The body model, or null.
+     */
     inline void* Model(void* unit)
     { return unit ? *reinterpret_cast<void**>(reinterpret_cast<char*>(unit) + off::kUnitModelField) : nullptr; }
 
-    // A model's parent in the attachment chain, or null at the root.
+    /**
+     * @brief Reads a model's parent in the attachment chain.
+     * @param model  Model object.
+     * @return The parent model, or null at the root.
+     */
     inline void* ModelParent(void* model)
     { return model ? *reinterpret_cast<void**>(reinterpret_cast<char*>(model) + off::kModelParentField) : nullptr; }
 
-    // Reaction of self toward other: 0..1 hostile, 2..3 neutral, 4+ friendly.
+    /**
+     * @brief Reads the reaction of self toward other.
+     * @param self   Observing unit.
+     * @param other  Observed unit.
+     * @return Reaction level: 0..1 hostile, 2..3 neutral, 4+ friendly.
+     */
     inline int Reaction(void* self, void* other)
     { return Native<off::ReactionFn>(off::kUnitReaction)(self, nullptr, other); }
 }

@@ -22,6 +22,13 @@
 
 namespace wxl::game::gx
 {
+    /**
+     * @brief Compiles an HLSL pixel shader into a device shader.
+     * @param dev     the device to create the shader on.
+     * @param hlsl    the HLSL source.
+     * @param target  the shader target profile, e.g. "ps_2_0".
+     * @return the device pixel shader, or null on failure.
+     */
     void* CompilePixelShader(Device9 dev, const char* hlsl, const char* target)
     {
         if (!dev || !hlsl) return nullptr;
@@ -39,6 +46,13 @@ namespace wxl::game::gx
         return SUCCEEDED(hr) ? ps : nullptr;
     }
 
+    /**
+     * @brief Creates or keeps a back-buffer-sized render target of the given format.
+     * @param dev        the device to create the target on.
+     * @param rt         the render target to fill or reuse.
+     * @param d3dFormat  the D3D surface format.
+     * @return true on success, false on failure.
+     */
     bool EnsureBackbufferTarget(Device9 dev, RenderTarget& rt, uint32_t d3dFormat)
     {
         if (!dev) return false;
@@ -64,6 +78,10 @@ namespace wxl::game::gx
         return true;
     }
 
+    /**
+     * @brief Draws a back-buffer-sized textured quad sampling texture stage 0.
+     * @param dev  the device to draw on.
+     */
     void DrawFullscreenQuad(Device9 dev)
     {
         if (!dev) return;

@@ -26,7 +26,10 @@ namespace
     FILE*      g_file = nullptr;
     std::mutex g_mutex;
 
-    // Append one finished line under the lock. Mirrors to the debugger.
+    /**
+     * @brief Appends one finished line under the lock and mirrors it to the debugger.
+     * @param line  fully formatted line to write.
+     */
     void Emit(const char* line)
     {
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -37,6 +40,10 @@ namespace
 
 namespace wxl::core::log
 {
+    /**
+     * @brief Opens the log file at the given path. Idempotent.
+     * @param path  filesystem path of the log file.
+     */
     void Open(const char* path)
     {
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -44,6 +51,10 @@ namespace wxl::core::log
         fopen_s(&g_file, path, "w");
     }
 
+    /**
+     * @brief Appends one formatted line prefixed with the local time. Thread-safe.
+     * @param fmt  printf-style format string followed by its arguments.
+     */
     void Printf(const char* fmt, ...)
     {
         char body[1024];
@@ -60,6 +71,9 @@ namespace wxl::core::log
         Emit(line);
     }
 
+    /** 
+     * @brief Flushes and closes the log file.
+     */
     void Close()
     {
         std::lock_guard<std::mutex> lock(g_mutex);

@@ -22,9 +22,9 @@ using namespace wxl::ipc;
 
 namespace
 {
-    // Shared window + per-channel event pairs. The host OWNS (creates) these; the client opens them.
-    // Set once in Create and read-only afterwards: each worker only reads/writes its OWN channel's
-    // payload, and the control words it touches (respLen/respSeq) are single-writer per channel.
+    // Shared window and per-channel event pairs. The host creates these; the client opens them. Set once
+    // in Create and read-only afterwards: each worker touches only its own channel's payload, and the
+    // control words it writes (respLen/respSeq) are single-writer per channel.
     HANDLE   g_shm = nullptr;
     uint8_t* g_base = nullptr;
     HANDLE   g_reqEv[kChannels]  = {};
@@ -33,6 +33,10 @@ namespace
 
 namespace wxl::host::ipc
 {
+    /**
+     * @brief Creates and maps the shared window, stamps each channel header, and creates the events.
+     * @return true on success
+     */
     bool Create()
     {
         g_shm = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, kShmSize, kShmName);
@@ -62,6 +66,12 @@ namespace wxl::host::ipc
         return true;
     }
 
+    /**
+     * @brief Blocks on channel `i`'s request event and copies the request payload out.
+     * @param i       channel index
+     * @param reqOut  receives the request payload bytes
+     * @return true if a request was read
+     */
     bool WaitRequest(uint32_t i, std::vector<uint8_t>& reqOut)
     {
         if (i >= kChannels) return false;
@@ -75,6 +85,12 @@ namespace wxl::host::ipc
         return true;
     }
 
+    /**
+     * @brief Copies the response payload into channel `i`, marks it complete, and signals the client.
+     * @param i     channel index
+     * @param resp  response payload bytes
+     * @return true if a nonzero-length response was written
+     */
     bool PostResponse(uint32_t i, std::span<const uint8_t> resp)
     {
         if (i >= kChannels) return false;

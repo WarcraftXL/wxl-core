@@ -19,9 +19,14 @@
 #include <cstddef>
 #include <cstdint>
 
-// The client's native M2 loader reads ONE model shape: these records. This is the common target every M2
-// downport compacts onto; it knows nothing about any source build. A support module declares how its source
-// records differ (their larger strides / extra fields) and slides them onto these structs before the parse.
+/**
+ * @brief The model record layout the client's native M2 loader reads.
+ *
+ * The native loader reads one model shape: these records. They are the common target every M2
+ * down-port compacts onto and know nothing about any source build. A support module declares how
+ * its source records differ (larger strides, extra fields) and slides them onto these structs
+ * before the parse.
+ */
 namespace wxl::structure::m2
 {
     constexpr uint32_t kMagicMD20 = 0x3032444D; // 'MD20' self-contained model (the only magic the loader accepts)
@@ -33,9 +38,14 @@ namespace wxl::structure::m2
 
 #pragma pack(push, 1)
 
+    /** 
+     * @brief A count plus offset pair referencing an array in the model buffer.
+     */
     struct M2Array { uint32_t count; uint32_t offset; };
 
-    // The MD20 header: the exact on-disk layout the loader reads.
+    /**
+     * @brief The MD20 header: the exact on-disk layout the loader reads.
+     */
     struct M2Header
     {
         uint32_t magic;                  // 0x00
@@ -77,12 +87,23 @@ namespace wxl::structure::m2
         M2Array  particleEmitters;       // 0x128
         M2Array  textureCombinerCombos;  // 0x130  (only if globalFlags & kFlagUseTextureCombinerCombos)
 
+        /** 
+         * @brief Returns the header base as a byte pointer.
+         */
         uint8_t*       base()       { return reinterpret_cast<uint8_t*>(this); }
+
+        /** 
+         * @brief Returns the header base as a const byte pointer.
+         */
         const uint8_t* base() const { return reinterpret_cast<const uint8_t*>(this); }
     };
 
-    // One animation sequence, 0x40 bytes. The loader reads a single u32 duration at 0x04 and a single u32
-    // blendTime at 0x1C. flags bit 0x20 = data embedded in the model; clear = streamed from a sequence file.
+    /**
+     * @brief One animation sequence, 0x40 bytes.
+     *
+     * The loader reads a single u32 duration at 0x04 and a single u32 blendTime at 0x1C. flags bit
+     * 0x20 = data embedded in the model; clear = streamed from a sequence file.
+     */
     struct M2Sequence
     {
         uint16_t id;             // 0x00
@@ -100,7 +121,11 @@ namespace wxl::structure::m2
         uint16_t aliasNext;      // 0x3E
     };
 
-    // One texture, 0x10 bytes. type 0 = hardcoded: filename holds a NUL-terminated path (count includes NUL).
+    /**
+     * @brief One texture, 0x10 bytes.
+     *
+     * type 0 = hardcoded: filename holds a NUL-terminated path (count includes the NUL).
+     */
     struct M2Texture
     {
         uint32_t type;     // 0x00
@@ -111,8 +136,12 @@ namespace wxl::structure::m2
     // texture.type 0 = hardcoded: the only type whose pixels come from a named file.
     constexpr uint32_t kTexTypeHardcoded = 0;
 
-    // One render batch (texunit), 0x18 bytes. shaderId selects the program; materialIndex indexes
-    // header.materials (render flags + blend); textureCoordComboIndex indexes header.textureUnitLookup.
+    /**
+     * @brief One render batch (texunit), 0x18 bytes.
+     *
+     * shaderId selects the program; materialIndex indexes header.materials (render flags plus
+     * blend); textureCoordComboIndex indexes header.textureUnitLookup.
+     */
     struct M2Batch
     {
         uint8_t  flags;                      // 0x00
@@ -130,7 +159,11 @@ namespace wxl::structure::m2
         uint16_t textureTransformComboIndex; // 0x16
     };
 
-    // One skin submesh, 0x30 bytes. level > 0 = a (level<<16 | id) sub-batch the loader does not handle.
+    /**
+     * @brief One skin submesh, 0x30 bytes.
+     *
+     * level > 0 = a (level<<16 | id) sub-batch the loader does not handle.
+     */
     struct M2SkinSection
     {
         uint16_t skinSectionId;     // 0x00
@@ -148,7 +181,11 @@ namespace wxl::structure::m2
         float    sortRadius;        // 0x2C
     };
 
-    // One ribbon emitter, 0xb0. textureIndices/materialIndices index header.textures/materials.
+    /**
+     * @brief One ribbon emitter, 0xb0 bytes.
+     *
+     * textureIndices and materialIndices index header.textures and header.materials.
+     */
     struct M2Ribbon
     {
         uint32_t ribbonId;        // 0x00
@@ -159,10 +196,14 @@ namespace wxl::structure::m2
         uint8_t  _tracks[0x8C];   // 0x24  color/alpha/height/texSlot/visibility tracks + scalars
     };
 
-    // Shared camera track body (position/target/roll tracks + bases). A source camera carries the same body.
+    /** 
+     * @brief Shared camera track body (position/target/roll tracks plus bases).
+     */
     struct M2CameraBody { uint8_t trackData[0x54]; };
 
-    // The camera carries an explicit fov float at 0x04.
+    /** 
+     * @brief One camera, carrying an explicit fov float at 0x04.
+     */
     struct M2Camera
     {
         uint32_t     type;     // 0x00

@@ -1,4 +1,4 @@
-// world bindings: selection GUIDs and GUID -> object resolution.
+// world bindings: selection GUIDs and GUID-to-object resolution.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,21 +21,40 @@
 #include "game/Binding.hpp"
 #include "offsets/game/Unit.hpp"
 
-// The current selection and the GUID lookup, as typed calls.
+/**
+ * @brief Typed accessors for the current selection GUIDs and GUID-to-object resolution.
+ */
 namespace wxl::game::world
 {
     namespace off = wxl::offsets::game::unit;
 
+    /**
+     * @brief Reads the GUID of the unit under the cursor.
+     * @return The mouseover GUID.
+     */
     inline unsigned long long MouseoverGuid()
     { return *reinterpret_cast<unsigned long long*>(off::kMouseoverGuid); }
 
+    /**
+     * @brief Reads the GUID of the current target.
+     * @return The target GUID.
+     */
     inline unsigned long long TargetGuid()
     { return *reinterpret_cast<unsigned long long*>(off::kTargetGuid); }
 
+    /**
+     * @brief Reads the GUID of the active player.
+     * @return The active player GUID.
+     */
     inline unsigned long long ActivePlayerGuid()
     { return Native<off::ActivePlayerGuidFn>(off::kActivePlayerGuid)(); }
 
-    // Resolve a GUID to an object filtered by type mask, or null.
+    /**
+     * @brief Resolves a GUID to an object filtered by type mask.
+     * @param guid      Object GUID.
+     * @param typeMask  Accepted object type mask.
+     * @return The object, or null when not found or filtered out.
+     */
     inline void* GetObject(unsigned long long guid, unsigned typeMask)
     { return Native<off::GetObjectFn>(off::kGetObjectByGuid)(guid, typeMask, "wxl", 0); }
 

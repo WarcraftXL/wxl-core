@@ -1,5 +1,4 @@
-// WarcraftXLHost.exe (64-bit): archive owner + IPC transport. Format-blind: asset reshaping is the
-// registered handlers' job (modules contribute them). Serves raw bytes for anything no handler claims.
+// WarcraftXLHost.exe (64-bit) entry point: archive owner and IPC transport that serves files to the client.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -37,27 +36,32 @@ using namespace wxl::ipc;
 using wxl::host::mpq::MpqStore;
 namespace wlog = wxl::core::log; // 'log' alone collides with ::log from <cmath>
 
-// Console output is opt-in at runtime via --console; the file log is always on. A runtime gate, not a
-// build switch, so a Release host can show the console on demand.
+// Console output is opt-in at runtime via --console; the file log is always on.
 static bool g_console = false;
 #define HOST_CONSOLE(...) do { if (g_console) printf(__VA_ARGS__); } while (0)
 
 namespace
 {
-    std::string g_dataDir;       // host exe folder (defaults to ExeDir; --data overrides)
-    DWORD       g_clientPid = 0; // game process to shadow; host exits when it closes
-    std::string g_clientRoot;    // client data root (the host runs from <client>/Utils)
+    std::string g_dataDir;       // host data folder (defaults to ExeDir; --data overrides)
+    DWORD       g_clientPid = 0; // client process to shadow; host exits when it closes
+    std::string g_clientRoot;    // client data root (the host runs from the client Utils folder)
 
-    // The serve store, used only by the main thread (no StormLib cross-thread locking). Mounted lazily.
+    // Serve store, used only by the main thread (StormLib handles are single-thread). Mounted lazily.
     std::unique_ptr<MpqStore> g_mpq;
 
-    // Large/translated files are served zero-copy: the host copies the bytes once into a named shared
-    // section and keeps it alive until the client closes the id.
+    // Large files are served zero-copy: the host copies the bytes once into a named shared section and
+    // keeps it alive until the client closes the id.
+
+    /** @brief Holds a shared section serving one file's bytes zero-copy to the client. */
     struct Blob { HANDLE section; void* view; uint32_t size; };
     std::mutex g_handleMutex;
     std::unordered_map<uint32_t, Blob> g_blobs;
     uint32_t g_nextHandle = 0;
 
+    /**
+     * @brief Returns the folder containing the host executable.
+     * @return host executable folder, or "." if it cannot be determined
+     */
     std::string ExeDir()
     {
         char p[MAX_PATH];
@@ -67,7 +71,10 @@ namespace
         return (slash == std::string::npos) ? std::string(".") : s.substr(0, slash);
     }
 
-    // The host runs from the client's Utils folder, so the client root is its parent.
+    /**
+     * @brief Returns the client data root, the parent of the host data folder.
+     * @return client data root path
+     */
     std::string ClientRoot()
     {
         std::string root = g_dataDir;
@@ -76,6 +83,11 @@ namespace
         return root;
     }
 
+    /**
+     * @brief Waits on the client process handle and exits the host when the client closes.
+     * @param clientHandle  HANDLE to the client process, passed as the thread parameter
+     * @return thread exit code (unreached)
+     */
     DWORD WINAPI ClientWatcher(LPVOID clientHandle)
     {
         WaitForSingleObject(static_cast<HANDLE>(clientHandle), INFINITE);
@@ -83,9 +95,11 @@ namespace
         return 0;
     }
 
-    // Copy whole bytes into a fresh named shared section and return its (nonzero) id. The bytes are fully
-    // written before the id is returned, so the open response doubles as the ready signal. Returns 0 if the
-    // section/view could not be created (caller falls back).
+    /**
+     * @brief Copies whole bytes into a fresh named shared section and returns its nonzero id.
+     * @param bytes  file bytes to place in the section
+     * @return the nonzero blob id, or 0 if the section or view could not be created
+     */
     uint32_t StoreBlob(const std::vector<uint8_t>& bytes)
     {
         uint32_t size = static_cast<uint32_t>(bytes.size());
@@ -106,7 +120,12 @@ namespace
         return id;
     }
 
-    // Build the OpFileOpen response for `bytes`: inline when small, otherwise a zero-copy section id.
+    /**
+     * @brief Builds the file-open response: inline bytes when small, otherwise a zero-copy section id.
+     * @param fbb    FlexBuffers builder receiving the response
+     * @param name   file name (logging)
+     * @param bytes  the file bytes to return
+     */
     void RespondWithFile(flexbuffers::Builder& fbb, const char* name, std::vector<uint8_t>&& bytes)
     {
         uint32_t size = static_cast<uint32_t>(bytes.size());
@@ -124,15 +143,17 @@ namespace
             return;
         }
 
-        // Inline: bytes come back in the open response (one small copy).
+        // Inline: bytes come back in the open response.
         fbb.Vector([&]() { fbb.UInt(StOk); fbb.UInt(0); fbb.UInt(size); fbb.Blob(bytes.data(), bytes.size()); });
         HOST_CONSOLE("open  %-44s -> OK inline (%u B)\n", name, size);
     }
 
-    // Produce the bytes finally served for `name` from the archives: read raw, offer it to the transform
-    // hooks (first that reshapes wins), else raw passthrough. Returns false only on a miss (not in archives).
-    // Provider hooks are NOT fired here -- the caller fires them first (a provider, e.g. the cache module,
-    // short-circuits before any archive read).
+    /**
+     * @brief Reads raw archive bytes for `name`, offers them to the transform hooks, else passes them through.
+     * @param name  archive-internal file name
+     * @param out   receives the reshaped or raw bytes
+     * @return false only on an archive miss; provider hooks are fired by the caller, not here
+     */
     bool ProduceServed(const std::string& name, std::vector<uint8_t>& out)
     {
         std::vector<uint8_t> raw;
@@ -149,6 +170,11 @@ namespace
         return true;
     }
 
+    /**
+     * @brief Serves a file-open request: tries the providers, then the archive read and transforms.
+     * @param fbb   FlexBuffers builder receiving the response
+     * @param name  file name requested
+     */
     void HandleFileOpen(flexbuffers::Builder& fbb, const std::string& name)
     {
         std::vector<uint8_t> provided;
@@ -166,12 +192,15 @@ namespace
             return;
         }
 
-        wxl::host::NotifyServed(name, served, wxl::host::ServedOrigin::Client);
+        wxl::host::NotifyServed(name, served);
         RespondWithFile(fbb, name.c_str(), std::move(served));
     }
 
-    // Fallback range read for a client that cannot map the section directly. The zero-copy client reads the
-    // mapping itself and never reaches here.
+    /**
+     * @brief Serves a fallback range read for a client that cannot map the blob section directly.
+     * @param fbb  FlexBuffers builder receiving the response
+     * @param vec  request vector holding blob id, offset, and length
+     */
     void HandleFileRead(flexbuffers::Builder& fbb, const flexbuffers::Vector& vec)
     {
         uint32_t id = vec[1].AsUInt32(), off = vec[2].AsUInt32(), len = vec[3].AsUInt32();
@@ -199,6 +228,11 @@ namespace
         else       fbb.Vector([&]() { fbb.UInt(StBadRequest); fbb.Blob(nullptr, 0); });
     }
 
+    /**
+     * @brief Serves a file-close request: unmaps and releases the blob section for `id`.
+     * @param fbb  FlexBuffers builder receiving the response
+     * @param id   blob id to release
+     */
     void HandleFileClose(flexbuffers::Builder& fbb, uint32_t id)
     {
         std::lock_guard<std::mutex> hl(g_handleMutex);
@@ -212,7 +246,11 @@ namespace
         fbb.Vector([&]() { fbb.UInt(StOk); });
     }
 
-    // Build the FlexBuffers response for one request payload.
+    /**
+     * @brief Decodes one request payload and builds the FlexBuffers response.
+     * @param req      request payload bytes
+     * @param respOut  receives the response payload bytes
+     */
     void ProcessRequest(const std::vector<uint8_t>& req, std::vector<uint8_t>& respOut)
     {
         flexbuffers::Builder fbb;
@@ -247,6 +285,10 @@ namespace
         respOut.assign(buf.begin(), buf.end());
     }
 
+    /**
+     * @brief Mounts the archives, creates the transport, and runs the request loop until the client closes.
+     * @return process exit code
+     */
     int Serve()
     {
         // One host per session.
@@ -269,7 +311,7 @@ namespace
         g_mpq = std::make_unique<MpqStore>();
         g_mpq->Mount(g_clientRoot);
 
-        // List who extended the host (the modules' host faces self-registered before main ran).
+        // List the registered hooks (module host faces self-registered before main ran).
         wxl::host::LogRegisteredHandlers();
 
         if (!wxl::host::ipc::Create())
@@ -283,7 +325,7 @@ namespace
         wlog::Printf("host: serving (%u channel)", kChannels);
 
         // Single channel: the client serializes its opens, so serve them on this thread.
-        std::vector<uint8_t> req, resp;
+        std::vector<uint8_t> req, resp; // request and response payload buffers, reused each iteration
         for (;;)
         {
             if (!wxl::host::ipc::WaitRequest(0, req)) break;
@@ -294,6 +336,12 @@ namespace
     }
 }
 
+/**
+ * @brief Parses command-line arguments, opens the log, and runs the serve loop.
+ * @param argc  argument count
+ * @param argv  argument values (--data, --client-pid, --console)
+ * @return process exit code
+ */
 int main(int argc, char** argv)
 {
     g_dataDir = ExeDir();

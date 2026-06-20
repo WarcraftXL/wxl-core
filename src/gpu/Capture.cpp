@@ -31,13 +31,21 @@ namespace
     using EndSceneFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*);
     EndSceneFn g_origEndScene = nullptr;
 
+    /**
+     * @brief Invokes the per-frame callback then forwards to the original EndScene.
+     * @param dev  device whose EndScene was called.
+     * @return Result of the original EndScene.
+     */
     HRESULT STDMETHODCALLTYPE HookEndScene(IDirect3DDevice9* dev)
     {
         if (g_frame) g_frame(dev);
         return g_origEndScene(dev);
     }
 
-    // Patch THIS device instance's vtable slot (On12 gives each device its own vtable).
+    /**
+     * @brief Patches this device instance's EndScene vtable slot to the hook.
+     * @param dev  device whose vtable is patched; On12 gives each device its own vtable.
+     */
     void PatchEndScene(IDirect3DDevice9* dev)
     {
         void** vt = *reinterpret_cast<void***>(dev);
@@ -48,6 +56,10 @@ namespace
         VirtualProtect(&vt[kVtEndScene], sizeof(void*), old, &old);
     }
 
+    /**
+     * @brief Records the engine device on first capture and hooks its EndScene.
+     * @param dev  engine device to capture.
+     */
     void Capture(IDirect3DDevice9* dev)
     {
         if (g_device) return;
@@ -56,15 +68,29 @@ namespace
         Log("capture: engine device %p captured, EndScene hooked", dev);
     }
 
-    // Forwarding wrapper over the real factory. Only CreateDevice/CreateDeviceEx are intercepted; every
-    // other call passes straight through. realEx_ is null when the engine used the non-Ex create path.
+    /**
+     * @brief Forwarding wrapper over the real factory that intercepts only CreateDevice and CreateDeviceEx.
+     *
+     * Every other call passes straight through. realEx_ is null when the engine used the non-Ex create path.
+     */
     class WrappedD3D9 : public IDirect3D9Ex
     {
     public:
+        /**
+         * @brief Wraps a real factory, optionally with its Ex interface.
+         * @param real    real IDirect3D9 factory.
+         * @param realEx  real IDirect3D9Ex factory, or null on the non-Ex path.
+         */
         explicit WrappedD3D9(IDirect3D9* real, IDirect3D9Ex* realEx)
             : real_(real), realEx_(realEx) {}
 
         // --- IUnknown ---
+        /**
+         * @brief Returns this wrapper for the factory interfaces, otherwise forwards the query.
+         * @param riid  requested interface id.
+         * @param ppv   receives the interface pointer.
+         * @return S_OK when handled here, otherwise the real factory's result.
+         */
         HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override
         {
             if (riid == __uuidof(IDirect3D9) || riid == __uuidof(IUnknown)
@@ -76,7 +102,13 @@ namespace
             }
             return real_->QueryInterface(riid, ppv);
         }
+        /** @brief Increments the reference count. @return The new count. */
         ULONG STDMETHODCALLTYPE AddRef() override { return ++ref_; }
+
+        /**
+         * @brief Decrements the reference count, releasing the real factory and freeing this wrapper at zero.
+         * @return The new count.
+         */
         ULONG STDMETHODCALLTYPE Release() override
         {
             ULONG r = --ref_;
@@ -98,6 +130,16 @@ namespace
         HRESULT STDMETHODCALLTYPE CheckDeviceFormatConversion(UINT a, D3DDEVTYPE t, D3DFORMAT sf, D3DFORMAT tf) override { return real_->CheckDeviceFormatConversion(a, t, sf, tf); }
         HRESULT STDMETHODCALLTYPE GetDeviceCaps(UINT a, D3DDEVTYPE t, D3DCAPS9* c) override { return real_->GetDeviceCaps(a, t, c); }
         HMONITOR STDMETHODCALLTYPE GetAdapterMonitor(UINT a) override { return real_->GetAdapterMonitor(a); }
+        /**
+         * @brief Forwards CreateDevice and captures the resulting device.
+         * @param a    adapter ordinal.
+         * @param t    device type.
+         * @param fw   focus window.
+         * @param bf   behavior flags.
+         * @param pp   present parameters.
+         * @param ret  receives the created device.
+         * @return Result of the real CreateDevice.
+         */
         HRESULT STDMETHODCALLTYPE CreateDevice(UINT a, D3DDEVTYPE t, HWND fw, DWORD bf, D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** ret) override
         {
             HRESULT hr = real_->CreateDevice(a, t, fw, bf, pp, ret);
@@ -109,6 +151,17 @@ namespace
         UINT STDMETHODCALLTYPE GetAdapterModeCountEx(UINT a, const D3DDISPLAYMODEFILTER* f) override { return realEx_ ? realEx_->GetAdapterModeCountEx(a, f) : 0; }
         HRESULT STDMETHODCALLTYPE EnumAdapterModesEx(UINT a, const D3DDISPLAYMODEFILTER* f, UINT i, D3DDISPLAYMODEEX* m) override { return realEx_ ? realEx_->EnumAdapterModesEx(a, f, i, m) : E_NOTIMPL; }
         HRESULT STDMETHODCALLTYPE GetAdapterDisplayModeEx(UINT a, D3DDISPLAYMODEEX* m, D3DDISPLAYROTATION* r) override { return realEx_ ? realEx_->GetAdapterDisplayModeEx(a, m, r) : E_NOTIMPL; }
+        /**
+         * @brief Forwards CreateDeviceEx and captures the resulting device.
+         * @param a    adapter ordinal.
+         * @param t    device type.
+         * @param fw   focus window.
+         * @param bf   behavior flags.
+         * @param pp   present parameters.
+         * @param fsm  fullscreen display mode.
+         * @param ret  receives the created device.
+         * @return Result of the real CreateDeviceEx, or E_NOTIMPL without an Ex factory.
+         */
         HRESULT STDMETHODCALLTYPE CreateDeviceEx(UINT a, D3DDEVTYPE t, HWND fw, DWORD bf, D3DPRESENT_PARAMETERS* pp, D3DDISPLAYMODEEX* fsm, IDirect3DDevice9Ex** ret) override
         {
             if (!realEx_) return E_NOTIMPL;
@@ -127,8 +180,15 @@ namespace
 
 namespace wxl::gpu::capture
 {
+    /** @brief Wraps a real factory for interception. @param real real factory. @return Wrapper, or null if real is null. */
     IDirect3D9*   Wrap(IDirect3D9* real)     { return real ? new WrappedD3D9(real, nullptr) : nullptr; }
+
+    /** @brief Wraps a real Ex factory for interception. @param real real Ex factory. @return Wrapper, or null if real is null. */
     IDirect3D9Ex* WrapEx(IDirect3D9Ex* real) { return real ? new WrappedD3D9(real, real) : nullptr; }
+
+    /** @brief Registers the per-frame callback. @param fn callback invoked at each EndScene. */
     void              OnFrame(FrameFn fn)    { g_frame = fn; }
+
+    /** @brief Returns the captured engine device. @return The device, or null before capture. */
     IDirect3DDevice9* Device()               { return g_device; }
 }

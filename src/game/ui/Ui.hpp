@@ -21,22 +21,37 @@
 #include "game/Binding.hpp"
 #include "offsets/engine/Ui.hpp"
 
-// Hides the FrameXML layer for a clean editor view while the 3D world keeps drawing.
-// Restore to shown before anything that expects the UI (e.g. a reload).
+/**
+ * @brief Toggles the interface layer via a single render-enable flag while the 3D world keeps drawing.
+ *
+ * Restore the interface to shown before anything that expects it, such as a reload.
+ */
 namespace wxl::game::ui
 {
     namespace off = wxl::offsets::engine::ui;
 
-    // The render-enable flag, or null before the UI root exists.
+    /**
+     * @brief Reads the interface render-enable flag pointer.
+     * @return The flag pointer, or null before the interface root exists.
+     */
     inline int* Flag()
     {
         void* root = *reinterpret_cast<void**>(off::kUiRootPtr);
         return root ? reinterpret_cast<int*>(reinterpret_cast<char*>(root) + off::kUiEnabledFlag) : nullptr;
     }
 
+    /**
+     * @brief Reports whether the interface is shown.
+     * @return True when shown, including before the root exists.
+     */
     inline bool IsShown()      { int* f = Flag(); return f ? (*f != 0) : true; }
+    /**
+     * @brief Shows or hides the interface.
+     * @param on  True to show, false to hide.
+     */
     inline void Show(bool on)  { int* f = Flag(); if (f) *f = on ? 1 : 0; }
 
+    /** @brief Adds the UI bindings to the enumerable catalog. */
     inline void RegisterCatalog()
     {
         Register({ "UI::Show", off::kUiRootPtr, "void(bool) via interface-root flag" });

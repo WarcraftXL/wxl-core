@@ -16,10 +16,13 @@
 
 #pragma once
 
-// The core subclasses the client's top-level window ONCE and republishes every message as OnInput, so a
-// module never has to hook the window itself. A subscriber that consumes a message (sets *handled) makes
-// the core swallow it. Install once after the graphics device (hence the window) is up.
 namespace wxl::runtime::input
 {
+    /**
+     * @brief Subclasses the client top-level window once and republishes every message as OnInput.
+     *
+     * A subscriber that sets *handled swallows the message. Call once after the graphics device
+     * is up.
+     */
     void Install();
 }

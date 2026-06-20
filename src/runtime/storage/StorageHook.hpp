@@ -16,10 +16,13 @@
 
 #pragma once
 
-// Launches the asset host (if installed) and hooks the client archive file-I/O primitives so a file the
-// host serves is read from the host's bytes instead of the native archives; everything else runs native.
-// The hooks are harmless with no host (every open falls through). Call once at startup, BEFORE EnableAll.
 namespace wxl::runtime::storage
 {
+    /**
+     * @brief Launches the asset host and hooks the client archive file-I/O primitives.
+     *
+     * A file the host serves is read from the host's bytes; everything else runs native. The hooks
+     * are harmless with no host (every open falls through). Call once at startup, before EnableAll.
+     */
     void Install();
 }

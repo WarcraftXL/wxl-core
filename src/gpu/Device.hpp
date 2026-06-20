@@ -19,22 +19,39 @@
 #include <d3d12.h>
 #include <d3d9on12.h>
 
-// D3D12 plumbing for the proxy. ONE shared D3D12 device + render queue back the whole stack.
-// The engine makes several D3D9 devices; the FIRST (the active/presented one) runs On12 on the shared
-// queue, so the side-renderer renders on that same queue and the unwrap/return path stays single-queue.
-// Later devices get a throwaway separate queue (a second On12 device sharing the same queue null-derefs
-// inside d3d9on12).
+/**
+ * @brief D3D12 plumbing for the proxy: one shared D3D12 device and render queue back the whole stack.
+ *
+ * The engine creates several D3D9 devices; the first (active, presented) one runs On12 on the shared
+ * queue, keeping the unwrap and return path single-queue. Later devices get a throwaway separate queue.
+ */
 namespace wxl::gpu
 {
-    ID3D12Device*       Device();   // shared, created on first use
-    ID3D12CommandQueue* Queue();    // shared render queue = the first/active device's On12 queue
+    /**
+     * @brief Returns the shared D3D12 device, created on first use.
+     * @return The shared device.
+     */
+    ID3D12Device*       Device();
 
-    // On12 args: first call uses the shared device+queue; later calls use the shared device + a fresh queue.
+    /**
+     * @brief Returns the shared render queue, which is the first device's On12 queue.
+     * @return The shared command queue.
+     */
+    ID3D12CommandQueue* Queue();
+
+    /**
+     * @brief Builds On12 args; the first call uses the shared device and queue, later calls use the shared
+     *        device with a fresh queue.
+     * @return Populated D3D9ON12_ARGS.
+     */
     D3D9ON12_ARGS MakeOn12Args();
 
-    // Drain the D3D12 debug layer's stored validation messages to the log (no-op if the layer is absent).
+    /** @brief Drains the D3D12 debug layer's stored validation messages to the log, a no-op if absent. */
     void DrainDebug();
 
-    // Shared diagnostic log for the whole d3d9.dll.
+    /**
+     * @brief Writes a formatted line to the shared diagnostic log for the d3d9 proxy.
+     * @param fmt  printf-style format string followed by its arguments.
+     */
     void Log(const char* fmt, ...);
 }

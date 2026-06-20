@@ -21,6 +21,13 @@
 
 namespace wxl::core::mem
 {
+    /**
+     * @brief Copies len bytes from src into dst, toggling page protection around the write.
+     * @param dst  destination address in the client image.
+     * @param src  source bytes to copy.
+     * @param len  number of bytes to write.
+     * @return true if the write succeeded.
+     */
     bool Patch(void* dst, const void* src, size_t len)
     {
         DWORD old = 0;
@@ -31,6 +38,13 @@ namespace wxl::core::mem
         return true;
     }
 
+    /**
+     * @brief Writes len copies of value at dst.
+     * @param dst    destination address in the client image.
+     * @param value  byte to repeat.
+     * @param len    number of bytes to write.
+     * @return true if the write succeeded.
+     */
     bool Fill(void* dst, uint8_t value, size_t len)
     {
         DWORD old = 0;

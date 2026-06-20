@@ -20,10 +20,14 @@
 
 namespace
 {
+    /// One subscriber: a handler function pointer and its opaque user pointer.
     struct Sub { wxl::events::Handler fn; void* user; };
 
-    // Function-local statics: built on first use, so a script's file-scope ctor can Subscribe at DLL
-    // load regardless of translation-unit init order (no static-init-order fiasco).
+    /**
+     * @brief Returns the subscriber vector for an event, built on first use.
+     * @param e  event whose bucket is requested.
+     * @return reference to the event's subscriber vector.
+     */
     std::vector<Sub>& Bucket(wxl::events::Event e)
     {
         static std::vector<Sub> buckets[static_cast<size_t>(wxl::events::Event::Count)];
@@ -33,11 +37,22 @@ namespace
 
 namespace wxl::events
 {
+    /**
+     * @brief Appends a handler to an event's subscriber list.
+     * @param e        event to subscribe to.
+     * @param handler  function pointer invoked on Emit.
+     * @param user     opaque pointer passed back to the handler.
+     */
     void Subscribe(Event e, Handler handler, void* user)
     {
         if (e < Event::Count) Bucket(e).push_back({ handler, user });
     }
 
+    /**
+     * @brief Invokes every subscriber of an event in subscription order.
+     * @param e     event to publish.
+     * @param args  typed args struct for the event, passed by const pointer.
+     */
     void Emit(Event e, const void* args)
     {
         if (e >= Event::Count) return;

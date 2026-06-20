@@ -1,4 +1,4 @@
-// MpqStore: asset-agnostic archive I/O (StormLib). Serves raw bytes; not a translator.
+// MpqStore: asset-agnostic archive I/O over StormLib that serves raw bytes.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,32 +21,54 @@
 #include <string_view>
 #include <vector>
 
-// Asset-AGNOSTIC archive I/O. It serves raw bytes; whether a file needs reshaping is the asset handlers'
-// decision (the host stays format-blind). Per-worker instance: StormLib handles are single-thread.
+// Asset-agnostic archive I/O. Serves raw bytes; whether a file needs reshaping is the asset handlers'
+// decision and the host stays format-blind. One instance per worker, since StormLib handles are single-thread.
 namespace wxl::host::mpq
 {
+    /** @brief Mounts the client archive set and serves raw file bytes from it. */
     class MpqStore
     {
     public:
-        // Mount the client MPQ set (locale + base archives + loose Patch*.MPQ override folders).
+        /**
+         * @brief Mounts the client archive set: locale and base archives plus loose Patch*.MPQ override folders.
+         * @param dataDir  client data root
+         * @return true if at least one archive or loose root mounted
+         */
         bool Mount(std::string_view dataDir);
 
-        // True if `name` exists in any mounted archive or loose root.
+        /**
+         * @brief Reports whether `name` exists in any mounted archive or loose root.
+         * @param name  file name to check
+         * @return true if the file is present
+         */
         bool Exists(std::string_view name) const;
 
-        // Read the whole file into `out`. Returns false if absent.
+        /**
+         * @brief Reads the whole file into `out`.
+         * @param name  file name to read
+         * @param out   receives the file bytes
+         * @return false if the file is absent
+         */
         bool ReadAll(std::string_view name, std::vector<uint8_t>& out) const;
 
-        // Read a byte range (for streaming large files).
+        /**
+         * @brief Reads a byte range from the file.
+         * @param name  file name to read
+         * @param off   start offset
+         * @param len   maximum number of bytes to read
+         * @param out   receives the bytes read (clamped to file end)
+         * @return false if the file is absent
+         */
         bool ReadRange(std::string_view name, uint32_t off, uint32_t len, std::vector<uint8_t>& out) const;
 
+        /** @brief Closes all open archive handles. */
         ~MpqStore();
 
     private:
-        // Highest priority first (search order). StormLib handles still mutate on read, so mutable.
+        // Highest priority first (search order). StormLib handles mutate on read, so mutable.
         mutable std::vector<void*> m_archives;     // StormLib HANDLEs
-        std::vector<std::string>   m_archiveNames; // parallel, for logging
+        std::vector<std::string>   m_archiveNames; // parallel to m_archives, for logging
         std::vector<std::string>   m_looseRoots;   // absolute folder paths, trailing slash
-        std::string                m_locale;
+        std::string                m_locale;       // detected locale folder name
     };
 }

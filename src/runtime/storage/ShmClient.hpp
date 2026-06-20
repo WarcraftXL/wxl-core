@@ -24,29 +24,85 @@
 // Thread-safe. Returns empty/false when the host is absent (the caller falls back to native I/O).
 namespace wxl::runtime::ipc
 {
-    // Launch the asset host (this module's Utils\WarcraftXLHost.exe) if not already running. Fires
-    // OnBeforeHostLaunch first; a subscriber can cancel the auto-launch. Non-blocking.
+    /**
+     * @brief Launches the asset host if not already running.
+     *
+     * Fires OnBeforeHostLaunch first; a subscriber can cancel the auto-launch. Non-blocking.
+     */
     void EnsureHostRunning();
 
-    // Block until the host mailbox exists or timeoutMs elapses. Returns true if the host is ready.
+    /**
+     * @brief Blocks until the host mailbox exists or the timeout elapses.
+     * @param timeoutMs  maximum wait in milliseconds.
+     * @return true if the host is ready.
+     */
     bool WaitForHost(uint32_t timeoutMs);
 
-    // (Re)open the host mailbox. Returns true if connected.
+    /**
+     * @brief Opens or reopens the host mailbox.
+     * @return true if connected.
+     */
     bool Connect();
+
+    /**
+     * @brief Reports whether the host mailbox is currently connected.
+     * @return true while connected.
+     */
     bool IsConnected();
 
-    // File ops served from the host archive set.
-    // ok=false: not found. ok && id==0: inline, bytes in inlineData. ok && id!=0: a shared section the
-    // client maps with MapBlob and reads directly; FileReadChunk is the fallback when mapping fails.
+    /**
+     * @brief Result of a host file open.
+     *
+     * ok=false: not found. ok && id==0: inline, bytes in inlineData. ok && id!=0: a shared section
+     * the client maps with MapBlob and reads directly; FileReadChunk is the fallback when mapping fails.
+     */
     struct FileOpenResult { bool ok; uint32_t id; uint32_t size; std::vector<uint8_t> inlineData; };
+
+    /**
+     * @brief Opens a file from the host archive set.
+     * @param name   archive-relative file name.
+     * @param flags  native open flags.
+     * @return the open result.
+     */
     FileOpenResult FileOpen(const std::string& name, uint32_t flags);
 
-    // Map the host's blob section for `id` read-only. On success sets outView/outHandle and returns true.
+    /**
+     * @brief Maps the host blob section for an id read-only.
+     * @param id         host blob id.
+     * @param size       section size to map.
+     * @param outView    receives the mapped view.
+     * @param outHandle  receives the section handle.
+     * @return true on success.
+     */
     bool MapBlob(uint32_t id, uint32_t size, void*& outView, void*& outHandle);
-    // Release a mapping from MapBlob (null-safe).
+
+    /**
+     * @brief Releases a mapping from MapBlob (null-safe).
+     * @param view    mapped view.
+     * @param handle  section handle.
+     */
     void UnmapBlob(void* view, void* handle);
-    // Read up to cap bytes at off into dst (one round trip, capped at kFileChunkMax). Returns bytes copied.
+
+    /**
+     * @brief Reads up to cap bytes at an offset into dst in one round trip (capped at kFileChunkMax).
+     * @param id   host file id.
+     * @param off  byte offset to read from.
+     * @param dst  destination buffer.
+     * @param cap  maximum bytes to copy.
+     * @return bytes copied.
+     */
     uint32_t FileReadChunk(uint32_t id, uint32_t off, void* dst, uint32_t cap);
+
+    /**
+     * @brief Releases a host file id.
+     * @param id  host file id.
+     */
     void FileClose(uint32_t id);
+
+    /**
+     * @brief Tests whether a file exists in the host archive set.
+     * @param name  archive-relative file name.
+     * @return true if the host reports the file present.
+     */
     bool FileExists(const std::string& name);
 }

@@ -23,7 +23,7 @@
 // runtime object fields. Modules never include this; they use wxl::game / wxl::events.
 namespace wxl::offsets::game::wmo
 {
-    // --- load (down-convert buffers before the native parse) ---
+    // --- load (rewrite buffers before the native parse) ---
     // Root read-completion callback (root): fires once after the async read fills the root buffer and
     // before the chunk walker runs.
     constexpr uintptr_t kRootComplete = 0x007D8050;

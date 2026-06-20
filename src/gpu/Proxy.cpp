@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// The client LoadLibrary's "d3d9.dll" from its own folder first, so this proxy loads instead of the system one.
+// The client LoadLibrary's "d3d9.dll" from its own folder first, so this proxy loads ahead of the system one.
 
 #include <windows.h>
 #include <d3d9.h>
@@ -35,9 +35,13 @@ namespace
     Create9On12Fn   g_realCreate9On12   = nullptr;
     Create9On12ExFn g_realCreate9On12Ex = nullptr;
 
-    // Load the real d3d9 from the system directory. A loaded module is keyed by full path, so the system
-    // d3d9.dll is a distinct module from this proxy even though both share the base name, and no renamed
-    // copy needs shipping. Falls back to a local d3d9_real.dll only if the system load fails.
+    /**
+     * @brief Loads the real d3d9 from the system directory, falling back to a local d3d9_real.dll.
+     *
+     * A loaded module is keyed by full path, so the system d3d9.dll is a distinct module from this proxy
+     * despite the shared base name.
+     * @return Handle to the real d3d9 module, or null on failure.
+     */
     HMODULE LoadRealD3D9()
     {
         char path[MAX_PATH];
@@ -50,6 +54,7 @@ namespace
         return LoadLibraryA("d3d9_real.dll");
     }
 
+    /** @brief Lazily loads the real d3d9 and resolves its create entry points on first use. */
     void EnsureReal()
     {
         if (g_realCreate9) return;
@@ -64,6 +69,11 @@ namespace
     }
 }
 
+/**
+ * @brief Proxy entry point for Direct3DCreate9 that routes through On12 and wraps the factory.
+ * @param sdkVersion  D3D SDK version passed by the caller.
+ * @return Wrapped IDirect3D9 on the On12 path, the native factory on fallback, or null on failure.
+ */
 extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
 {
     EnsureReal();
@@ -78,6 +88,12 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
     return g_realCreate9 ? g_realCreate9(sdkVersion) : nullptr;
 }
 
+/**
+ * @brief Proxy entry point for Direct3DCreate9Ex that routes through On12 and wraps the factory.
+ * @param sdkVersion  D3D SDK version passed by the caller.
+ * @param out         receives the wrapped IDirect3D9Ex.
+ * @return S_OK on success, or the fallback create result.
+ */
 extern "C" HRESULT WINAPI Direct3DCreate9Ex(UINT sdkVersion, IDirect3D9Ex** out)
 {
     EnsureReal();
@@ -96,22 +112,35 @@ extern "C" HRESULT WINAPI Direct3DCreate9Ex(UINT sdkVersion, IDirect3D9Ex** out)
     return g_realCreate9Ex ? g_realCreate9Ex(sdkVersion, out) : E_NOINTERFACE;
 }
 
-// Exposed to WarcraftXL.dll: the shared D3D12 device + queue that back On12. A D3D12 backend must render
-// on THIS device/queue (the one On12 uses) so the unwrap/return of the engine's surfaces is valid.
+/**
+ * @brief Returns the shared D3D12 device that backs On12, exposed to WarcraftXL.dll.
+ * @return The shared device.
+ */
 extern "C" __declspec(dllexport) ID3D12Device* WxlD3D12Device()
 {
     return wxl::gpu::Device();
 }
+
+/**
+ * @brief Returns the shared render queue that backs On12, exposed to WarcraftXL.dll.
+ * @return The shared command queue.
+ */
 extern "C" __declspec(dllexport) ID3D12CommandQueue* WxlD3D12Queue()
 {
     return wxl::gpu::Queue();
 }
-// Diagnostic: flush the D3D12 debug-layer validation messages to the proxy log (no-op unless built -DWXL_D3D12_DEBUG).
+
+/** @brief Flushes the D3D12 debug-layer validation messages to the proxy log. */
 extern "C" __declspec(dllexport) void WxlD3D12DrainDebug()
 {
     wxl::gpu::DrainDebug();
 }
 
+/**
+ * @brief Loads the real d3d9 on process attach.
+ * @param reason  DLL notification reason.
+ * @return TRUE.
+ */
 BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_ATTACH)

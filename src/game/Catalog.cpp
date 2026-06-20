@@ -28,6 +28,7 @@
 
 namespace wxl::game
 {
+    /** @brief Registers every binding set's catalog entries. */
     void RegisterAllBindings()
     {
         adt::RegisterCatalog();

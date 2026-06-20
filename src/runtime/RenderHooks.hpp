@@ -16,10 +16,13 @@
 
 #pragma once
 
-// The core owns the dangerous detours and republishes them as clean events. Install once after the
-// graphics device is up; the MinHook function detours are armed by the caller's EnableAll() afterwards.
-// Emits OnM2BatchDraw, OnEndScene, OnFrame, OnWorldRenderEnd.
 namespace wxl::runtime::render
 {
+    /**
+     * @brief Installs the render-pipeline detours that republish render events.
+     *
+     * Emits OnM2BatchDraw, OnEndScene, OnFrame and OnWorldRenderEnd. Call once after the graphics
+     * device is up; the function detours are armed by the caller's EnableAll() afterwards.
+     */
     void Install();
 }

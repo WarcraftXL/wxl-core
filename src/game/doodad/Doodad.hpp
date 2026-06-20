@@ -24,8 +24,12 @@
 #include "offsets/game/ADT.hpp"
 #include "offsets/game/Doodad.hpp"
 
-// Walks the placed-doodad list of the player's current chunk and reads or moves a doodad's world placement. 
-// Pointer reads are range-guarded and the walk is bounded, so a stale/odd list degrades to a short list instead of a crash.
+/**
+ * @brief Walks the placed-doodad list of the player's current chunk and reads or moves a doodad's world placement.
+ *
+ * Pointer reads are range-guarded and the walk is bounded, so a stale or odd list degrades to a short list
+ * instead of a crash.
+ */
 namespace wxl::game::doodad
 {
     namespace off  = wxl::offsets::game::doodad;
@@ -33,15 +37,24 @@ namespace wxl::game::doodad
 
     namespace detail
     {
-        // Coarse user-space pointer sanity (the client is a 32-bit fixed-base image).
+        /**
+         * @brief Reports coarse user-space pointer sanity for a 32-bit fixed-base image.
+         * @param p  Pointer to test.
+         * @return True when the address falls in the plausible user range.
+         */
         inline bool Plausible(const void* p)
         {
             const uintptr_t a = reinterpret_cast<uintptr_t>(p);
             return a > 0x10000 && a < 0x7FFF0000;
         }
 
-        // [p, p+n) is committed and accessible with one of the given page protections. Used to keep an
-        // imperfect list walk from ever dereferencing an unmapped address.
+        /**
+         * @brief Reports whether [p, p+n) is committed and accessible with one of the given page protections.
+         * @param p      Start address.
+         * @param n      Byte count.
+         * @param allow  Bitmask of accepted page protection flags.
+         * @return True when the range is committed and matches an allowed protection.
+         */
         inline bool Accessible(const void* p, size_t n, DWORD allow)
         {
             if (!Plausible(p)) return false;
@@ -53,26 +66,52 @@ namespace wxl::game::doodad
             const uintptr_t end = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
             return reinterpret_cast<uintptr_t>(p) + n <= end;
         }
+        /**
+         * @brief Reports whether [p, p+n) is readable.
+         * @param p  Start address.
+         * @param n  Byte count.
+         * @return True when the range is committed and readable.
+         */
         inline bool Readable(const void* p, size_t n)
         {
             return Accessible(p, n, PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY);
         }
+        /**
+         * @brief Reports whether [p, p+n) is writable.
+         * @param p  Start address.
+         * @param n  Byte count.
+         * @return True when the range is committed and writable.
+         */
         inline bool Writable(const void* p, size_t n)
         {
             return Accessible(p, n, PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY);
         }
 
+        /** @brief Returns a float pointer at offset o within d. */
         inline float* F(void* d, size_t o) { return reinterpret_cast<float*>(reinterpret_cast<char*>(d) + o); }
-        // Guarded pointer read: returns null if the slot is not mapped (instead of crashing).
+        /**
+         * @brief Reads a pointer slot at offset o within d, guarded.
+         * @param d  Base object.
+         * @param o  Byte offset of the slot.
+         * @return The slot value, or null if the slot is not mapped.
+         */
         inline void* P(void* d, size_t o)
         {
             void* slot = reinterpret_cast<char*>(d) + o;
             return Readable(slot, sizeof(void*)) ? *reinterpret_cast<void**>(slot) : nullptr;
         }
 
-        // A finite world coordinate within the map bounds (rejects NaN / inf / absurd via self-compare).
+        /**
+         * @brief Reports whether a value is a finite world coordinate within the map bounds.
+         * @param v  Coordinate to test.
+         * @return True for a finite in-bounds value (self-compare rejects NaN).
+         */
         inline bool SaneCoord(float v) { return v == v && v > -64000.0f && v < 64000.0f; }
-        // The candidate points at a doodad whose position block is mapped and reads as a sane location.
+        /**
+         * @brief Reports whether a candidate points at a doodad with a mapped, sane position block.
+         * @param d  Candidate doodad pointer.
+         * @return True when the position block is mapped and reads as a sane location.
+         */
         inline bool SaneDoodad(void* d)
         {
             return Readable(d, off::kPosZ + sizeof(float)) && SaneCoord(*F(d, off::kPosX))
@@ -80,15 +119,31 @@ namespace wxl::game::doodad
         }
     }
 
-    // A still-live doodad: its position block is mapped and reads as a sane world location.
+    /**
+     * @brief Reports whether a doodad is still live (position block mapped and a sane world location).
+     * @param d  Doodad pointer.
+     * @return True when the doodad reads as valid.
+     */
     inline bool IsValid(void* d) { return detail::SaneDoodad(d); }
 
-    // The CM2 render instance the doodad draws through (doodad+0x34), or null while the model is still
-    // loading. The live world matrix the renderer reads each frame lives on this instance, not the doodad.
+    /**
+     * @brief Reads the render instance the doodad draws through (doodad+0x34).
+     * @param d  Doodad pointer.
+     * @return The render instance, or null while the model is still loading. The live world matrix the
+     *         renderer reads each frame lives on this instance, not the doodad.
+     */
     inline void* Instance(void* d) { return detail::P(d, off::kInstance); }
 
-    // The model file path of a placed doodad: instance(+0x34) -> CM2Model(+0x2c) -> inline path(+0x3c).
-    // Copies the bare filename (or full path if no separator) into out; returns false if not yet loaded.
+    /**
+     * @brief Copies the model file name of a placed doodad into out.
+     *
+     * Walks instance(+0x34) -> model(+0x2c) -> inline path(+0x3c) and copies the bare file name, or the
+     * full path when no separator is present.
+     * @param d    Doodad pointer.
+     * @param out  Destination buffer.
+     * @param cap  Capacity of out in bytes.
+     * @return True on success, false when not yet loaded or on a bad buffer.
+     */
     inline bool ModelName(void* d, char* out, size_t cap)
     {
         if (!out || cap == 0) return false;
@@ -109,18 +164,30 @@ namespace wxl::game::doodad
         return i > 0;
     }
 
-    // The runtime chunk under a world position, or null.
+    /**
+     * @brief Reads the runtime chunk under a world position.
+     * @param pos  World-space position in pos[0..2].
+     * @return The chunk, or null.
+     */
     inline void* ChunkAt(float pos[3]) { return Native<aoff::Map_GetChunkFn>(aoff::kGetChunk)(pos); }
 
-    // Append one chunk's placed doodads to out[] starting at index n; returns the new count. Walks the
-    // intrusive list (head @ +0xCC, next @ node + linkOff + 4), every read guarded so a bad list stops
-    // instead of crashing. Only CMapDoodads are in this list, so creatures never appear.
+    /**
+     * @brief Appends one chunk's placed doodads to out[] starting at index n.
+     *
+     * Walks the intrusive list (head @ +0xCC, next @ node + linkOff + 4) with every read guarded, so a
+     * bad list stops instead of crashing. Only placed map doodads are in this list, so creatures never appear.
+     * @param chunk     Chunk to enumerate.
+     * @param out       Destination array.
+     * @param n         Starting index into out.
+     * @param maxCount  Capacity of out.
+     * @return The new count.
+     */
     inline int EnumerateChunk(void* chunk, void** out, int n, int maxCount)
     {
         if (!detail::Readable(chunk, off::kChunkDoodadHead + sizeof(void*))) return n;
         const uint32_t linkOff =
             *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(chunk) + off::kChunkDoodadLinkOff);
-        if (linkOff > 0x400) return n; // a real TSLink offset is small; reject a garbage field
+        if (linkOff > 0x400) return n; // a real link offset is small; reject a garbage field
         uintptr_t node = reinterpret_cast<uintptr_t>(detail::P(chunk, off::kChunkDoodadHead));
         for (int i = 0; (node & 1) == 0 && node != 0 && i < 8192 && n < maxCount; ++i)
         {
@@ -131,14 +198,28 @@ namespace wxl::game::doodad
         return n;
     }
 
-    // Doodads of the chunk under a single world position.
+    /**
+     * @brief Collects the doodads of the chunk under a single world position.
+     * @param pos       World-space position in pos[0..2].
+     * @param out       Destination array.
+     * @param maxCount  Capacity of out.
+     * @return The doodad count.
+     */
     inline int EnumerateAt(float pos[3], void** out, int maxCount)
     {
         return EnumerateChunk(ChunkAt(pos), out, 0, maxCount);
     }
 
-    // Doodads of the 3x3 grid of chunks around a center, so a cursor pick finds doodads in the
-    // neighbouring chunks too. step ~= one chunk (33.33 yd). Returns the count.
+    /**
+     * @brief Collects the doodads of the 3x3 grid of chunks around a center.
+     *
+     * Enumerating the neighbouring chunks lets a cursor pick find doodads near the edges.
+     * @param center    World-space center in center[0..2].
+     * @param step      Grid spacing, about one chunk (33.33 yd).
+     * @param out       Destination array.
+     * @param maxCount  Capacity of out.
+     * @return The doodad count.
+     */
     inline int EnumerateAround(float center[3], float step, void** out, int maxCount)
     {
         void* seen[16]; int seenN = 0, n = 0;
@@ -158,6 +239,11 @@ namespace wxl::game::doodad
         return n;
     }
 
+    /**
+     * @brief Reads a doodad's world position, or zeros when the block is not mapped.
+     * @param d    Doodad pointer.
+     * @param out  Receives the position in out[0..2].
+     */
     inline void Position(void* d, float out[3])
     {
         if (!detail::Readable(d, off::kScale + sizeof(float))) { out[0] = out[1] = out[2] = 0.0f; return; }
@@ -166,13 +252,22 @@ namespace wxl::game::doodad
         out[2] = *detail::F(d, off::kPosZ);
     }
 
+    /**
+     * @brief Reads a doodad's scale.
+     * @param d  Doodad pointer.
+     * @return The scale, or 1.0 when the field is not mapped.
+     */
     inline float Scale(void* d)
     {
         return detail::Readable(d, off::kScale + sizeof(float)) ? *detail::F(d, off::kScale) : 1.0f;
     }
 
-    // The cursor-pick target: the world bounding-sphere center, falling back to the origin if that
-    // field reads unmapped or implausibly far from the origin.
+    /**
+     * @brief Reads the cursor-pick target: the world bounding-sphere center.
+     * @param d    Doodad pointer.
+     * @param out  Receives the center in out[0..2], falling back to the position when that field reads
+     *             unmapped or implausibly far from the position.
+     */
     inline void Center(void* d, float out[3])
     {
         float pos[3];
@@ -192,7 +287,13 @@ namespace wxl::game::doodad
         out[0] = pos[0]; out[1] = pos[1]; out[2] = pos[2];
     }
 
-    // The doodad's world-space bounding box (min, max). Returns false if the block is not mapped.
+    /**
+     * @brief Reads the doodad's world-space bounding box.
+     * @param d   Doodad pointer.
+     * @param mn  Receives the box minimum in mn[0..2].
+     * @param mx  Receives the box maximum in mx[0..2].
+     * @return True on success, false when the block is not mapped.
+     */
     inline bool BBox(void* d, float mn[3], float mx[3])
     {
         if (!detail::Readable(d, off::kBBoxMaxZ + sizeof(float))) return false;
@@ -201,8 +302,12 @@ namespace wxl::game::doodad
         return true;
     }
 
-    // The live world matrix the renderer reads each frame: instance(+0x34) + 0xb4 (16 floats, row-major
-    // D3D row-vector, translation in row 3 = m[12..14]). False if the model is not loaded / not mapped.
+    /**
+     * @brief Reads the live world matrix the renderer reads each frame: instance(+0x34) + 0xb4.
+     * @param d  Doodad pointer.
+     * @param m  Receives 16 floats, row-major D3D row-vector with translation in row 3 (m[12..14]).
+     * @return True on success, false when the model is not loaded or not mapped.
+     */
     inline bool WorldMatrix(void* d, float m[16])
     {
         void* inst = Instance(d);
@@ -213,9 +318,15 @@ namespace wxl::game::doodad
         return true;
     }
 
-    // Replace the whole world transform from a gizmo-edited matrix. The render-critical write is the CM2
-    // instance matrix (+0xb4); the doodad-side staging copies (+0xd8 / +0x6c) are mirrored so the editor's
-    // source of truth and any later save stay consistent. Without the instance write nothing moves.
+    /**
+     * @brief Replaces the whole world transform from an edited matrix.
+     *
+     * The render-critical write is the instance matrix (+0xb4); the doodad-side staging copies
+     * (+0xd8 / +0x6c) are mirrored so the editor's source of truth and any later save stay consistent.
+     * Without the instance write nothing moves.
+     * @param d  Doodad pointer.
+     * @param m  Source matrix of 16 floats, row-major.
+     */
     inline void SetWorldMatrix(void* d, const float m[16])
     {
         void* inst = Instance(d);
@@ -232,8 +343,13 @@ namespace wxl::game::doodad
         }
     }
 
-    // Move a doodad (translate only): rewrite the translation row of the live instance matrix, mirror it into
-    // the doodad staging fields. The instance write is what actually moves the model.
+    /**
+     * @brief Moves a doodad (translate only) by rewriting the translation row of the live instance matrix.
+     *
+     * The change is mirrored into the doodad staging fields. The instance write is what actually moves the model.
+     * @param d  Doodad pointer.
+     * @param p  New world position in p[0..2].
+     */
     inline void SetPosition(void* d, const float p[3])
     {
         void* inst = Instance(d);
@@ -257,6 +373,7 @@ namespace wxl::game::doodad
         }
     }
 
+    /** @brief Adds the doodad bindings to the enumerable catalog. */
     inline void RegisterCatalog()
     {
         Register({ "Doodad::ChunkAt", aoff::kGetChunk, "void*(float pos[3]) - chunk holding doodads" });

@@ -1,4 +1,4 @@
-// ADT game bindings: typed wrappers over the client's terrain functions, curated by hand.
+// ADT game bindings: typed inline wrappers over the client's terrain functions.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,26 +21,41 @@
 #include "game/Binding.hpp"
 #include "offsets/game/ADT.hpp"
 
-// Curated ADT bindings. A module writes wxl::game::adt::GetChunk(pos) instead of casting an address.
-// The wrappers are inline typed calls (zero overhead); RegisterCatalog() adds the names to the
-// enumerable catalog for tooling and the future scripting bridge.
+/**
+ * @brief Typed inline wrappers over the client terrain functions, exposed as the ADT binding catalog.
+ */
 namespace wxl::game::adt
 {
     namespace off = wxl::offsets::game::adt;
 
-    // Chunk lookup (pos) -> runtime chunk object, or null when that chunk is not parsed yet.
+    /**
+     * @brief Looks up the runtime chunk object at a world position.
+     * @param pos  World-space position pointer.
+     * @return The chunk object, or null when that chunk is not parsed yet.
+     */
     inline void* GetChunk(float* pos)
     {
         return Native<off::Map_GetChunkFn>(off::kGetChunk)(pos);
     }
 
-    // Count placed-object children still loading that overlap the chunk box.
+    /**
+     * @brief Counts placed-object children still loading that overlap the chunk box.
+     * @param chunk        Chunk object to test.
+     * @param progressOut  Receives the loaded-object progress count.
+     * @param total        Total object count to measure progress against.
+     * @return The count of overlapping children still loading.
+     */
     inline int NearObjectCount(void* chunk, int* progressOut, int total)
     {
         return Native<off::Map_NearObjectCountFn>(off::kNearObjectCount)(chunk, progressOut, total);
     }
 
-    // Read a tile-slot pointer from the X-major tile grid. Null when out of range.
+    /**
+     * @brief Reads a tile-slot pointer from the X-major tile grid.
+     * @param tileX  Tile X index.
+     * @param tileY  Tile Y index.
+     * @return The tile-slot pointer, or null when out of range.
+     */
     inline void* TileSlot(uint32_t tileX, uint32_t tileY)
     {
         if (tileX >= off::kTileGridDim || tileY >= off::kTileGridDim)
@@ -48,7 +63,7 @@ namespace wxl::game::adt
         return *reinterpret_cast<void**>(off::kTileSlots + (tileX * off::kTileGridDim + tileY) * off::kTileSlotStride);
     }
 
-    // Add the ADT bindings to the enumerable catalog (cold, at startup).
+    /** @brief Adds the ADT bindings to the enumerable catalog. */
     inline void RegisterCatalog()
     {
         Register({ "ADT::GetChunk",        off::kGetChunk,        "void*(float* pos)" });

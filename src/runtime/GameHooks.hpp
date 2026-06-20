@@ -16,10 +16,13 @@
 
 #pragma once
 
-// Function-entry detours into game logic, republished as events. Installs the MinHook detours; the
-// caller runs hook::EnableAll() once after every installer. Emits OnModelLoad (and, as their RE lands,
-// OnDoodadSpawn / OnWorldEnter / OnWorldLeave / OnTextureUpload / OnAdtChunkBuild).
 namespace wxl::runtime::game
 {
+    /**
+     * @brief Installs the function-entry detours that republish game-logic events.
+     *
+     * Emits OnModelLoad, OnDoodadSpawn, OnWorldEnter, OnWorldLeave, OnTextureUpload and
+     * OnAdtChunkBuild. The caller runs hook::EnableAll() once after every installer.
+     */
     void Install();
 }

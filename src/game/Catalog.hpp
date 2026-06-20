@@ -18,7 +18,11 @@
 
 namespace wxl::game
 {
-    // Register every binding set's catalog entries (cold, at startup). Calling is optional: the typed
-    // Native<Fn>() calls work without it; this only fills the enumerable catalog for tooling.
+    /**
+     * @brief Registers every binding set's catalog entries.
+     *
+     * Optional: typed Native<Fn>() calls work without it; this only fills the enumerable
+     * catalog for tooling.
+     */
     void RegisterAllBindings();
 }

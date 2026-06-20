@@ -1,4 +1,4 @@
-// MEM game bindings: typed wrappers over the engine's heap allocator / free, curated by hand.
+// MEM game bindings: typed inline wrappers over the engine's heap allocator and free.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,27 +21,41 @@
 #include "game/Binding.hpp"
 #include "offsets/engine/Mem.hpp"
 
-// Curated MEM bindings. A module writes wxl::game::mem::Alloc(n) instead of casting an address.
-// Use these to allocate buffers the engine will later free itself (and vice versa). The wrappers
-// are inline typed calls (zero overhead); RegisterCatalog() adds the names to the enumerable
-// catalog for tooling and the future scripting bridge.
+/**
+ * @brief Typed inline wrappers over the engine heap allocator and free, exposed as the MEM binding catalog.
+ *
+ * Blocks allocated here are freed by the engine itself, and blocks the engine allocates can be freed here.
+ */
 namespace wxl::game::mem
 {
     namespace off = wxl::offsets::engine::mem;
 
-    // Allocate a block from the engine heap (size is rounded up internally).
+    /**
+     * @brief Allocates a block from the engine heap. Size is rounded up internally.
+     * @param size   Requested byte count.
+     * @param file   Caller file tag.
+     * @param line   Caller line tag.
+     * @param flags  Allocation flags.
+     * @return The allocated block, or null on failure.
+     */
     inline void* Alloc(uint32_t size, const char* file = "wxl", int line = 0, uint32_t flags = 0)
     {
         return Native<off::Mem_AllocFn>(off::kAlloc)(size, file, line, flags);
     }
 
-    // Free a block obtained from the engine heap.
+    /**
+     * @brief Frees a block obtained from the engine heap.
+     * @param ptr    Block to free.
+     * @param file   Caller file tag.
+     * @param line   Caller line tag.
+     * @param flags  Free flags.
+     */
     inline void Free(void* ptr, const char* file = "wxl", int line = 0, uint32_t flags = 0)
     {
         Native<off::Mem_FreeFn>(off::kFree)(ptr, file, line, flags);
     }
 
-    // Add the MEM bindings to the enumerable catalog (cold, at startup).
+    /** @brief Adds the MEM bindings to the enumerable catalog. */
     inline void RegisterCatalog()
     {
         Register({ "Mem::Alloc", off::kAlloc, "void*(size, file, line, flags)" });

@@ -29,6 +29,11 @@ namespace
     constexpr char kFuncName[] = "WarcraftXL";
     constexpr char kTagSection[] = ".wxl";
 
+    /**
+     * @brief Reads an entire file into a byte buffer.
+     * @param path  file path to read.
+     * @return File contents, or an empty buffer on failure.
+     */
     std::vector<uint8_t> ReadAll(const char* path)
     {
         std::vector<uint8_t> data;
@@ -43,6 +48,12 @@ namespace
         return data;
     }
 
+    /**
+     * @brief Writes a byte buffer to a file, overwriting any existing contents.
+     * @param path  file path to write.
+     * @param data  bytes to write.
+     * @return True on success, false if the file cannot be opened.
+     */
     bool WriteAll(const char* path, const std::vector<uint8_t>& data)
     {
         FILE* f = nullptr;
@@ -53,6 +64,13 @@ namespace
     }
 }
 
+/**
+ * @brief Patches the target PE: sets large-address-aware, runs every registered PatchScript, and adds the
+ *        WarcraftXL import, writing a backup of the original.
+ * @param argc  argument count.
+ * @param argv  argument values; argv[1] is the target path, defaulting to "Wow.exe".
+ * @return 0 on success, 1 on failure.
+ */
 int main(int argc, char** argv)
 {
     setvbuf(stdout, nullptr, _IONBF, 0);

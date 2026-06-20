@@ -25,20 +25,26 @@
 #include "runtime/RenderHooks.hpp"
 #include "runtime/storage/StorageHook.hpp"
 
-// IAT anchor: the patcher adds an import of this symbol so the loader maps the DLL.
+/** 
+ * @brief IAT anchor; the patcher imports this symbol so the loader maps the DLL.
+ */
 extern "C" __declspec(dllexport) void WarcraftXL() {}
 
 namespace
 {
     constexpr int kDeviceWaitTicks = 600; // ~60 s at 100 ms
 
+    /**
+     * @brief Waits for the graphics device, then installs every detour and enables all hooks.
+     * @return thread exit code (0).
+     */
     DWORD WINAPI MainThread(LPVOID)
     {
         wxl::runtime::storage::Install();
 
-        // Wait for the graphics device (and hence the window), then install every detour that publishes the
-        // events the runtime scripts subscribe to (the scripts themselves registered at load time). The
-        // MinHook function detours are enabled in one batch after all installers have registered.
+        // Wait for the graphics device (and the window) before installing detours that publish the
+        // events the runtime scripts subscribed to at load time. The detours are enabled in one batch
+        // after all installers have registered.
         for (int i = 0; i < kDeviceWaitTicks && !wxl::game::gx::RawDevice(); ++i)
             Sleep(100);
 
@@ -52,6 +58,12 @@ namespace
     }
 }
 
+/**
+ * @brief DLL entry point; on process attach opens the log, inits hooks, and spawns the main thread.
+ * @param module  DLL module handle.
+ * @param reason  reason code for the call.
+ * @return TRUE to keep the DLL loaded.
+ */
 BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID)
 {
     if (reason == DLL_PROCESS_ATTACH)

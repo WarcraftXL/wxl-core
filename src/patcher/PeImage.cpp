@@ -1,4 +1,4 @@
-// PeImage: the in-memory 32-bit PE a PatchScript edits through (the patcher toolbox).
+// PeImage: in-memory 32-bit PE buffer with byte and structural edit operations.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,8 +21,19 @@
 
 namespace
 {
+    /**
+     * @brief Rounds a value up to the next multiple of an alignment.
+     * @param v  value to align.
+     * @param a  alignment, a power of two.
+     * @return v rounded up to a multiple of a.
+     */
     uint32_t AlignUp(uint32_t v, uint32_t a) { return (v + a - 1) & ~(a - 1); }
 
+    /**
+     * @brief Returns the NT headers within a PE byte buffer.
+     * @param b  PE file contents.
+     * @return Pointer to the NT headers.
+     */
     IMAGE_NT_HEADERS32* Nt(std::vector<uint8_t>& b)
     {
         auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(b.data());
@@ -32,6 +43,10 @@ namespace
 
 namespace wxl::patcher
 {
+    /**
+     * @brief Returns true when the buffer is a 32-bit PE with sane headers.
+     * @return True if the DOS, NT, and optional-header signatures are valid.
+     */
     bool PeImage::valid() const
     {
         if (bytes_.size() < sizeof(IMAGE_DOS_HEADER)) return false;
@@ -43,6 +58,10 @@ namespace wxl::patcher
             && nt->OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC;
     }
 
+    /**
+     * @brief Returns the image's preferred load base address.
+     * @return The optional header's ImageBase.
+     */
     uint32_t PeImage::imageBase() const
     {
         auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(bytes_.data());
@@ -50,6 +69,11 @@ namespace wxl::patcher
         return nt->OptionalHeader.ImageBase;
     }
 
+    /**
+     * @brief Maps a virtual address to a file offset.
+     * @param va  virtual address to resolve.
+     * @return File offset, or 0 if the address is not backed by a section.
+     */
     uint32_t PeImage::VaToOffset(uint32_t va) const
     {
         auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(bytes_.data());
@@ -66,6 +90,13 @@ namespace wxl::patcher
         return 0;
     }
 
+    /**
+     * @brief Overwrites bytes at a virtual address.
+     * @param va   target virtual address.
+     * @param src  source bytes to copy.
+     * @param len  number of bytes to write.
+     * @return True on success, false if the address is not mapped to file bytes.
+     */
     bool PeImage::WriteVa(uint32_t va, const void* src, uint32_t len)
     {
         uint32_t off = VaToOffset(va);
@@ -74,6 +105,11 @@ namespace wxl::patcher
         return true;
     }
 
+    /**
+     * @brief Reports whether a section with the given name exists.
+     * @param name  section name, compared up to 8 chars.
+     * @return True if a matching section is present.
+     */
     bool PeImage::HasSection(const char* name) const
     {
         auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(bytes_.data());
@@ -86,15 +122,26 @@ namespace wxl::patcher
         return false;
     }
 
+    /**
+     * @brief Sets the LARGE_ADDRESS_AWARE flag, granting the 32-bit image the full 4 GB address space.
+     * @return True on success.
+     */
     bool PeImage::SetLargeAddressAware()
     {
         Nt(bytes_)->FileHeader.Characteristics |= IMAGE_FILE_LARGE_ADDRESS_AWARE;
         return true;
     }
 
+    /**
+     * @brief Appends an import of dll!func through a new section tagged tagSection.
+     * @param dll         imported module name.
+     * @param func        imported function name.
+     * @param tagSection  name of the section that carries the new import.
+     * @return True on success; a no-op returning true if tagSection already exists.
+     */
     bool PeImage::AddImport(const char* dll, const char* func, const char* tagSection)
     {
-        if (HasSection(tagSection)) return true; // already added
+        if (HasSection(tagSection)) return true; // already present
 
         IMAGE_NT_HEADERS32* nt = Nt(bytes_);
         IMAGE_FILE_HEADER&      fh = nt->FileHeader;

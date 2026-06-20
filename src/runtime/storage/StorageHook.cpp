@@ -32,12 +32,15 @@ namespace ipc = wxl::runtime::ipc;
 
 namespace
 {
-    // Synthetic file handle, native 0x30-byte file layout. magic at +0x00 (a native handle holds a small
-    // kind there) marks ours; +0x14/+0x18/+0x1c match the native size/buffer/position fields the engine
-    // may read.
+    // Marks a synthetic handle at +0x00 (a native handle holds a small kind there).
     constexpr uint32_t kHandleMagic = 0x464C5857; // 'WXLF'
 
 #pragma pack(push, 1)
+    /**
+     * @brief Synthetic file handle matching the native 0x30-byte file layout.
+     *
+     * The +0x14/+0x18/+0x1c fields match the native size/buffer/position fields the engine may read.
+     */
     struct HostFile
     {
         uint32_t magic;        // +0x00  kHandleMagic
@@ -56,6 +59,11 @@ namespace
 #pragma pack(pop)
     static_assert(sizeof(HostFile) == 0x30, "HostFile must match the native 0x30 file layout");
 
+    /**
+     * @brief Reports whether a handle is a synthetic host handle.
+     * @param h  handle to test.
+     * @return true when the handle carries kHandleMagic.
+     */
     bool IsOurs(void* h)
     {
         return h && *reinterpret_cast<uint32_t*>(h) == kHandleMagic;
@@ -72,6 +80,12 @@ namespace
     uint32_t g_missed = 0; // host connected but file not served (read natively)
     uint32_t g_opens  = 0; // intercept attempts
 
+    /**
+     * @brief Tests case-insensitively whether a string ends with a suffix.
+     * @param s       string to test.
+     * @param suffix  suffix to match.
+     * @return true when s ends with suffix.
+     */
     bool EndsWithCI(const char* s, const char* suffix)
     {
         size_t ls = strlen(s), lf = strlen(suffix);
@@ -81,7 +95,13 @@ namespace
         return true;
     }
 
-    // Names routed to the host. Skips .pub/.url (engine existence probes, never archive content).
+    /**
+     * @brief Reports whether a name is routed to the host.
+     *
+     * Skips .pub/.url, which are existence probes rather than archive content.
+     * @param name  file name to test.
+     * @return true when the name should be served from the host.
+     */
     bool ShouldIntercept(const char* name)
     {
         if (!name || name[0] == '\0') return false;
@@ -89,6 +109,11 @@ namespace
         return true;
     }
 
+    /**
+     * @brief Duplicates a null-terminated string into a malloc'd buffer.
+     * @param s  source string.
+     * @return the duplicated string, or null on allocation failure.
+     */
     char* DupName(const char* s)
     {
         size_t n = strlen(s) + 1;
@@ -97,8 +122,14 @@ namespace
         return p;
     }
 
-    // Serve from the host for both open entry points. Returns true and fills *out with a synthetic handle on
-    // a host hit; false lets the native open run.
+    /**
+     * @brief Attempts to serve an open from the host, building a synthetic handle on a hit.
+     * @param archive  archive object; specific-archive opens (non-null) stay native.
+     * @param name     file name.
+     * @param flags    native open flags.
+     * @param out      receives the synthetic handle on a host hit.
+     * @return true on a host hit, false to let the native open run.
+     */
     bool TryServe(void* archive, const char* name, uint32_t flags, void** out)
     {
         // Specific-archive opens (archive != null) stay native.
@@ -185,18 +216,40 @@ namespace
         return false;
     }
 
+    /**
+     * @brief Detours the first archive open entry point, serving from the host when possible.
+     * @param archive  archive object.
+     * @param name     file name.
+     * @param flags    native open flags.
+     * @param out      receives the resulting handle.
+     * @return 1 on a host hit, otherwise the native open result.
+     */
     int __stdcall OpenDetour(void* archive, const char* name, uint32_t flags, void** out)
     {
         if (TryServe(archive, name, flags, out)) return 1;
         return g_origOpen(archive, name, flags, out);
     }
 
+    /**
+     * @brief Detours the second archive open entry point, serving from the host when possible.
+     * @param archive  archive object.
+     * @param name     file name.
+     * @param flags    native open flags.
+     * @param out      receives the resulting handle.
+     * @return 1 on a host hit, otherwise the native open result.
+     */
     int __stdcall Open2Detour(void* archive, const char* name, uint32_t flags, void** out)
     {
         if (TryServe(archive, name, flags, out)) return 1;
         return g_origOpen2(archive, name, flags, out);
     }
 
+    /**
+     * @brief Detours file size, returning the host file size for synthetic handles.
+     * @param handle    file handle.
+     * @param sizeHigh  receives the high 32 bits (always 0 for host handles).
+     * @return the low 32 bits of the file size.
+     */
     uint32_t __stdcall SizeDetour(void* handle, uint32_t* sizeHigh)
     {
         if (IsOurs(handle))
@@ -207,6 +260,16 @@ namespace
         return g_origSize(handle, sizeHigh);
     }
 
+    /**
+     * @brief Detours file read, copying from the buffer or streaming chunks for synthetic handles.
+     * @param handle  file handle.
+     * @param dst     destination buffer.
+     * @param len     requested byte count.
+     * @param read    receives the bytes copied.
+     * @param ovl     native overlapped parameter.
+     * @param unk     native read parameter.
+     * @return 1 when the full request was satisfied, otherwise 0.
+     */
     int __stdcall ReadDetour(void* handle, void* dst, uint32_t len, uint32_t* read, void* ovl, uint32_t unk)
     {
         if (IsOurs(handle))
@@ -239,6 +302,14 @@ namespace
         return g_origRead(handle, dst, len, read, ovl, unk);
     }
 
+    /**
+     * @brief Detours file seek, clamping the position within the host file for synthetic handles.
+     * @param handle    file handle.
+     * @param distLow   signed seek distance.
+     * @param distHigh  receives the high 32 bits of the resulting position (always 0).
+     * @param method    seek origin: 0=begin, 1=current, 2=end.
+     * @return the resulting position.
+     */
     uint32_t __stdcall SeekDetour(void* handle, int32_t distLow, uint32_t* distHigh, uint32_t method)
     {
         if (IsOurs(handle))
@@ -255,6 +326,11 @@ namespace
         return g_origSeek(handle, distLow, distHigh, method);
     }
 
+    /**
+     * @brief Detours file close, releasing the mapping, buffer and host id for synthetic handles.
+     * @param handle  file handle.
+     * @return 1 for host handles, otherwise the native close result.
+     */
     int __stdcall CloseDetour(void* handle)
     {
         if (IsOurs(handle))
@@ -281,6 +357,9 @@ namespace
 
 namespace wxl::runtime::storage
 {
+    /**
+     * @brief Launches the host, connects best-effort, and installs the archive file-I/O detours.
+     */
     void Install()
     {
         // Launch the host (if installed) and connect best-effort. Absent host: the hooks fall through to

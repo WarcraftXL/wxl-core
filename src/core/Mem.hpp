@@ -19,12 +19,24 @@
 #include <cstddef>
 #include <cstdint>
 
-// Live byte patching of the client image. Used by runtime fixups and by patcher-style hot edits.
+/// Live byte patching of the client image.
 namespace wxl::core::mem
 {
-    // Copy `len` bytes from `src` into `dst`, toggling page protection around the write.
+    /**
+     * @brief Copies len bytes from src into dst, toggling page protection around the write.
+     * @param dst  destination address in the client image.
+     * @param src  source bytes to copy.
+     * @param len  number of bytes to write.
+     * @return true if the write succeeded.
+     */
     bool Patch(void* dst, const void* src, size_t len);
 
-    // Write `len` copies of `value` at `dst` (e.g. fill with 0x90 NOP).
+    /**
+     * @brief Writes len copies of value at dst.
+     * @param dst    destination address in the client image.
+     * @param value  byte to repeat (0x90 fills with NOP).
+     * @param len    number of bytes to write.
+     * @return true if the write succeeded.
+     */
     bool Fill(void* dst, uint8_t value, size_t len);
 }

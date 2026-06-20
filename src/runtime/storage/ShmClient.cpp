@@ -42,7 +42,10 @@ namespace
 
     constexpr uint32_t kRequestTimeoutMs = 2000;
 
-    // Directory of this module (the DLL), i.e. the client root.
+    /**
+     * @brief Returns the directory of this module, i.e. the client root.
+     * @return the module directory, or "." when it cannot be resolved.
+     */
     std::string ModuleDir()
     {
         HMODULE hm = nullptr;
@@ -55,6 +58,9 @@ namespace
         return (slash == std::string::npos) ? std::string(".") : s.substr(0, slash);
     }
 
+    /**
+     * @brief Closes the shared section and every event pair. Caller holds g_connectMutex.
+     */
     void DisconnectLocked()
     {
         g_connected.store(false);
@@ -67,7 +73,10 @@ namespace
         if (g_shm)  { CloseHandle(g_shm); g_shm = nullptr; }
     }
 
-    // Open the shared window and all kChannels event pairs once. Guarded by g_connectMutex.
+    /**
+     * @brief Opens the shared window and all channel event pairs once. Guarded by g_connectMutex.
+     * @return true when connected (or already connected).
+     */
     bool ConnectInner()
     {
         if (g_connected.load()) return true;
@@ -102,7 +111,10 @@ namespace
         return true;
     }
 
-    // Acquire a free channel index (atomic compare-exchange); spin/yield briefly on a full pool.
+    /**
+     * @brief Acquires a free channel index, yielding while the pool is full.
+     * @return the acquired channel index.
+     */
     uint32_t AcquireChannel()
     {
         for (;;)
@@ -118,12 +130,21 @@ namespace
         }
     }
 
+    /**
+     * @brief Releases a channel back to the pool.
+     * @param i  channel index to free.
+     */
     void ReleaseChannel(uint32_t i)
     {
         g_channelBusy[i].store(false, std::memory_order_release);
     }
 
-    // Run one request on channel ch: write payload, bump reqSeq, signal, wait for response.
+    /**
+     * @brief Runs one request on a channel: write payload, bump reqSeq, signal, wait for response.
+     * @param ch   channel index.
+     * @param req  request payload.
+     * @return true when a response arrives before the timeout.
+     */
     bool SendOnChannel(uint32_t ch, const std::vector<uint8_t>& req)
     {
         if (req.size() > kChannelPayload) return false;
@@ -136,8 +157,15 @@ namespace
         return WaitForSingleObject(g_respEvent[ch], kRequestTimeoutMs) == WAIT_OBJECT_0;
     }
 
-    // Full request round-trip: connect, acquire a free channel, send, parse the response while the channel
-    // is still held (the payload lives in the shared window and is reused once released).
+    /**
+     * @brief Runs a full request round-trip: connect, acquire a channel, send, parse the response.
+     *
+     * The response is parsed while the channel is still held, since the payload lives in the shared
+     * window and is reused once released.
+     * @param req         request payload.
+     * @param onResponse  callback invoked with the response vector on success.
+     * @return true when the request completed.
+     */
     template <class Fn>
     bool Transact(const std::vector<uint8_t>& req, Fn&& onResponse)
     {
@@ -158,6 +186,9 @@ namespace
 
 namespace wxl::runtime::ipc
 {
+    /**
+     * @brief Launches the asset host if not already running, after firing OnBeforeHostLaunch.
+     */
     void EnsureHostRunning()
     {
         HANDLE existing = OpenFileMappingA(FILE_MAP_READ, FALSE, kShmName);
@@ -192,6 +223,11 @@ namespace wxl::runtime::ipc
         }
     }
 
+    /**
+     * @brief Polls for the host mailbox until it appears or the timeout elapses.
+     * @param timeoutMs  maximum wait in milliseconds.
+     * @return true if the host mailbox appeared.
+     */
     bool WaitForHost(uint32_t timeoutMs)
     {
         for (uint32_t waited = 0; waited < timeoutMs; waited += 50)
@@ -203,9 +239,17 @@ namespace wxl::runtime::ipc
         return false;
     }
 
+    /** @brief Opens or reopens the host mailbox. @return true if connected. */
     bool Connect()     { return ConnectInner(); }
+    /** @brief Reports whether the host mailbox is connected. @return true while connected. */
     bool IsConnected() { return g_connected.load(); }
 
+    /**
+     * @brief Opens a file from the host, requesting inline bytes or a shared section.
+     * @param name   archive-relative file name.
+     * @param flags  native open flags.
+     * @return the open result.
+     */
     FileOpenResult FileOpen(const std::string& name, uint32_t flags)
     {
         flexbuffers::Builder fbb;
@@ -225,6 +269,14 @@ namespace wxl::runtime::ipc
         return r;
     }
 
+    /**
+     * @brief Maps the host blob section for an id read-only.
+     * @param id         host blob id.
+     * @param size       section size to map.
+     * @param outView    receives the mapped view.
+     * @param outHandle  receives the section handle.
+     * @return true on success.
+     */
     bool MapBlob(uint32_t id, uint32_t size, void*& outView, void*& outHandle)
     {
         char nm[64];
@@ -238,12 +290,25 @@ namespace wxl::runtime::ipc
         return true;
     }
 
+    /**
+     * @brief Releases a mapping from MapBlob (null-safe).
+     * @param view    mapped view.
+     * @param handle  section handle.
+     */
     void UnmapBlob(void* view, void* handle)
     {
         if (view)   UnmapViewOfFile(view);
         if (handle) CloseHandle(static_cast<HANDLE>(handle));
     }
 
+    /**
+     * @brief Reads up to cap bytes at an offset into dst in one round trip.
+     * @param id   host file id.
+     * @param off  byte offset to read from.
+     * @param dst  destination buffer.
+     * @param cap  maximum bytes to copy (clamped to kFileChunkMax).
+     * @return bytes copied.
+     */
     uint32_t FileReadChunk(uint32_t id, uint32_t off, void* dst, uint32_t cap)
     {
         if (cap > kFileChunkMax) cap = kFileChunkMax;
@@ -263,6 +328,10 @@ namespace wxl::runtime::ipc
         return n;
     }
 
+    /**
+     * @brief Releases a host file id (fire-and-forget).
+     * @param id  host file id.
+     */
     void FileClose(uint32_t id)
     {
         flexbuffers::Builder fbb;
@@ -271,6 +340,11 @@ namespace wxl::runtime::ipc
         Transact(fbb.GetBuffer(), [](const flexbuffers::Vector&) {}); // fire-and-forget release
     }
 
+    /**
+     * @brief Tests whether a file exists in the host archive set.
+     * @param name  archive-relative file name.
+     * @return true if the host reports the file present.
+     */
     bool FileExists(const std::string& name)
     {
         flexbuffers::Builder fbb;

@@ -18,12 +18,16 @@
 
 #include <d3d12.h>
 
-// The d3d9.dll proxy carries the d3d9 entry points (Direct3DCreate9/Ex) and these private exports that
-// hand the shared D3D12 device + queue (the ones On12 runs on) to WarcraftXL.dll, so a future D3D12
-// backend renders on the same queue as the engine.
+// Private exports of the d3d9.dll proxy that hand the shared D3D12 device and queue (the ones On12 runs
+// on) to WarcraftXL.dll, so a D3D12 backend renders on the same queue as the engine.
 extern "C"
 {
+    /** @brief Returns the shared D3D12 device backing On12. @return The shared device. */
     __declspec(dllimport) ID3D12Device*       WxlD3D12Device();
+
+    /** @brief Returns the shared render queue backing On12. @return The shared command queue. */
     __declspec(dllimport) ID3D12CommandQueue* WxlD3D12Queue();
+
+    /** @brief Flushes the D3D12 debug-layer validation messages to the proxy log. */
     __declspec(dllimport) void                WxlD3D12DrainDebug();
 }

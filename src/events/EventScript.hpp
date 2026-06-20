@@ -18,26 +18,30 @@
 
 #include "events/Event.hpp"
 
-// A runtime script subclasses EventScript and, in its ctor, binds member functions to events with
-// on<&Self::method>(Event::X). The bind is a non-capturing trampoline (a plain function pointer), so
-// the event bus stays POD-dispatch with no std::function on the path. Each handler is a typed member:
-//   void onFrame(const events::FrameArgs& a);
+/// A runtime script subclasses EventScript and, in its ctor, binds member functions to events with
+/// on<&Self::method>(Event::X). The bind is a non-capturing trampoline (a plain function pointer), so
+/// the event bus stays POD-dispatch with no std::function on the path. Each handler is a typed member,
+/// e.g. void onFrame(const events::FrameArgs& a).
 namespace wxl::events
 {
     namespace detail
     {
-        // Deduce the owning class and the args type from a `void (C::*)(const A&)` member pointer.
+        /// Deduces the owning class and the args type from a void (C::*)(const A&) member pointer.
         template <class C, class A> struct MemArg { using Class = C; using Arg = A; };
         template <class C, class A> MemArg<C, A> MemArgOf(void (C::*)(const A&));
     }
 
+    /// Base class a runtime script subclasses to bind member functions as event handlers.
     class EventScript
     {
     protected:
         EventScript() = default;
         virtual ~EventScript() = default;
 
-        // Bind a member function to an event. Self and the args type are deduced from Method.
+        /**
+         * @brief Binds a member function to an event; the class and args type are deduced from Method.
+         * @param e  event to bind the member function to.
+         */
         template <auto Method>
         void on(Event e)
         {

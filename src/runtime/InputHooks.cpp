@@ -28,7 +28,12 @@ namespace
     HWND    g_hwnd        = nullptr;
     WNDPROC g_origWndProc = nullptr;
 
-    // The top-level visible window owned by this process (robust against window-class differences).
+    /**
+     * @brief Selects the top-level visible window owned by this process.
+     * @param h    candidate window handle from the enumeration.
+     * @param out  receives the matched HWND.
+     * @return FALSE to stop enumeration on a match, TRUE to continue.
+     */
     BOOL CALLBACK PickWindow(HWND h, LPARAM out)
     {
         DWORD pid = 0;
@@ -41,6 +46,10 @@ namespace
         return TRUE;
     }
 
+    /**
+     * @brief Finds the client window by enumeration, with a window-class lookup fallback.
+     * @return the window handle, or null if none is found.
+     */
     HWND FindGameWindow()
     {
         HWND h = nullptr;
@@ -49,8 +58,14 @@ namespace
         return h;
     }
 
-    // Republish every message as OnInput. If a subscriber sets handled, the message is swallowed so the
-    // game does not also act on it; otherwise it falls through to the original window procedure.
+    /**
+     * @brief Republishes every window message as OnInput, swallowing it when a subscriber sets handled.
+     * @param h  window handle.
+     * @param m  message id.
+     * @param w  message WPARAM.
+     * @param l  message LPARAM.
+     * @return 0 when the message is consumed, otherwise the original window procedure result.
+     */
     LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l)
     {
         bool handled = false;
@@ -63,6 +78,9 @@ namespace
 
 namespace wxl::runtime::input
 {
+    /**
+     * @brief Subclasses the client window and routes its messages through WndProc.
+     */
     void Install()
     {
         if (g_origWndProc) return; // already installed

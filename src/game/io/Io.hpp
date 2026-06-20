@@ -1,4 +1,4 @@
-// IO game bindings: typed wrappers over the client's archive file-I/O primitives, curated by hand.
+// IO game bindings: typed inline wrappers over the client's archive file-I/O primitives.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -21,44 +21,73 @@
 #include "game/Binding.hpp"
 #include "offsets/engine/Io.hpp"
 
-// Curated IO bindings. A module writes wxl::game::io::FileRead(...) instead of casting an address.
-// The wrappers are inline typed calls (zero overhead); RegisterCatalog() adds the names to the
-// enumerable catalog for tooling and the future scripting bridge.
+/**
+ * @brief Typed inline wrappers over the client archive file-I/O primitives, exposed as the IO binding catalog.
+ */
 namespace wxl::game::io
 {
     namespace off = wxl::offsets::engine::io;
 
-    // Open a file by name, fills outHandle; returns nonzero on success.
+    /**
+     * @brief Opens a file by name.
+     * @param name       File name to open.
+     * @param flags      Open flags.
+     * @param outHandle  Receives the open file handle.
+     * @return Nonzero on success.
+     */
     inline int FileOpen(const char* name, uint32_t flags, void** outHandle)
     {
         return Native<off::Storage_FileOpenFn>(off::kFileOpen)(nullptr, name, flags, outHandle);
     }
 
-    // Size of an open file; returns the low dword, fills sizeHigh.
+    /**
+     * @brief Reads the size of an open file.
+     * @param handle    Open file handle.
+     * @param sizeHigh  Receives the high dword of the size.
+     * @return The low dword of the size.
+     */
     inline uint32_t FileSize(void* handle, uint32_t* sizeHigh)
     {
         return Native<off::Storage_FileSizeFn>(off::kFileSize)(handle, sizeHigh);
     }
 
-    // Read len bytes into dst; fills read; returns nonzero on success.
+    /**
+     * @brief Reads len bytes from an open file into dst.
+     * @param handle  Open file handle.
+     * @param dst     Destination buffer.
+     * @param len     Byte count to read.
+     * @param read    Receives the number of bytes read.
+     * @return Nonzero on success.
+     */
     inline int FileRead(void* handle, void* dst, uint32_t len, uint32_t* read)
     {
         return Native<off::Storage_FileReadFn>(off::kFileRead)(handle, dst, len, read, nullptr, 0);
     }
 
-    // Seek by method (0=begin, 1=current, 2=end); returns the new position low dword.
+    /**
+     * @brief Seeks within an open file.
+     * @param handle    Open file handle.
+     * @param distLow   Low dword of the signed seek distance.
+     * @param distHigh  High dword of the seek distance.
+     * @param method    Seek origin (0=begin, 1=current, 2=end).
+     * @return The low dword of the new position.
+     */
     inline uint32_t FileSeek(void* handle, int32_t distLow, uint32_t* distHigh, uint32_t method)
     {
         return Native<off::Storage_FileSeekFn>(off::kFileSeek)(handle, distLow, distHigh, method);
     }
 
-    // Close an open file handle.
+    /**
+     * @brief Closes an open file handle.
+     * @param handle  Open file handle.
+     * @return Nonzero on success.
+     */
     inline int FileClose(void* handle)
     {
         return Native<off::Storage_FileCloseFn>(off::kFileClose)(handle);
     }
 
-    // Add the IO bindings to the enumerable catalog (cold, at startup).
+    /** @brief Adds the IO bindings to the enumerable catalog. */
     inline void RegisterCatalog()
     {
         Register({ "IO::FileOpen",  off::kFileOpen,  "int(name, flags, &handle)" });

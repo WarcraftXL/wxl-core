@@ -46,6 +46,82 @@ namespace wxl::game::world
         return *reinterpret_cast<int32_t*>(woff::kCurrentMapId);
     }
 
+    /**
+     * @brief Changes the terrain source to another map directory at the current position (CMap::Enter).
+     *
+     * Runs the engine's own map-change: repoints the dir/name/wdt-path globals to @p mapDir, purges all
+     * tiles, loads that map's WDT + WDL, and re-streams around the current camera. The player is not moved.
+     * @param mapDir  the map directory stem (e.g. "Azeroth", "Gilneas").
+     * @param mapId   the map id to keep (pass MapId() to preserve the logical map / gameplay).
+     */
+    inline void EnterMap(const char* mapDir, int mapId)
+    {
+        Native<woff::World_MapEnterFn>(woff::kMapEnter)(mapDir, mapId);
+    }
+
+    /**
+     * @brief Re-streams the loaded terrain tiles in place (no map reload). A dev lever to pick up changed
+     *        served bytes without relogging; the terrain phase does NOT use this (it re-enters via EnterMap).
+     *
+     * Reopens each idle tile's load gate (zero +0x80 / +0x84) so the streamer re-queues its read on the next
+     * ticks, keeping the tile object + its chunk pointers valid until the fresh read finalizes - rather than a
+     * mass purge, which would make the streamer touch a not-yet-finalized tile. Drains in-flight reads first.
+     */
+    inline void RequestTerrainReload()
+    {
+        Native<woff::World_AsyncWaitAllFn>(woff::kAsyncWaitAll)();
+
+        uint32_t node = *reinterpret_cast<uint32_t*>(woff::kActiveListHead);
+        if ((node & 1) || node == 0) return;
+        const uint32_t linkBase = *reinterpret_cast<uint32_t*>(woff::kActiveListLinkBase);
+        for (int guard = 0; (node & 1) == 0 && node != 0 && guard < 100000; ++guard)
+        {
+            const uint32_t tile = *reinterpret_cast<uint32_t*>(node + 4);
+            const uint32_t next = *reinterpret_cast<uint32_t*>(linkBase + 4 + node);
+            if (tile >= 0x00400000 && tile < 0xF0000000 &&
+                *reinterpret_cast<uint32_t*>(tile + woff::kOffTileAsyncRead) == 0) // idle: no read in flight
+            {
+                *reinterpret_cast<uint32_t*>(tile + woff::kOffTileFileBuffer) = 0; // reopen the load gate
+                *reinterpret_cast<uint32_t*>(tile + woff::kOffTileFileId)     = 0;
+            }
+            node = next;
+        }
+    }
+
+    /**
+     * @brief Activates a terrain phase: overlays a phase map's variant tiles onto the current base map.
+     *
+     * Reads the phase map's WDT present table to learn which tiles it has, then re-streams the base map so
+     * the per-tile loader serves those tiles from the phase directory (same coords) while the rest stay base.
+     * @param childMapDir  the phase map directory (e.g. "Gilneas"); null/empty is ignored (use ClearTerrainPhase).
+     */
+    void SetTerrainPhase(const char* childMapDir);
+
+    /** @brief Clears the active terrain phase (loaded tiles return to the base map on the next re-stream). */
+    void ClearTerrainPhase();
+
+    /**
+     * @brief Reads the loaded map's bare name (the stem of the served ADT files), e.g. "Azeroth".
+     * @return Pointer to the engine's map-name string (empty before a world is loaded).
+     */
+    inline const char* MapName()
+    {
+        return reinterpret_cast<const char*>(woff::kMapNameStr);
+    }
+
+    /**
+     * @brief Computes the ADT tile the focus position (player) sits on, in the filename's index order.
+     * @param first   Receives the first %d of <Map>_<first>_<second>.adt.
+     * @param second  Receives the second %d.
+     */
+    inline void CurrentTile(int& first, int& second)
+    {
+        const float px = *reinterpret_cast<float*>(woff::kFocusPosX);
+        const float py = *reinterpret_cast<float*>(woff::kFocusPosY);
+        first  = static_cast<int>((woff::kGridOriginYards - py) / woff::kTileSizeYards);
+        second = static_cast<int>((woff::kGridOriginYards - px) / woff::kTileSizeYards);
+    }
+
     /** @brief Pumps the async queues, blocking until no async file read is pending. */
     inline void AsyncWaitAll()
     {

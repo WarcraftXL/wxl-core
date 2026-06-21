@@ -22,6 +22,7 @@
 #include "game/gx/Gx.hpp"
 #include "runtime/GameHooks.hpp"
 #include "runtime/InputHooks.hpp"
+#include "runtime/PhasingHooks.hpp"
 #include "runtime/RenderHooks.hpp"
 #include "runtime/storage/StorageHook.hpp"
 
@@ -51,6 +52,7 @@ namespace
         wxl::runtime::render::Install(); // device/render events: OnEndScene, OnFrame, OnM2BatchDraw, ...
         wxl::runtime::game::Install();   // game events: OnModelLoad, ...
         wxl::runtime::input::Install();  // window events: OnInput
+        wxl::runtime::phasing::Install(); // terrain-phase per-tile loader redirect
         wxl::core::hook::EnableAll();
 
         WLOG_INFO("wxl-core ready");

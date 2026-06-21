@@ -39,10 +39,64 @@ namespace wxl::offsets::game::world
     constexpr uintptr_t kFocusPosY = 0x00CD777C;
     constexpr uintptr_t kFocusPosZ = 0x00CD7780;
 
+    // --- terrain re-stream (force a reload of the loaded ADT tiles) ---
+    // World-tick teleport/purge flag: set nonzero to make the next world tick destroy every loaded tile
+    // (the WDT-present grid is kept) and then re-stream the in-window tiles. Tile-owned objects
+    // (doodads/WMO) re-spawn. Set on the main thread between frames.
+    constexpr uintptr_t kPurgeReloadFlag = 0x00CD767C;
+    // Streaming landmarks (addresses only): the per-frame streaming tick, the all-tiles purge, the tile
+    // factory and the per-tile loader that builds <Map>_<x>_<y>.adt and queues the async read.
+    constexpr uintptr_t kStreamingTick = 0x007B5950;
+    constexpr uintptr_t kPurgeAllTiles = 0x007C3730;
+    constexpr uintptr_t kTileFactory   = 0x007D9A70;
+    constexpr uintptr_t kTileLoader    = 0x007D9A20;
+    // Purge every loaded tile (unlink + unload + destroy each, free the secondary array). No args.
+    using World_PurgeAllTilesFn = void(__cdecl*)();
+    // Single-tile unload (clears the grid slot, destroys the tile) and the tile destructor (unlinks its
+    // node, runs the destructor, frees it).
+    constexpr uintptr_t kTileUnload  = 0x007C3700;
+    constexpr uintptr_t kTileDestroy = 0x007C00A0;
+    using TileDestroyFn = void(__cdecl*)(void* tile);
+    // Async read-completion callback: finalizes the tile, frees the read context, clears the read handle.
+    constexpr uintptr_t kReadComplete = 0x007D7020;
+    using ReadCompleteFn = void(__cdecl*)(void* tile);
+
+    // Active-tiles list (intrusive TS-list): the head holds the first node value (sentinel = bit0 set);
+    // the link base holds the relative-pointer origin. Per node: tile = *(node+4); next =
+    // *(*(u32*)kActiveListLinkBase + 4 + node). Tile grid: 64x64 Tile*, slot = tile[0x4c]*64 + tile[0x48].
+    constexpr uintptr_t kActiveListHead     = 0x00ADFBF4;
+    constexpr uintptr_t kActiveListLinkBase = 0x00ADFBEC;
+    constexpr uintptr_t kTileGrid           = 0x00CE48D0;
+    // Tile fields: async read-in-flight handle (0 = idle), ADT file-buffer ptr (0 = not loaded), file id.
+    constexpr size_t kOffTileAsyncRead  = 0x70;
+    constexpr size_t kOffTileFileBuffer = 0x80;
+    constexpr size_t kOffTileFileId     = 0x84;
+    // Per-tile ADT loader: formats <dir>\<name>_<x>_<y>.adt and queues the read. Native __cdecl(tile);
+    // the tile index fields are at tile+0x48 (first %d) / tile+0x4c (second %d). Detoured for terrain phasing.
+    using TileLoaderFn = void(__cdecl*)(void* tile);
+    constexpr size_t kOffTileIdxFirst  = 0x48;
+    constexpr size_t kOffTileIdxSecond = 0x4C;
+    // Archive file-exists test. __stdcall taking two args (ret 8): (value, &pathObject), not a bare C
+    // string. Resolves against the Client's own archive/loose set only, not host-served files.
+    constexpr uintptr_t kFileExists = 0x00422170;
+    // Loader path globals: the bare map name and the "World\Maps\<Map>" dir string the per-tile loader
+    // formats into <dir>\<name>_<x>_<y>.adt. The address holds the string buffer (passed by &).
+    constexpr uintptr_t kMapNameStr = 0x00CE06D0;
+    constexpr uintptr_t kMapDirStr  = 0x00CE07D0;
+    // Terrain tile size (yards) and the grid origin (32 tiles * tile size); tile idx = (origin - world)/size.
+    constexpr float kTileSizeYards = 533.33333f;
+    constexpr float kGridOriginYards = 32.0f * kTileSizeYards;
+
     // --- current map ---
     // Numeric map id of the loaded world (int32; -1 while none). The map loader writes it before
     // CWorld::Enter returns, so it is valid at the enter hook and still valid at the leave hook.
     constexpr uintptr_t kCurrentMapId = 0x00ADFBC4;
+
+    // Map change: repoints the dir/name/wdt-path globals to <mapDir>, purges the loaded tiles, loads that
+    // map's WDT (present table) + WDL, re-streams around the current camera, and drains the pending reads.
+    // The player is not moved. mapId is written to kCurrentMapId.
+    constexpr uintptr_t kMapEnter = 0x007BFCE0;
+    using World_MapEnterFn = void(__cdecl*)(const char* mapDir, int mapId);
 
     // --- cursor world pick ---
     // CWorldFrame singleton holder: *(void**)kWorldFrame is the world frame (pass as the this/ECX).

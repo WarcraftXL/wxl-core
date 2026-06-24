@@ -31,6 +31,21 @@ namespace wxl::offsets::game::wmo
     // group sub-chunk walk.
     constexpr uintptr_t kGroupParse = 0x007D82E0;
 
+    // --- instance placement (per-instance scale) ---
+    // Spawns a placed WMO instance from one MODF record and builds its world transform. __cdecl
+    // (ctx, modf, tileOrigin, dedup); arg2 is the 0x40-byte MODF record, the return is the instance.
+    // When dedup is set and the uniqueId is already loaded it returns the existing instance instead.
+    constexpr uintptr_t kSpawnFromModf = 0x007BF460;
+    using Wmo_SpawnFromModfFn = void*(__cdecl*)(void* ctx, void* modf, const float* tileOrigin, int dedup);
+    // MODF record: u16 per-instance scale at +0x3E (factor = value/1024; 0 and 1024 both mean 1.0). The
+    // Client treats it as padding and renders every WMO at 1.0.
+    constexpr size_t kOffModfScale = 0x3E;
+    // Instance transform matrices (4x4 row-major floats): +0x70 the render rotation basis, +0xB0 the
+    // collision/portal copy. A fresh instance's basis is orthonormal; a uniform 3x3-row scale of both
+    // resizes the rendered and the collided WMO together.
+    constexpr size_t kOffInstanceRenderMatrix    = 0x70;
+    constexpr size_t kOffInstanceCollisionMatrix = 0xB0;
+
     // --- material / visibility guards ---
     // Material/texture resolver (model, materialIndex): computes the material entry and resolves its
     // texture-name offsets. It does not bounds-check materialIndex.

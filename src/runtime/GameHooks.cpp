@@ -53,6 +53,7 @@ namespace
     m2::M2_FinalizeSkinFn      g_origFinalizeSkin = nullptr;
     m2::M2_SetupBatchAlphaFn   g_origSetupAlpha   = nullptr;
     dd::SpawnFromMDDFFn        g_origDoodadSpawn  = nullptr;
+    wmo::Wmo_SpawnFromModfFn   g_origWmoSpawn     = nullptr;
     gxoff::TextureUpdateFn     g_origTexUpdate    = nullptr;
     gxoff::TextureCreateFn     g_origTexCreate    = nullptr;
     adt::Map_ChunkBuildFn      g_origChunkBuild   = nullptr;
@@ -139,6 +140,50 @@ namespace
         ev::DoodadSpawnArgs a{ doodad };
         ev::Emit(ev::Event::OnDoodadSpawn, &a);
         return doodad;
+    }
+
+    /** @brief Multiplies the upper-left 3x3 rows of a 4x4 row-major matrix by a uniform factor. */
+    void ScaleMatrixRows3x3(float* m, float s)
+    {
+        m[0] *= s; m[1] *= s; m[2]  *= s;
+        m[4] *= s; m[5] *= s; m[6]  *= s;
+        m[8] *= s; m[9] *= s; m[10] *= s;
+    }
+
+    /**
+     * @brief Detours the WMO instance spawn, applying the per-instance MODF scale the Client ignores.
+     *
+     * The Client builds the instance at scale 1.0 (MODF+0x3E is padding to it). After the native spawn,
+     * the modern scale is folded into the render matrix (+0x70). The collision/portal copy (+0xB0) is a
+     * transposed read-back the portal-visibility test reads as an inverse rotation; scaling it breaks that
+     * test and culls interior groups (the WMO goes invisible), so it is left at 1.0 (collision stays at
+     * native size). A dedup hit returns an already-scaled instance, so the scale is applied only to a
+     * freshly built instance, recognised by its still-orthonormal basis (|row0| == 1); this is reload-safe
+     * and needs no per-instance bookkeeping.
+     * @param ctx         world context.
+     * @param modf        MODF placement record.
+     * @param tileOrigin  tile world origin.
+     * @param dedup       non-zero to return an existing instance for a known uniqueId.
+     * @return the spawned (or existing) instance.
+     */
+    void* __cdecl hkWmoSpawn(void* ctx, void* modf, const float* tileOrigin, int dedup)
+    {
+        void* inst = g_origWmoSpawn(ctx, modf, tileOrigin, dedup);
+        if (!inst || !modf)
+            return inst;
+
+        const uint16_t raw = *reinterpret_cast<uint16_t*>(static_cast<uint8_t*>(modf) + wmo::kOffModfScale);
+        if (raw == 0 || raw == 1024)
+            return inst; // native / unscaled: leave the instance byte-for-byte
+        const float s = static_cast<float>(raw) / 1024.0f;
+
+        float* render = reinterpret_cast<float*>(static_cast<uint8_t*>(inst) + wmo::kOffInstanceRenderMatrix);
+        const float len2 = render[0] * render[0] + render[1] * render[1] + render[2] * render[2];
+        if (len2 < 0.9999f || len2 > 1.0001f)
+            return inst; // already scaled (a dedup hit returned an existing instance)
+
+        ScaleMatrixRows3x3(render, s);
+        return inst;
     }
 
     /**
@@ -353,6 +398,9 @@ namespace wxl::runtime::game
         wxl::core::hook::Install("DoodadSpawn", dd::kSpawnFromMDDF,
                                  reinterpret_cast<void*>(&hkDoodadSpawn),
                                  reinterpret_cast<void**>(&g_origDoodadSpawn));
+        wxl::core::hook::Install("WmoSpawn", wmo::kSpawnFromModf,
+                                 reinterpret_cast<void*>(&hkWmoSpawn),
+                                 reinterpret_cast<void**>(&g_origWmoSpawn));
         wxl::core::hook::Install("TextureUpdate", gxoff::kTextureUpdate,
                                  reinterpret_cast<void*>(&hkTexUpdate),
                                  reinterpret_cast<void**>(&g_origTexUpdate));

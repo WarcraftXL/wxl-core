@@ -54,6 +54,24 @@ namespace wxl::offsets::engine::gx
     constexpr uintptr_t kGxDeviceVTable        = 0x00A2E718; // engine graphics-device vtable base
     constexpr unsigned  kGxSetRenderTargetSlot = 23;         // SetRenderTarget(slot, rt, face)
 
+    // Engine projection upload (device vtable slot, byte 0xA0). The camera setup uploads its perspective
+    // projection -- a row-major float[16] in the SAME layout as the world camera projection global 0x00ADF628
+    // (same builder): index 0 = X scale, 5 = Y scale, 10 = z scale, 11 = 1.0 (the w=z term), 14 = z bias --
+    // straight through this slot. Hooked as an observer to snapshot the GLUE scene's projection: the glue 3D
+    // camera is not written to the world camera globals (they stay identity on the glue screens), so a
+    // depth-using effect (ambient occlusion) on the glue screens has no matrix without capturing it here.
+    constexpr unsigned  kGxSetProjectionSlot   = 0xA0 / 4;   // = 40, device projection-upload slot
+    using GxSetProjectionFn = void(__fastcall*)(void* self, void* edx, const void* proj16);
+
+    // CSimpleModelFFX::Render: the GLUE 3D-scene render callback -- the login / character-select model preview.
+    // It is the glue-side analogue of CGWorldFrame::RenderWorld (kWorldRenderFinalize): the engine defers every
+    // 3D render into a per-frame-object callback (there is no single global "3D done" point), so the world hook
+    // covers the world and THIS hook covers the glue model. Hooked at its entry and the post-process boundary is
+    // fired after the original returns (model rendered, glue UI not yet drawn). In-world it also runs for 3D UI
+    // portraits, but the world hook already claimed the boundary by then, so the shared latch makes it a no-op.
+    constexpr uintptr_t kSimpleModelFFXRender = 0x004E6190;
+    using GlueModelRenderFn = void(__cdecl*)(void* frame);
+
     // M2 triangle-batch draw (this-in-ECX). The hook reads the current model so the per-draw event
     // can name which model is rendering.
     constexpr uintptr_t kDrawTriangleBatch      = 0x008203B0;

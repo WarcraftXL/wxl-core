@@ -85,9 +85,12 @@ namespace wxl::events
      *        relative to the native backbuffer; a subscriber downsamples that surface into the native
      *        backbuffer. superSampleSource is null (and ssaaFactor 1.0) when supersampling is off. depthSource
      *        is the readable (INTZ) world depth surface (IDirect3DSurface9*) for depth-using effects, or null
-     *        when no readable depth was bound this frame.
+     *        when no readable depth was bound this frame. proj is an optional row-major float[16] projection
+     *        override (same layout as the in-world camera projection global) for depth-using effects: the world
+     *        boundary leaves it null (the subscriber reads the live world camera), while the glue boundary
+     *        passes the glue scene's projection, whose camera is not in the world camera globals.
      */
-    struct WorldRenderEndArgs { void* device; void* superSampleSource; float ssaaFactor; void* depthSource; };
+    struct WorldRenderEndArgs { void* device; void* superSampleSource; float ssaaFactor; void* depthSource; const float* proj; };
     /**
      * @brief Args for OnLiquidRender, fired before the native liquid pass draws. passType is 0 for the
      *        main pass, 1 for the secondary; instanceCount is the visible liquid instances in this pass;

@@ -351,12 +351,12 @@ namespace
      * only the node that wait is blocked on and leaves the rest, so no nested completion frees or rewrites
      * a buffer the outer build is still uploading from.
      */
-    int __cdecl hkAsyncDrain()
+    int __cdecl hkAsyncDrain(int a, int b)
     {
         if (g_drainDepth > 0)
             return adrain::DrainAwaitedOnly();
         ++g_drainDepth;
-        const int r = g_origAsyncDrain();
+        const int r = g_origAsyncDrain(a, b);
         --g_drainDepth;
         return r;
     }

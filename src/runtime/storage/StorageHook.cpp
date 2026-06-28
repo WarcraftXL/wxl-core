@@ -24,9 +24,14 @@
 #include "runtime/adt/Adt.hpp"
 
 #include <windows.h>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <unordered_set>
 
 namespace io  = wxl::offsets::engine::io;
 namespace ipc = wxl::runtime::ipc;
@@ -35,6 +40,7 @@ namespace
 {
     // Marks a synthetic handle at +0x00 (a native handle holds a small kind there).
     constexpr uint32_t kHandleMagic = 0x464C5857; // 'WXLF'
+    constexpr size_t kMaxArchiveName = 512;
 
 #pragma pack(push, 1)
     /**
@@ -82,19 +88,86 @@ namespace
     uint32_t g_missed = 0; // host connected but file not served (read natively)
     uint32_t g_opens  = 0; // intercept attempts
 
+    std::mutex g_missMutex;
+    std::unordered_set<std::string> g_knownMisses;
+    constexpr size_t kKnownMissCap = 16384;
+
     /**
      * @brief Tests case-insensitively whether a string ends with a suffix.
      * @param s       string to test.
      * @param suffix  suffix to match.
      * @return true when s ends with suffix.
      */
-    bool EndsWithCI(const char* s, const char* suffix)
+    bool EndsWithCI(std::string_view s, const char* suffix)
     {
-        size_t ls = strlen(s), lf = strlen(suffix);
+        size_t ls = s.size(), lf = strlen(suffix);
         if (lf > ls) return false;
         for (size_t i = 0; i < lf; ++i)
             if (tolower(static_cast<unsigned char>(s[ls - lf + i])) != suffix[i]) return false;
         return true;
+    }
+
+    /**
+     * @brief Returns a stable cache key for archive names that may vary by slash or case.
+     * @param name  validated archive name.
+     * @return lowercased name with forward slashes folded to backslashes.
+     */
+    std::string NameKey(std::string_view name)
+    {
+        std::string key(name);
+        for (char& c : key)
+        {
+            if (c == '/') c = '\\';
+            else c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        }
+        return key;
+    }
+
+    /**
+     * @brief Tests whether the host already reported this name absent.
+     * @param key  normalized archive name key.
+     * @return true when the name can go straight to native fallback.
+     */
+    bool KnownMiss(const std::string& key)
+    {
+        std::lock_guard<std::mutex> lock(g_missMutex);
+        return g_knownMisses.find(key) != g_knownMisses.end();
+    }
+
+    /**
+     * @brief Records a host miss, capped so pathological sessions do not grow unbounded.
+     * @param key  normalized archive name key.
+     */
+    void RememberMiss(std::string&& key)
+    {
+        std::lock_guard<std::mutex> lock(g_missMutex);
+        if (g_knownMisses.size() < kKnownMissCap)
+            g_knownMisses.insert(std::move(key));
+    }
+
+    /**
+     * @brief Copies a plausible archive path out of the native call boundary.
+     *
+     * The native open surface occasionally receives non-path sentinels or stale small integers that look
+     * like strings in the debugger/console (for example byte 0x01 renders as a smiling face on CP437).
+     * Keep those out of the host IPC path so one bogus open cannot desynchronize later requests.
+     * @param name  native name pointer
+     * @param out   receives a bounded, validated copy
+     * @return true when the bytes look like a normal archive path
+     */
+    bool CopyArchiveName(const char* name, std::string& out)
+    {
+        if (!name) return false;
+
+        out.clear();
+        for (size_t i = 0; i < kMaxArchiveName; ++i)
+        {
+            unsigned char c = static_cast<unsigned char>(name[i]);
+            if (c == '\0') return !out.empty();
+            if (c < 0x20 || c >= 0x7f) return false;
+            out.push_back(static_cast<char>(c));
+        }
+        return false;
     }
 
     /**
@@ -107,9 +180,8 @@ namespace
      * @param name  file name to test.
      * @return true when the name should be served from the host.
      */
-    bool ShouldIntercept(const char* name)
+    bool ShouldIntercept(std::string_view name)
     {
-        if (!name || name[0] == '\0') return false;
         if (EndsWithCI(name, ".pub") || EndsWithCI(name, ".url")) return false;
         if (EndsWithCI(name, ".tex") || EndsWithCI(name, "_lod.adt")) return false;
         return true;
@@ -139,12 +211,15 @@ namespace
     bool TryServe(void* archive, const char* name, uint32_t flags, void** out)
     {
         // Specific-archive opens (archive != null) stay native.
-        if (archive != nullptr || !ShouldIntercept(name)) return false;
+        std::string safeName;
+        if (archive != nullptr || !CopyArchiveName(name, safeName) || !ShouldIntercept(safeName)) return false;
+        std::string key = NameKey(safeName);
+        if (KnownMiss(key)) return false;
 
         if ((++g_opens % 2000) == 0)
             WLOG_INFO("Storage stats: opens=%u served=%u missed=%u", g_opens, g_served, g_missed);
 
-        ipc::FileOpenResult r = ipc::FileOpen(name, flags);
+        ipc::FileOpenResult r = ipc::FileOpen(safeName, flags);
         if (r.ok)
         {
             auto* f = static_cast<HostFile*>(calloc(1, sizeof(HostFile)));
@@ -153,7 +228,7 @@ namespace
                 f->magic = kHandleMagic;
                 f->size = r.size;
                 f->position = 0;
-                f->fullName = DupName(name);
+                f->fullName = DupName(safeName.c_str());
                 f->shortName = f->fullName;
 
                 bool wholeFile = (flags & io::kOpenWholeFile) != 0;
@@ -205,7 +280,7 @@ namespace
                 // the native loader sees only the ADT bytes.
                 if (ok && f->buffer && f->size)
                 {
-                    const uint32_t served = wxl::runtime::adt::IngestAdtBytes(name, f->buffer, f->size);
+                    const uint32_t served = wxl::runtime::adt::IngestAdtBytes(safeName.c_str(), f->buffer, f->size);
                     if (served < f->size) f->size = served;
                 }
 
@@ -213,7 +288,7 @@ namespace
                 {
                     if (out) *out = f;
                     if (g_served < 60)
-                        WLOG_INFO("Storage: serve '%s' (%u B, %s) from host", name, r.size, mode);
+                        WLOG_INFO("Storage: serve '%s' (%u B, %s) from host", safeName.c_str(), r.size, mode);
                     ++g_served;
                     return true;
                 }
@@ -224,7 +299,8 @@ namespace
         }
         else if (ipc::IsConnected())
         {
-            if (g_missed < 200) WLOG_INFO("Storage: MISS '%s' -> native archive", name);
+            RememberMiss(std::move(key));
+            if (g_missed < 200) WLOG_INFO("Storage: MISS '%s' -> native archive", safeName.c_str());
             ++g_missed;
         }
         return false;

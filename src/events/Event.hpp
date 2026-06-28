@@ -75,8 +75,13 @@ namespace wxl::events
     struct EndSceneArgs       { void* device; };
     /** @brief Args for OnWorldRender. */
     struct WorldRenderArgs    { void* device; };
-    /** @brief Args for OnWorldRenderEnd. */
-    struct WorldRenderEndArgs { void* device; };
+    /**
+     * @brief Args for OnWorldRenderEnd. When supersampling is active, superSampleSource is the factor-sized
+     *        offscreen world surface (IDirect3DSurface9*) the world rendered into and ssaaFactor is its scale
+     *        relative to the native backbuffer; a subscriber downsamples that surface into the native
+     *        backbuffer. superSampleSource is null (and ssaaFactor 1.0) when supersampling is off.
+     */
+    struct WorldRenderEndArgs { void* device; void* superSampleSource; float ssaaFactor; };
     /**
      * @brief Args for OnLiquidRender, fired before the native liquid pass draws. passType is 0 for the
      *        main pass, 1 for the secondary; instanceCount is the visible liquid instances in this pass;

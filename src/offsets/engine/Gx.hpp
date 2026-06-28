@@ -46,6 +46,7 @@ namespace wxl::offsets::engine::gx
     constexpr size_t    kCurWindowHeight = 0x17C; // curWindow + 0x8 = live render height
     constexpr size_t    kFormatWidth     = 0x1D0; // active CGxFormat width  (backbuffer px, unscaled)
     constexpr size_t    kFormatHeight    = 0x1D4; // active CGxFormat height (backbuffer px, unscaled)
+    constexpr size_t    kViewportDirty   = 0xF6C; // set to 1 to force a viewport recompute from curWindow
     constexpr uintptr_t kDeviceSetDefWindow = 0x00684360; // resolution choke (create + every resize)
 
     // M2 triangle-batch draw (this-in-ECX). The hook reads the current model so the per-draw event

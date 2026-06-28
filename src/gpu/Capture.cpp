@@ -136,17 +136,11 @@ namespace
             Log("capture: windowed present sanitized (Flags 0x%X->0x%X, BBCount %u->%u)",
                 before, pp->Flags, beforeCount, pp->BackBufferCount);
 
-        // Supersampling: enlarge the backbuffer so the engine renders the frame at a higher resolution; the
-        // proxy's present downsamples it to the window. Windowed only (the backbuffer is decoupled from the
-        // display mode there) and only with explicit sizes.
-        if (g_ssaaFactor > 1.01f && pp->BackBufferWidth > 0 && pp->BackBufferHeight > 0)
-        {
-            const UINT bw = (UINT)(pp->BackBufferWidth * g_ssaaFactor + 0.5f);
-            const UINT bh = (UINT)(pp->BackBufferHeight * g_ssaaFactor + 0.5f);
-            Log("capture: SSAA x%.2f backbuffer %ux%u -> %ux%u", g_ssaaFactor, pp->BackBufferWidth, pp->BackBufferHeight, bw, bh);
-            pp->BackBufferWidth = bw;
-            pp->BackBufferHeight = bh;
-        }
+        // Supersampling is NOT done by enlarging the backbuffer: the windowed On12 backbuffer is pinned to
+        // the window client size (an inflated BackBufferWidth is silently clamped), so the engine would
+        // render the world clipped to a corner. Instead the world pass is redirected into an offscreen 2x
+        // surface inside the world-render detour and downsampled into this native backbuffer (see
+        // runtime/RenderHooks.cpp). The backbuffer stays at native (window) resolution here.
     }
 
     /**

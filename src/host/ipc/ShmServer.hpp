@@ -33,18 +33,20 @@ namespace wxl::host::ipc
     bool Create();
 
     /**
-     * @brief Blocks until channel `i` has a request and returns its payload bytes.
+     * @brief Blocks until channel `i` has a request and returns its sequence and payload bytes.
      * @param i       channel index
+     * @param seqOut  receives the request sequence captured with the payload
      * @param reqOut  receives the request payload bytes
      * @return true if a request was read
      */
-    bool WaitRequest(uint32_t i, std::vector<uint8_t>& reqOut);
+    bool WaitRequest(uint32_t i, uint32_t& seqOut, std::vector<uint8_t>& reqOut);
 
     /**
      * @brief Writes the response payload to channel `i` and signals the client.
      * @param i     channel index
+     * @param seq   request sequence this response belongs to
      * @param resp  response payload bytes
      * @return true if a nonzero-length response was written
      */
-    bool PostResponse(uint32_t i, std::span<const uint8_t> resp);
+    bool PostResponse(uint32_t i, uint32_t seq, std::span<const uint8_t> resp);
 }

@@ -328,9 +328,10 @@ namespace
         std::vector<uint8_t> req, resp; // request and response payload buffers, reused each iteration
         for (;;)
         {
-            if (!wxl::host::ipc::WaitRequest(0, req)) break;
+            uint32_t reqSeq = 0;
+            if (!wxl::host::ipc::WaitRequest(0, reqSeq, req)) break;
             ProcessRequest(req, resp);
-            wxl::host::ipc::PostResponse(0, resp);
+            wxl::host::ipc::PostResponse(0, reqSeq, resp);
         }
         return 0;
     }

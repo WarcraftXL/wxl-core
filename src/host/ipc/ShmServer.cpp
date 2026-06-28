@@ -67,18 +67,20 @@ namespace wxl::host::ipc
     }
 
     /**
-     * @brief Blocks on channel `i`'s request event and copies the request payload out.
+     * @brief Blocks on channel `i`'s request event and copies the request sequence and payload out.
      * @param i       channel index
+     * @param seqOut  receives the request sequence captured with the payload
      * @param reqOut  receives the request payload bytes
      * @return true if a request was read
      */
-    bool WaitRequest(uint32_t i, std::vector<uint8_t>& reqOut)
+    bool WaitRequest(uint32_t i, uint32_t& seqOut, std::vector<uint8_t>& reqOut)
     {
         if (i >= kChannels) return false;
         if (WaitForSingleObject(g_reqEv[i], INFINITE) != WAIT_OBJECT_0) return false;
 
         const ControlHeader* hdr = ChannelHeader(g_base, i);
         const uint8_t* payload = ChannelPayload(g_base, i);
+        seqOut = hdr->reqSeq;
         uint32_t n = hdr->reqLen;
         if (n > kChannelPayload) n = 0; // malformed: hand the worker an empty request
         reqOut.assign(payload, payload + n);
@@ -88,10 +90,11 @@ namespace wxl::host::ipc
     /**
      * @brief Copies the response payload into channel `i`, marks it complete, and signals the client.
      * @param i     channel index
+     * @param seq   request sequence this response belongs to
      * @param resp  response payload bytes
      * @return true if a nonzero-length response was written
      */
-    bool PostResponse(uint32_t i, std::span<const uint8_t> resp)
+    bool PostResponse(uint32_t i, uint32_t seq, std::span<const uint8_t> resp)
     {
         if (i >= kChannels) return false;
 
@@ -101,7 +104,7 @@ namespace wxl::host::ipc
         if (n > kChannelPayload) n = 0; // never overrun the window; signal a zero-length response
         if (n) memcpy(payload, resp.data(), n);
         hdr->respLen = n;
-        hdr->respSeq = hdr->reqSeq; // marks the response complete for this request
+        hdr->respSeq = seq; // marks the response complete for the request we copied
         SetEvent(g_respEv[i]);
         return n != 0;
     }

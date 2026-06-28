@@ -16,6 +16,7 @@
 
 #include "runtime/storage/ShmClient.hpp"
 
+#include "core/Logger.hpp"
 #include "events/Event.hpp"
 #include "host/ipc/Protocol.hpp"
 
@@ -42,7 +43,10 @@ namespace
     // --- channel pool: a free channel is acquired per request, then released ---
     std::atomic<bool> g_channelBusy[kChannels] = {}; // false = free
 
-    constexpr uint32_t kRequestTimeoutMs = 2000;
+    // Cold modern transforms can take several seconds before the host cache is warm. Timing out here
+    // makes the client fall back to native archives, which cannot see host-owned loose patch dirs.
+    constexpr uint32_t kRequestTimeoutMs = 30000;
+    std::atomic<uint32_t> g_timeouts{ 0 };
 
     /**
      * @brief Returns the directory of this module, i.e. the client root.
@@ -147,16 +151,31 @@ namespace
      * @param req  request payload.
      * @return true when a response arrives before the timeout.
      */
-    bool SendOnChannel(uint32_t ch, const std::vector<uint8_t>& req)
+    bool SendOnChannel(uint32_t ch, const std::vector<uint8_t>& req, uint32_t& seqOut)
     {
         if (req.size() > kChannelPayload) return false;
         auto* hdr = ChannelHeader(g_base, ch);
         uint8_t* payload = ChannelPayload(g_base, ch);
+        ResetEvent(g_respEvent[ch]);
         memcpy(payload, req.data(), req.size());
         hdr->reqLen = static_cast<uint32_t>(req.size());
-        ++hdr->reqSeq;
+        seqOut = ++hdr->reqSeq;
         SetEvent(g_reqEvent[ch]);
-        return WaitForSingleObject(g_respEvent[ch], kRequestTimeoutMs) == WAIT_OBJECT_0;
+
+        DWORD waited = 0;
+        while (waited < kRequestTimeoutMs)
+        {
+            DWORD slice = kRequestTimeoutMs - waited;
+            if (slice > 50) slice = 50;
+            DWORD rc = WaitForSingleObject(g_respEvent[ch], slice);
+            if (rc == WAIT_OBJECT_0 && hdr->respSeq == seqOut) return true;
+            if (rc != WAIT_OBJECT_0 && rc != WAIT_TIMEOUT) return false;
+            waited += slice;
+        }
+        uint32_t timeout = ++g_timeouts;
+        if (timeout <= 20)
+            WLOG_WARN("ipc: request seq=%u timed out after %u ms", seqOut, kRequestTimeoutMs);
+        return false;
     }
 
     /**
@@ -173,12 +192,13 @@ namespace
     {
         if (!ConnectInner()) return false;
         uint32_t ch = AcquireChannel();
-        bool ok = SendOnChannel(ch, req);
+        uint32_t reqSeq = 0;
+        bool ok = SendOnChannel(ch, req, reqSeq);
         if (ok)
         {
             auto* hdr = ChannelHeader(g_base, ch);
             const uint8_t* payload = ChannelPayload(g_base, ch);
-            if (hdr->respLen && hdr->respLen <= kChannelPayload)
+            if (hdr->respSeq == reqSeq && hdr->respLen && hdr->respLen <= kChannelPayload)
                 onResponse(flexbuffers::GetRoot(payload, hdr->respLen).AsVector());
         }
         ReleaseChannel(ch);

@@ -263,6 +263,12 @@ namespace wxl::game::gx
     struct RenderTarget { void* texture = nullptr; void* surface = nullptr; int width = 0; int height = 0; };
 
     /**
+     * @brief Releases a render target's COM objects and clears its fields.
+     * @param rt  render target to release.
+     */
+    void Release(RenderTarget& rt);
+
+    /**
      * @brief Creates or keeps a back-buffer-sized render target of the given format.
      * @param dev        the device to create the target on.
      * @param rt         the render target to fill or reuse.
@@ -270,6 +276,9 @@ namespace wxl::game::gx
      * @return true on success, false on failure.
      */
     bool EnsureBackbufferTarget(Device9 dev, RenderTarget& rt, uint32_t d3dFormat);
+
+    /** @brief Releases render targets created through EnsureBackbufferTarget before a D3D reset. */
+    void ReleaseResetResources();
 
     /**
      * @brief Draws a back-buffer-sized textured quad.

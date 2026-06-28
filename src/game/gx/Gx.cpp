@@ -18,10 +18,28 @@
 
 #include <d3d9.h>
 #include <d3dcompiler.h>
+#include <algorithm>
 #include <cstring>
+#include <vector>
 
 namespace wxl::game::gx
 {
+    namespace
+    {
+        std::vector<RenderTarget*>& ResetTargets()
+        {
+            static std::vector<RenderTarget*> targets;
+            return targets;
+        }
+
+        void TrackResetTarget(RenderTarget& rt)
+        {
+            auto& targets = ResetTargets();
+            if (std::find(targets.begin(), targets.end(), &rt) == targets.end())
+                targets.push_back(&rt);
+        }
+    }
+
     /**
      * @brief Compiles an HLSL pixel shader into a device shader.
      * @param dev     the device to create the shader on.
@@ -75,7 +93,24 @@ namespace wxl::game::gx
         rt.surface = surf;
         rt.width   = static_cast<int>(desc.Width);
         rt.height  = static_cast<int>(desc.Height);
+        TrackResetTarget(rt);
         return true;
+    }
+
+    void Release(RenderTarget& rt)
+    {
+        Release(rt.surface);
+        Release(rt.texture);
+        rt.surface = nullptr;
+        rt.texture = nullptr;
+        rt.width = 0;
+        rt.height = 0;
+    }
+
+    void ReleaseResetResources()
+    {
+        for (RenderTarget* rt : ResetTargets())
+            if (rt) Release(*rt);
     }
 
     /**

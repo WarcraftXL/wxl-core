@@ -21,8 +21,9 @@ namespace wxl::runtime::render
     /**
      * @brief Installs the render-pipeline detours that republish render events.
      *
-     * Emits OnM2BatchDraw, OnEndScene, OnFrame and OnWorldRenderEnd. Call once after the graphics
-     * device is up; the function detours are armed by the caller's EnableAll() afterwards.
+     * Emits OnM2BatchDraw, OnEndScene, OnFrame, OnDeviceLost, OnDeviceReset and OnWorldRenderEnd.
+     * Call once after the graphics device is up; the function detours are armed by the caller's
+     * EnableAll() afterwards.
      */
     void Install();
 }

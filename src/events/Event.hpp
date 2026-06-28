@@ -32,6 +32,8 @@ namespace wxl::events
         OnM2SkinFinalize,// a model's skin profile is being finalized  (M2SkinFinalizeArgs)
         OnFrame,         // per-frame Present                          (FrameArgs)
         OnEndScene,      // end of the frame, before present           (EndSceneArgs)
+        OnDeviceLost,    // before IDirect3DDevice9::Reset releases resources (DeviceResetArgs)
+        OnDeviceReset,   // after a successful IDirect3DDevice9::Reset  (DeviceResetArgs)
         OnUpdate,        // once-per-frame logic tick, with delta time (UpdateArgs)
         OnWorldRender,   // per-frame world draw pass                  (WorldRenderArgs)
         OnWorldRenderEnd,// world -> UI boundary, the post-fx slot     (WorldRenderEndArgs)
@@ -73,6 +75,8 @@ namespace wxl::events
     struct UpdateArgs         { float dt; uint32_t timeMs; };
     /** @brief Args for OnEndScene. */
     struct EndSceneArgs       { void* device; };
+    /** @brief Args for OnDeviceLost and OnDeviceReset. */
+    struct DeviceResetArgs    { void* device; void* params; };
     /** @brief Args for OnWorldRender. */
     struct WorldRenderArgs    { void* device; };
     /**

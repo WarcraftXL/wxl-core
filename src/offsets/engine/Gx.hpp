@@ -137,6 +137,7 @@ namespace wxl::offsets::engine::gx
     namespace vt
     {
         constexpr unsigned kRelease                = 2;  // COM / shader object release
+        constexpr unsigned kReset                  = 16; // IDirect3DDevice9::Reset (resize/device-loss recovery)
         constexpr unsigned kPresent                = 17; // IDirect3DDevice9::Present (per-frame flip)
         constexpr unsigned kGetBackBuffer          = 18;
         constexpr unsigned kCreateTexture          = 23;

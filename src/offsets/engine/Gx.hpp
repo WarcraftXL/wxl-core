@@ -31,23 +31,28 @@ namespace wxl::offsets::engine::gx
     constexpr size_t    kBackBufferField   = 0x3B3C; // cached back-buffer surface
     constexpr size_t    kDepthSurfaceField = 0x3B40; // cached world depth surface
 
-    // Render-resolution rects on the graphics-device object. Each is a GxRect of 4 floats
-    // {minX,minY,maxX,maxY}; min stays 0, so maxX/maxY hold the pixel width/height. curWindow is the LIVE
+    // Render-resolution rects on the graphics-device object. Each is a rect of 4 floats
+    // {minX,minY,maxX,maxY}; min stays 0, so maxX/maxY hold the pixel width/height. curWindow is the live
     // render resolution every normalized [0..1] viewport is multiplied by at draw time; defWindow is its
-    // source (curWindow = defWindow whenever the backbuffer is bound). The active CGxFormat holds the
-    // backbuffer pixel size. Supersampling scales curWindow + defWindow to format*S (the proxy enlarges the
-    // matching backbuffer), so the engine renders the full world+UI at the higher resolution.
-    // The engine reads render WIDTH from rect+0xC and HEIGHT from rect+0x8 (verified in IXformSetViewport),
-    // and copies defWindow -> curWindow whole on every backbuffer bind, so BOTH rects must use the same
-    // width-at-+0xC / height-at-+0x8 convention or the copy swaps W/H (renders portrait).
+    // source (curWindow = defWindow whenever the backbuffer is bound). The active format holds the backbuffer
+    // pixel size. Supersampling scales curWindow + defWindow to format*S (the proxy enlarges the matching
+    // backbuffer), so the engine renders the full world+UI at the higher resolution. Width is read from
+    // rect+0xC and height from rect+0x8, and defWindow is copied whole into curWindow on every backbuffer
+    // bind, so both rects use the same width-at-+0xC / height-at-+0x8 convention.
     constexpr size_t    kDefWindowWidth  = 0x170; // defWindow + 0xC
     constexpr size_t    kDefWindowHeight = 0x16C; // defWindow + 0x8
     constexpr size_t    kCurWindowWidth  = 0x180; // curWindow + 0xC = live render width
     constexpr size_t    kCurWindowHeight = 0x17C; // curWindow + 0x8 = live render height
-    constexpr size_t    kFormatWidth     = 0x1D0; // active CGxFormat width  (backbuffer px, unscaled)
-    constexpr size_t    kFormatHeight    = 0x1D4; // active CGxFormat height (backbuffer px, unscaled)
+    constexpr size_t    kFormatWidth     = 0x1D0; // active format width  (backbuffer px, unscaled)
+    constexpr size_t    kFormatHeight    = 0x1D4; // active format height (backbuffer px, unscaled)
     constexpr size_t    kViewportDirty   = 0xF6C; // set to 1 to force a viewport recompute from curWindow
+    constexpr size_t    kRtOverrideField = 0x2918; // non-zero while an offscreen RT override is active (not the backbuffer pass)
     constexpr uintptr_t kDeviceSetDefWindow = 0x00684360; // resolution choke (create + every resize)
+
+    // Engine render-target bind chokepoint: the world (and UI) bind their target through this method, which
+    // bypasses the D3D9 device vtable, so the supersampling redirect must also hook it here.
+    constexpr uintptr_t kGxDeviceVTable        = 0x00A2E718; // engine graphics-device vtable base
+    constexpr unsigned  kGxSetRenderTargetSlot = 23;         // SetRenderTarget(slot, rt, face)
 
     // M2 triangle-batch draw (this-in-ECX). The hook reads the current model so the per-draw event
     // can name which model is rendering.
@@ -83,11 +88,11 @@ namespace wxl::offsets::engine::gx
     static_assert(offsetof(DrawBatchContext, model) == kDrawBatchCtxModelField, "DrawBatchContext.model");
 #pragma pack(pop)
 
-    // World-frame finalize render callback (AURENDERCALLBACK), once per frame. Hook its ENTRY and fire the
-    // event AFTER the original returns = world done, UI not yet started. The world -> UI boundary / post-fx
-    // slot. (The interior address 0x004FB074 is mid-epilogue, NOT a hookable entry; kept only as an anchor.)
+    // World-frame finalize render callback, once per frame. Hook its entry and fire the event after the
+    // original returns: world done, UI not yet started. The world -> UI boundary / post-fx slot. The
+    // epilogue-anchor address is mid-epilogue, not a hookable entry; kept only as a landmark.
     constexpr uintptr_t kWorldRenderFinalize = 0x004FAF90;
-    constexpr uintptr_t kWorldRenderEpilogueAnchor = 0x004FB074; // doc anchor only, do NOT hook
+    constexpr uintptr_t kWorldRenderEpilogueAnchor = 0x004FB074; // landmark only, do NOT hook
     using WorldRenderFinalizeFn = void(__cdecl*)(void* worldFrame);
 
     // Central texture-data upload to the device (deviceTex, x, y, x2, y2, flag). Full-surface uploads pass

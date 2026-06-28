@@ -147,7 +147,8 @@ namespace
      * @brief Re-sanitizes present params on a device reset (resolution change, mode switch).
      *
      * The engine resets the device (it does not recreate it) when the resolution or window mode changes, so
-     * the windowed sanitize and the supersampling scale must be reapplied here, not only at CreateDevice.
+     * the windowed present sanitize (flip-model backbuffer count, no lockable flag) must be reapplied here,
+     * not only at CreateDevice.
      * @param dev  device being reset.
      * @param pp   new present parameters, sanitized in place.
      * @return Result of the original Reset.

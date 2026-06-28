@@ -66,13 +66,12 @@ namespace
     static const char* k_blitHLSL =
         "Texture2D    src : register(t0);\n"
         "SamplerState smp : register(s0);\n"
-        "cbuffer C : register(b0) { float2 uvScale; }\n"   // sample only [0,uvScale] (native region under SSAA)
         "void vs(uint id : SV_VertexID, out float4 pos : SV_Position, out float2 uv : TEXCOORD0) {\n"
         "  uv = float2((id << 1) & 2, id & 2);\n"
         "  pos = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);\n"
         "}\n"
         "float4 ps(float4 pos : SV_Position, float2 uv : TEXCOORD0) : SV_Target {\n"
-        "  return float4(src.Sample(smp, uv * uvScale).rgb, 1);\n"
+        "  return float4(src.Sample(smp, uv).rgb, 1);\n"
         "}\n";
 
     /**
@@ -98,22 +97,18 @@ namespace
         D3D12_DESCRIPTOR_RANGE range = {};
         range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
         range.NumDescriptors = 1;
-        D3D12_ROOT_PARAMETER params[2] = {};
+        D3D12_ROOT_PARAMETER params[1] = {};
         params[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
         params[0].DescriptorTable.NumDescriptorRanges = 1;
         params[0].DescriptorTable.pDescriptorRanges = &range;
-        params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;   // uvScale at b0
-        params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-        params[1].Constants.ShaderRegister = 0;
-        params[1].Constants.Num32BitValues = 2;
         D3D12_STATIC_SAMPLER_DESC samp = {};
         samp.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
         samp.AddressU = samp.AddressV = samp.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
         samp.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
         samp.MaxLOD = D3D12_FLOAT32_MAX;
         D3D12_ROOT_SIGNATURE_DESC rs = {};
-        rs.NumParameters = 2; rs.pParameters = params;
+        rs.NumParameters = 1; rs.pParameters = params;
         rs.NumStaticSamplers = 1; rs.pStaticSamplers = &samp;
         rs.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
@@ -287,9 +282,9 @@ namespace wxl::gpu::present
             return false;
         }
 
-        // The swapchain matches the window, not the backbuffer: when supersampling enlarges the backbuffer,
-        // the fullscreen blit samples it with a linear filter and downsamples to the window (a box filter at
-        // exact integer factors). With no supersampling the two sizes are equal and this is a plain copy.
+        // The swapchain matches the window client size. The On12 backbuffer is pinned to that same native size
+        // (supersampling is resolved upstream into it, never by enlarging it), so the fullscreen blit is a plain
+        // 1:1 copy from the backbuffer to the swapchain buffer.
         RECT rc = {};
         GetClientRect(window, &rc);
         UINT dw = (UINT)(rc.right - rc.left), dh = (UINT)(rc.bottom - rc.top);
@@ -348,10 +343,8 @@ namespace wxl::gpu::present
         g_list->SetDescriptorHeaps(1, heaps);
         g_list->SetGraphicsRootSignature(g_rootSig);
         g_list->SetGraphicsRootDescriptorTable(0, srvGpu);
-        // The backbuffer is always at native (window) resolution -- supersampling is resolved upstream into
-        // this backbuffer by the world-render detour, never by enlarging it -- so sample the full [0,1].
-        const float uvScale[2] = { 1.0f, 1.0f };
-        g_list->SetGraphicsRoot32BitConstants(1, 2, uvScale, 0);
+        // The backbuffer is always at native (window) resolution -- supersampling is resolved upstream into this
+        // backbuffer by the world-render detour, never by enlarging it -- so the blit samples the full [0,1].
         g_list->SetPipelineState(g_pso);
         g_list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
         D3D12_VIEWPORT vp = { 0, 0, (float)dw, (float)dh, 0, 1 };

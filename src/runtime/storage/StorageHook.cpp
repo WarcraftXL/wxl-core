@@ -130,7 +130,8 @@ namespace
 
     /**
      * @brief Attempts to serve an open from the host, building a synthetic handle on a hit.
-     * @param archive  archive object; specific-archive opens (non-null) stay native.
+     * @param archive  archive object; specific-archive opens (non-null) stay native except .anim
+     *                 sibling loads, which need the host transform path.
      * @param name     file name.
      * @param flags    native open flags.
      * @param out      receives the synthetic handle on a host hit.
@@ -138,8 +139,11 @@ namespace
      */
     bool TryServe(void* archive, const char* name, uint32_t flags, void** out)
     {
-        // Specific-archive opens (archive != null) stay native.
-        if (archive != nullptr || !ShouldIntercept(name)) return false;
+        // Specific-archive opens usually name files the client wants from one concrete MPQ. External M2
+        // sequence loads are the exception: modern .anim siblings need the same host normalization as
+        // regular archive opens, otherwise AFM2/AFSB/raw modern payloads bypass wxl-modern-anim.
+        const bool specificAnim = archive != nullptr && name && EndsWithCI(name, ".anim");
+        if ((archive != nullptr && !specificAnim) || !ShouldIntercept(name)) return false;
 
         if ((++g_opens % 2000) == 0)
             WLOG_INFO("Storage stats: opens=%u served=%u missed=%u", g_opens, g_served, g_missed);
@@ -213,7 +217,8 @@ namespace
                 {
                     if (out) *out = f;
                     if (g_served < 60)
-                        WLOG_INFO("Storage: serve '%s' (%u B, %s) from host", name, r.size, mode);
+                        WLOG_INFO("Storage: serve '%s' (%u B, %s) from host%s",
+                                  name, r.size, mode, specificAnim ? " (specific)" : "");
                     ++g_served;
                     return true;
                 }
@@ -224,7 +229,13 @@ namespace
         }
         else if (ipc::IsConnected())
         {
-            if (g_missed < 200) WLOG_INFO("Storage: MISS '%s' -> native archive", name);
+            if (g_missed < 200)
+            {
+                if (specificAnim)
+                    WLOG_INFO("Storage: anim MISS '%s' (specific) -> native archive", name);
+                else
+                    WLOG_INFO("Storage: MISS '%s' -> native archive", name);
+            }
             ++g_missed;
         }
         return false;

@@ -145,12 +145,10 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kReleaseRenderCtx   = 0x00824ED0;
     // BindTexSlot(renderCtx, modelPtr): binds the M2 model resource to texture slot key 2 (main texture).
     constexpr uintptr_t kBindTexSlot        = 0x00825260;
-    // LoadResource(path, flags): loads a resource by virtual path through the resource-loader object.
+    // LoadResource(path, flags): loads a texture/resource by virtual path through the texture-create path.
     constexpr uintptr_t kLoadResource       = 0x004B9760;
     // ReleaseResource(resource): releases a resource handle returned by LoadResource.
     constexpr uintptr_t kReleaseResource    = 0x0047BF30;
-    // Global resource-loader singleton (this for kLoadResource).
-    constexpr uintptr_t kResourceLoaderBase = 0x00AC46D0;
 
     // --- character-model slot hooks ---
     // Per-render-ctx per-frame update: fires once per visible M2 instance per frame, recursively
@@ -423,8 +421,8 @@ namespace wxl::offsets::game::m2
     using M2_ReleaseRenderCtxFn = void (__fastcall*)(void* renderCtx, void* edx);
     // BindTexSlot(renderCtx, edx, key, modelPtr): ret 8 (key=2, then modelPtr on stack).
     using M2_BindTexSlotFn      = void (__fastcall*)(void* renderCtx, void* edx, uint32_t key, void* modelPtr);
-    // LoadResource(path, flags, loaderPtr, 0): __cdecl; kResourceLoaderBase passed as raw literal value.
-    using M2_LoadResourceFn     = void*(__cdecl*)(const char* path, uint32_t flags, void* loaderPtr, uint32_t zero);
+    // LoadResource(path, flags, statusOut, flags2): same call shape as Gx::TextureCreate.
+    using M2_LoadResourceFn     = void*(__cdecl*)(const char* path, uint32_t flags, int* statusOut, uint32_t flags2);
     // ReleaseResource(resource): releases a resource handle returned by LoadResource.
     using M2_ReleaseResourceFn  = void (__cdecl*)(void* resource);
 

@@ -206,9 +206,92 @@ namespace
         return p;
     }
 
+    bool MakeHostHandleFromOpenResult(const std::string& hostName, const std::string& handleName,
+                                      uint32_t flags, ipc::FileOpenResult& r, void** out,
+                                      const char* logSuffix)
+    {
+        auto* f = static_cast<HostFile*>(calloc(1, sizeof(HostFile)));
+        if (!f) return false;
+
+        f->magic = kHandleMagic;
+        f->size = r.size;
+        f->position = 0;
+        f->fullName = DupName(handleName.c_str());
+        f->shortName = f->fullName;
+
+        bool wholeFile = (flags & io::kOpenWholeFile) != 0;
+        const char* mode;
+        bool ok = true;
+        void* view = nullptr;
+        void* mapHandle = nullptr;
+        if (r.id == 0)
+        {
+            // Inline: bytes came back in the open response.
+            f->buffer = static_cast<uint8_t*>(malloc(r.size ? r.size : 1));
+            if (f->buffer && r.size) memcpy(f->buffer, r.inlineData.data(), r.size);
+            ok = (f->buffer != nullptr);
+            mode = "inline";
+        }
+        else if (ipc::MapBlob(r.id, r.size, view, mapHandle))
+        {
+            // Zero-copy: map the host's section read-only and read bytes straight from it.
+            f->buffer = static_cast<uint8_t*>(view);
+            f->mapView = view;
+            f->mapHandle = mapHandle;
+            f->hostId = r.id;
+            mode = "map";
+        }
+        else if (wholeFile)
+        {
+            // Buffered: pull all bytes now, release the host handle.
+            f->buffer = static_cast<uint8_t*>(malloc(r.size ? r.size : 1));
+            uint32_t off = 0;
+            while (f->buffer && off < r.size)
+            {
+                uint32_t n = ipc::FileReadChunk(r.id, off, f->buffer + off, r.size - off);
+                if (n == 0) break;
+                off += n;
+            }
+            ipc::FileClose(r.id);
+            ok = (f->buffer != nullptr && off == r.size);
+            mode = "whole";
+        }
+        else
+        {
+            // Streaming: keep the host handle, pull chunks on demand.
+            f->buffer = nullptr;
+            f->hostId = r.id;
+            mode = "stream";
+        }
+
+        // A served ADT carries a trailing ATSC texture-scale table; record it and trim it off so
+        // the native loader sees only the ADT bytes.
+        if (ok && f->buffer && f->size)
+        {
+            const uint32_t served = wxl::runtime::adt::IngestAdtBytes(hostName.c_str(), f->buffer, f->size);
+            if (served < f->size) f->size = served;
+        }
+
+        if (ok)
+        {
+            if (out) *out = f;
+            if (g_served < 60)
+                WLOG_INFO("Storage: serve '%s' (%u B, %s) from host%s",
+                          handleName.c_str(), r.size, mode, logSuffix ? logSuffix : "");
+            ++g_served;
+            return true;
+        }
+
+        free(f->buffer);
+        free(f->fullName);
+        free(f);
+        return false;
+    }
+
     /**
      * @brief Attempts to serve an open from the host, building a synthetic handle on a hit.
-     * @param archive  archive object; specific-archive opens (non-null) stay native.
+     * @param archive  archive object; specific-archive opens (non-null) stay native except .anim
+     *                 sibling loads, which need the host transform path.
      * @param name     file name.
      * @param flags    native open flags.
      * @param out      receives the synthetic handle on a host hit.
@@ -216,10 +299,14 @@ namespace
      */
     bool TryServe(void* archive, const char* name, uint32_t flags, void** out)
     {
-        // Specific-archive opens (archive != null) stay native. Validate the name out of the native boundary
-        // first: a bogus open (non-path bytes) must never reach the host IPC and desync the channel.
         std::string safeName;
-        if (archive != nullptr || !CopyArchiveName(name, safeName) || !ShouldIntercept(safeName)) return false;
+        if (!CopyArchiveName(name, safeName) || !ShouldIntercept(safeName)) return false;
+
+        // Specific-archive opens usually name files the client wants from one concrete MPQ. External M2
+        // sequence loads are the exception: modern .anim siblings need the same host normalization as
+        // regular archive opens, otherwise AFM2/AFSB/raw modern payloads bypass wxl-modern-anim.
+        const bool specificAnim = archive != nullptr && EndsWithCI(safeName, ".anim");
+        if (archive != nullptr && !specificAnim) return false;
 
         if ((++g_opens % 2000) == 0)
             WLOG_INFO("Storage stats: opens=%u served=%u missed=%u", g_opens, g_served, g_missed);
@@ -245,95 +332,33 @@ namespace
             }
         }
 
-        // Skip the IPC round-trip for a name the host has already confirmed absent.
         std::string key = NameKey(safeName);
+        // Skip the IPC round-trip for a name the host has already confirmed absent.
         if (KnownMiss(key)) return false;
 
         ipc::FileOpenResult r = ipc::FileOpen(safeName, flags);
         if (r.ok)
         {
-            auto* f = static_cast<HostFile*>(calloc(1, sizeof(HostFile)));
-            if (f)
-            {
-                f->magic = kHandleMagic;
-                f->size = r.size;
-                f->position = 0;
-                f->fullName = DupName(safeName.c_str());
-                f->shortName = f->fullName;
-
-                bool wholeFile = (flags & io::kOpenWholeFile) != 0;
-                const char* mode;
-                bool ok = true;
-                void* view = nullptr;
-                void* mapHandle = nullptr;
-                if (r.id == 0)
-                {
-                    // Inline: bytes came back in the open response.
-                    f->buffer = static_cast<uint8_t*>(malloc(r.size ? r.size : 1));
-                    if (f->buffer && r.size) memcpy(f->buffer, r.inlineData.data(), r.size);
-                    ok = (f->buffer != nullptr);
-                    mode = "inline";
-                }
-                else if (ipc::MapBlob(r.id, r.size, view, mapHandle))
-                {
-                    // Zero-copy: map the host's section read-only and read bytes straight from it.
-                    f->buffer = static_cast<uint8_t*>(view);
-                    f->mapView = view;
-                    f->mapHandle = mapHandle;
-                    f->hostId = r.id;
-                    mode = "map";
-                }
-                else if (wholeFile)
-                {
-                    // Buffered: pull all bytes now, release the host handle.
-                    f->buffer = static_cast<uint8_t*>(malloc(r.size ? r.size : 1));
-                    uint32_t off = 0;
-                    while (f->buffer && off < r.size)
-                    {
-                        uint32_t n = ipc::FileReadChunk(r.id, off, f->buffer + off, r.size - off);
-                        if (n == 0) break;
-                        off += n;
-                    }
-                    ipc::FileClose(r.id);
-                    ok = (f->buffer != nullptr && off == r.size);
-                    mode = "whole";
-                }
-                else
-                {
-                    // Streaming: keep the host handle, pull chunks on demand.
-                    f->buffer = nullptr;
-                    f->hostId = r.id;
-                    mode = "stream";
-                }
-
-                // A served ADT carries a trailing ATSC texture-scale table; record it and trim it off so
-                // the native loader sees only the ADT bytes.
-                if (ok && f->buffer && f->size)
-                {
-                    const uint32_t served = wxl::runtime::adt::IngestAdtBytes(safeName.c_str(), f->buffer, f->size);
-                    if (served < f->size) f->size = served;
-                }
-
-                if (ok)
-                {
-                    if (out) *out = f;
-                    if (g_served < 60)
-                        WLOG_INFO("Storage: serve '%s' (%u B, %s) from host", safeName.c_str(), r.size, mode);
-                    ++g_served;
-                    return true;
-                }
-                free(f->buffer);
-                free(f->fullName);
-                free(f);
-            }
+            if (MakeHostHandleFromOpenResult(safeName, safeName, flags, r, out,
+                                             specificAnim ? " (specific)" : nullptr))
+                return true;
         }
-        else if (r.hostMiss)
+        // The host resolves texture-component and helm suffix aliases internally. Keeping that logic there
+        // collapses a miss-or-alias lookup into one IPC request instead of several client round-trips.
+
+        if (r.hostMiss)
         {
             // The host answered and reported the file absent: cache it so the next open skips the IPC and
             // goes straight native. Only a CONFIRMED miss is cached -- a timeout/desync (r.hostMiss == false)
             // falls back to native for this open alone and is retried next time, never poisoning the name.
             RememberMiss(std::move(key));
-            if (g_missed < 200) WLOG_INFO("Storage: MISS '%s' -> native archive", safeName.c_str());
+            if (g_missed < 200)
+            {
+                if (specificAnim)
+                    WLOG_INFO("Storage: anim MISS '%s' (specific) -> native archive", safeName.c_str());
+                else
+                    WLOG_INFO("Storage: MISS '%s' -> native archive", safeName.c_str());
+            }
             ++g_missed;
         }
         return false;

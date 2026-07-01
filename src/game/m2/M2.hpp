@@ -248,8 +248,8 @@ namespace wxl::game::m2
      */
     inline void* LoadResource(const char* path, uint32_t flags = 0)
     {
-        return Native<off::M2_LoadResourceFn>(off::kLoadResource)(
-            path, flags, reinterpret_cast<void*>(off::kResourceLoaderBase), 0);
+        int status = 0;
+        return Native<off::M2_LoadResourceFn>(off::kLoadResource)(path, flags, &status, 0);
     }
 
     /**

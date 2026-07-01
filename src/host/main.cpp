@@ -23,12 +23,14 @@
 #include <flatbuffers/flexbuffers.h>
 
 #include <windows.h>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -57,6 +59,14 @@ namespace
     std::mutex g_handleMutex;
     std::unordered_map<uint32_t, Blob> g_blobs;
     uint32_t g_nextHandle = 0;
+
+    // Transforms are pure for a given archive path. Cache only transformed outputs so expensive cold work
+    // like DXT component palettization and MD21 dechunk/downport is not repeated on every reopen.
+    std::mutex g_transformCacheMutex;
+    std::unordered_map<std::string, std::vector<uint8_t>> g_transformCache;
+    size_t g_transformCacheBytes = 0;
+    constexpr size_t kTransformCacheMaxBytes = 128u * 1024u * 1024u;
+    constexpr size_t kTransformCacheMaxEntry = 2u * 1024u * 1024u;
 
     /**
      * @brief Returns the folder containing the host executable.
@@ -120,6 +130,197 @@ namespace
         return id;
     }
 
+    bool EndsWithCI(std::string_view s, const char* suffix)
+    {
+        const size_t ls = std::strlen(suffix);
+        if (ls > s.size()) return false;
+        for (size_t i = 0; i < ls; ++i)
+        {
+            const char a = static_cast<char>(std::tolower(static_cast<unsigned char>(s[s.size() - ls + i])));
+            const char b = static_cast<char>(std::tolower(static_cast<unsigned char>(suffix[i])));
+            if (a != b) return false;
+        }
+        return true;
+    }
+
+    bool StartsWithCI(std::string_view s, const char* prefix)
+    {
+        const size_t lp = std::strlen(prefix);
+        if (lp > s.size()) return false;
+        for (size_t i = 0; i < lp; ++i)
+        {
+            const char a = static_cast<char>(std::tolower(static_cast<unsigned char>(s[i])));
+            const char b = static_cast<char>(std::tolower(static_cast<unsigned char>(prefix[i])));
+            if (a != b) return false;
+        }
+        return true;
+    }
+
+    std::string NameKey(std::string_view name)
+    {
+        std::string key(name);
+        for (char& c : key)
+            c = (c == '/') ? '\\' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return key;
+    }
+
+    void AddUniqueAlias(std::vector<std::string>& aliases, const std::string& original, std::string alias)
+    {
+        if (alias.empty() || alias == original) return;
+        for (const std::string& existing : aliases)
+            if (existing == alias) return;
+        aliases.emplace_back(std::move(alias));
+    }
+
+    void AppendTextureComponentAliases(const std::string& name, std::vector<std::string>& aliases)
+    {
+        const std::string key = NameKey(name);
+        if (!StartsWithCI(key, "item\\texturecomponents\\")) return;
+        if (!EndsWithCI(key, ".blp") && !EndsWithCI(key, ".tga")) return;
+
+        const size_t dot = name.find_last_of('.');
+        if (dot == std::string::npos || dot < 2) return;
+
+        const char gender = static_cast<char>(std::tolower(static_cast<unsigned char>(name[dot - 1])));
+        if (name[dot - 2] != '_' || (gender != 'f' && gender != 'm')) return;
+
+        std::string unsuffixed = name;
+        unsuffixed.erase(dot - 2, 2);
+
+        const std::string stem = NameKey(std::string_view(name).substr(0, dot - 2));
+        bool hasUnisexMarker = EndsWithCI(stem, "_u");
+        const size_t u = stem.rfind("_u_");
+        if (!hasUnisexMarker && u != std::string::npos)
+        {
+            hasUnisexMarker = true;
+            for (size_t i = u + 3; i < stem.size(); ++i)
+            {
+                if (stem[i] < '0' || stem[i] > '9')
+                {
+                    hasUnisexMarker = false;
+                    break;
+                }
+            }
+        }
+
+        if (hasUnisexMarker)
+            AddUniqueAlias(aliases, name, unsuffixed);
+        else
+        {
+            std::string unisex = name;
+            unisex[dot - 1] = 'u';
+            AddUniqueAlias(aliases, name, std::move(unisex));
+        }
+
+        std::string opposite = name;
+        opposite[dot - 1] = (gender == 'm') ? 'f' : 'm';
+        AddUniqueAlias(aliases, name, std::move(opposite));
+        AddUniqueAlias(aliases, name, std::move(unsuffixed));
+    }
+
+    void AppendObjectComponentRaceGenderAliases(const std::string& name, std::vector<std::string>& aliases)
+    {
+        const std::string key = NameKey(name);
+        if (!StartsWithCI(key, "item\\objectcomponents\\")) return;
+        if (!EndsWithCI(key, ".m2") && !EndsWithCI(key, ".mdx") && !EndsWithCI(key, ".skin")) return;
+
+        size_t dot = key.find_last_of('.');
+        if (dot == std::string::npos) return;
+
+        size_t suffixEnd = dot;
+        if (EndsWithCI(key, ".skin") && dot >= 2 &&
+            key[dot - 1] >= '0' && key[dot - 1] <= '9' &&
+            key[dot - 2] >= '0' && key[dot - 2] <= '9')
+        {
+            suffixEnd = dot - 2;
+        }
+
+        const size_t slash = key.find_last_of('\\');
+        const size_t base = (slash == std::string::npos) ? 0 : slash + 1;
+        auto isRace = [](char a, char b) {
+            return a >= 'a' && a <= 'z' && b >= 'a' && b <= 'z';
+        };
+        auto isGender = [](char c) {
+            return c == 'm' || c == 'f';
+        };
+        std::vector<std::string> candidates;
+        candidates.emplace_back(name);
+        auto addDerivedAlias = [&](std::string alias) {
+            if (alias.empty() || alias == name) return;
+            for (const std::string& candidate : candidates)
+                if (candidate == alias) return;
+            for (const std::string& existing : aliases)
+                if (existing == alias) return;
+            aliases.emplace_back(alias);
+            candidates.emplace_back(std::move(alias));
+        };
+
+        if (suffixEnd >= base + 4)
+        {
+            const size_t s = suffixEnd - 4;
+            if (s > base && key[s - 1] == '_' && isRace(key[s], key[s + 1]) &&
+                key[s + 2] == '_' && isGender(key[s + 3]))
+            {
+                std::string alias = name;
+                alias.erase(s + 2, 1);
+                addDerivedAlias(std::move(alias));
+            }
+        }
+
+        if (suffixEnd >= base + 3)
+        {
+            const size_t s = suffixEnd - 3;
+            if (s > base && key[s - 1] == '_' && isRace(key[s], key[s + 1]) && isGender(key[s + 2]))
+            {
+                std::string alias = name;
+                alias.insert(s + 2, 1, '_');
+                addDerivedAlias(std::move(alias));
+            }
+        }
+
+        auto addModelExtensionAlias = [&](const std::string& candidate) {
+            const std::string candidateKey = NameKey(candidate);
+            const size_t ext = candidate.find_last_of('.');
+            if (ext == std::string::npos) return;
+
+            if (EndsWithCI(candidateKey, ".m2"))
+            {
+                std::string alias = candidate;
+                alias.replace(ext, std::string::npos, ".mdx");
+                addDerivedAlias(std::move(alias));
+            }
+            else if (EndsWithCI(candidateKey, ".mdx"))
+            {
+                std::string alias = candidate;
+                alias.replace(ext, std::string::npos, ".m2");
+                addDerivedAlias(std::move(alias));
+            }
+        };
+
+        auto addHeadCollectionAlias = [&](const std::string& candidate) {
+            constexpr const char* kHeadPrefix = "item\\objectcomponents\\head\\";
+            constexpr const char* kCollectionsPrefix = "Item\\ObjectComponents\\Collections\\";
+
+            const std::string candidateKey = NameKey(candidate);
+            if (!StartsWithCI(candidateKey, kHeadPrefix)) return;
+
+            const size_t fileStart = std::strlen(kHeadPrefix);
+            const size_t stemEnd = candidateKey.find_last_of('.');
+            if (stemEnd == std::string::npos || stemEnd <= fileStart) return;
+            if (candidateKey.find("helm", fileStart) >= stemEnd) return;
+
+            std::string alias = candidate;
+            alias.replace(0, fileStart, kCollectionsPrefix);
+            addDerivedAlias(std::move(alias));
+        };
+
+        for (size_t i = 0; i < candidates.size(); ++i)
+        {
+            addHeadCollectionAlias(candidates[i]);
+            addModelExtensionAlias(candidates[i]);
+        }
+    }
+
     /**
      * @brief Builds the file-open response: inline bytes when small, otherwise a zero-copy section id.
      * @param fbb    FlexBuffers builder receiving the response
@@ -148,26 +349,77 @@ namespace
         HOST_CONSOLE("open  %-44s -> OK inline (%u B)\n", name, size);
     }
 
+    bool TryTransformCache(const std::string& name, std::vector<uint8_t>& out)
+    {
+        std::lock_guard<std::mutex> lock(g_transformCacheMutex);
+        auto it = g_transformCache.find(name);
+        if (it == g_transformCache.end()) return false;
+        out = it->second;
+        return true;
+    }
+
+    void RememberTransform(const std::string& name, const std::vector<uint8_t>& bytes)
+    {
+        if (bytes.empty() || bytes.size() > kTransformCacheMaxEntry) return;
+
+        std::lock_guard<std::mutex> lock(g_transformCacheMutex);
+        if (g_transformCache.find(name) != g_transformCache.end()) return;
+        if (g_transformCacheBytes + bytes.size() > kTransformCacheMaxBytes) return;
+
+        g_transformCacheBytes += bytes.size();
+        g_transformCache.emplace(name, bytes);
+    }
+
     /**
      * @brief Reads raw archive bytes for `name`, offers them to the transform hooks, else passes them through.
      * @param name  archive-internal file name
      * @param out   receives the reshaped or raw bytes
      * @return false only on an archive miss; provider hooks are fired by the caller, not here
      */
-    bool ProduceServed(const std::string& name, std::vector<uint8_t>& out)
+    bool ProduceCandidate(const std::string& requestName, const std::string& readName, std::vector<uint8_t>& out)
     {
+        if (TryTransformCache(readName, out))
+        {
+            if (readName != requestName) RememberTransform(requestName, out);
+            return true;
+        }
+
         std::vector<uint8_t> raw;
-        if (!g_mpq->ReadAll(name, raw))
+        if (!g_mpq->ReadAll(readName, raw))
             return false;
 
         std::vector<uint8_t> reshaped;
-        if (wxl::host::Transform(name, raw, reshaped))
+        if (wxl::host::Transform(readName, raw, reshaped))
         {
+            RememberTransform(readName, reshaped);
+            if (readName != requestName) RememberTransform(requestName, reshaped);
             out = std::move(reshaped);
             return true;
         }
         out = std::move(raw);
         return true;
+    }
+
+    bool ProduceServed(const std::string& name, std::vector<uint8_t>& out)
+    {
+        if (TryTransformCache(name, out))
+            return true;
+
+        if (ProduceCandidate(name, name, out))
+            return true;
+
+        std::vector<std::string> aliases;
+        AppendObjectComponentRaceGenderAliases(name, aliases);
+        AppendTextureComponentAliases(name, aliases);
+        for (const std::string& alias : aliases)
+        {
+            if (wxl::host::Provide(alias, out))
+                return true;
+            if (ProduceCandidate(name, alias, out))
+                return true;
+        }
+
+        return false;
     }
 
     /**

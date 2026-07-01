@@ -243,6 +243,17 @@ namespace
         auto isGender = [](char c) {
             return c == 'm' || c == 'f';
         };
+        std::vector<std::string> candidates;
+        candidates.emplace_back(name);
+        auto addDerivedAlias = [&](std::string alias) {
+            if (alias.empty() || alias == name) return;
+            for (const std::string& candidate : candidates)
+                if (candidate == alias) return;
+            for (const std::string& existing : aliases)
+                if (existing == alias) return;
+            aliases.emplace_back(alias);
+            candidates.emplace_back(std::move(alias));
+        };
 
         if (suffixEnd >= base + 4)
         {
@@ -252,8 +263,7 @@ namespace
             {
                 std::string alias = name;
                 alias.erase(s + 2, 1);
-                AddUniqueAlias(aliases, name, std::move(alias));
-                return;
+                addDerivedAlias(std::move(alias));
             }
         }
 
@@ -264,8 +274,50 @@ namespace
             {
                 std::string alias = name;
                 alias.insert(s + 2, 1, '_');
-                AddUniqueAlias(aliases, name, std::move(alias));
+                addDerivedAlias(std::move(alias));
             }
+        }
+
+        auto addModelExtensionAlias = [&](const std::string& candidate) {
+            const std::string candidateKey = NameKey(candidate);
+            const size_t ext = candidate.find_last_of('.');
+            if (ext == std::string::npos) return;
+
+            if (EndsWithCI(candidateKey, ".m2"))
+            {
+                std::string alias = candidate;
+                alias.replace(ext, std::string::npos, ".mdx");
+                addDerivedAlias(std::move(alias));
+            }
+            else if (EndsWithCI(candidateKey, ".mdx"))
+            {
+                std::string alias = candidate;
+                alias.replace(ext, std::string::npos, ".m2");
+                addDerivedAlias(std::move(alias));
+            }
+        };
+
+        auto addHeadCollectionAlias = [&](const std::string& candidate) {
+            constexpr const char* kHeadPrefix = "item\\objectcomponents\\head\\";
+            constexpr const char* kCollectionsPrefix = "Item\\ObjectComponents\\Collections\\";
+
+            const std::string candidateKey = NameKey(candidate);
+            if (!StartsWithCI(candidateKey, kHeadPrefix)) return;
+
+            const size_t fileStart = std::strlen(kHeadPrefix);
+            const size_t stemEnd = candidateKey.find_last_of('.');
+            if (stemEnd == std::string::npos || stemEnd <= fileStart) return;
+            if (candidateKey.find("helm", fileStart) >= stemEnd) return;
+
+            std::string alias = candidate;
+            alias.replace(0, fileStart, kCollectionsPrefix);
+            addDerivedAlias(std::move(alias));
+        };
+
+        for (size_t i = 0; i < candidates.size(); ++i)
+        {
+            addHeadCollectionAlias(candidates[i]);
+            addModelExtensionAlias(candidates[i]);
         }
     }
 

@@ -133,8 +133,10 @@ namespace wxl::structure::m2
         M2Array  filename; // 0x08
     };
 
-    // texture.type 0 = hardcoded: the only type whose pixels come from a named file.
+    // Common texture.type values used by the 3.3.5 client.
     constexpr uint32_t kTexTypeHardcoded = 0;
+    constexpr uint32_t kTexTypeObjectSkin = 2;
+    constexpr uint32_t kTexTypeWeaponBlade = 3;
 
     /**
      * @brief One render batch (texunit), 0x18 bytes.

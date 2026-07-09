@@ -321,6 +321,24 @@ namespace
         }
     }
 
+    void AppendObjectComponentTextureAliases(const std::string& name, std::vector<std::string>& aliases)
+    {
+        const std::string key = NameKey(name);
+        if (!StartsWithCI(key, "item\\objectcomponents\\head\\")) return;
+        if (!EndsWithCI(key, ".blp") && !EndsWithCI(key, ".tga")) return;
+
+        constexpr const char* kHeadPrefix = "item\\objectcomponents\\head\\";
+        constexpr const char* kCollectionsPrefix = "Item\\ObjectComponents\\Collections\\";
+        const size_t fileStart = std::strlen(kHeadPrefix);
+        const size_t stemEnd = key.find_last_of('.');
+        if (stemEnd == std::string::npos || stemEnd <= fileStart) return;
+        if (key.find("helm", fileStart) >= stemEnd) return;
+
+        std::string alias = name;
+        alias.replace(0, fileStart, kCollectionsPrefix);
+        AddUniqueAlias(aliases, name, std::move(alias));
+    }
+
     /**
      * @brief Builds the file-open response: inline bytes when small, otherwise a zero-copy section id.
      * @param fbb    FlexBuffers builder receiving the response
@@ -410,6 +428,7 @@ namespace
 
         std::vector<std::string> aliases;
         AppendObjectComponentRaceGenderAliases(name, aliases);
+        AppendObjectComponentTextureAliases(name, aliases);
         AppendTextureComponentAliases(name, aliases);
         for (const std::string& alias : aliases)
         {

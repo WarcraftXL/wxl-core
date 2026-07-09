@@ -218,6 +218,50 @@ namespace
         AddUniqueAlias(aliases, name, std::move(unsuffixed));
     }
 
+    void AppendSemicolonTextureAliases(const std::string& name, std::vector<std::string>& aliases)
+    {
+        if (!EndsWithCI(name, ".blp") && !EndsWithCI(name, ".tga")) return;
+
+        const size_t dot = name.find_last_of('.');
+        if (dot == std::string::npos) return;
+
+        const size_t slash = name.find_last_of("\\/");
+        const size_t fileStart = (slash == std::string::npos) ? 0 : slash + 1;
+        const size_t semicolon = name.find(';', fileStart);
+        if (semicolon == std::string::npos || semicolon >= dot) return;
+
+        const std::string prefix = name.substr(0, fileStart);
+        const std::string extension = name.substr(dot);
+        const std::string key = NameKey(name);
+        const bool objectComponent =
+            StartsWithCI(key, "item\\objectcomponents\\") &&
+            !StartsWithCI(key, "item\\objectcomponents\\collections\\");
+
+        size_t partStart = fileStart;
+        for (;;)
+        {
+            size_t rawEnd = name.find(';', partStart);
+            if (rawEnd == std::string::npos || rawEnd > dot) rawEnd = dot;
+            size_t partEnd = rawEnd;
+
+            while (partStart < partEnd && (name[partStart] == ' ' || name[partStart] == '\t'))
+                ++partStart;
+            while (partEnd > partStart && (name[partEnd - 1] == ' ' || name[partEnd - 1] == '\t'))
+                --partEnd;
+
+            if (partEnd > partStart)
+            {
+                const std::string stem = name.substr(partStart, partEnd - partStart);
+                AddUniqueAlias(aliases, name, prefix + stem + extension);
+                if (objectComponent)
+                    AddUniqueAlias(aliases, name, std::string("Item\\ObjectComponents\\Collections\\") + stem + extension);
+            }
+
+            if (rawEnd >= dot) break;
+            partStart = rawEnd + 1;
+        }
+    }
+
     void AppendObjectComponentRaceGenderAliases(const std::string& name, std::vector<std::string>& aliases)
     {
         const std::string key = NameKey(name);
@@ -264,6 +308,10 @@ namespace
                 std::string alias = name;
                 alias.erase(s + 2, 1);
                 addDerivedAlias(std::move(alias));
+
+                alias = name;
+                alias.erase(s - 1, suffixEnd - (s - 1));
+                addDerivedAlias(std::move(alias));
             }
         }
 
@@ -274,6 +322,10 @@ namespace
             {
                 std::string alias = name;
                 alias.insert(s + 2, 1, '_');
+                addDerivedAlias(std::move(alias));
+
+                alias = name;
+                alias.erase(s - 1, suffixEnd - (s - 1));
                 addDerivedAlias(std::move(alias));
             }
         }
@@ -297,28 +349,57 @@ namespace
             }
         };
 
-        auto addHeadCollectionAlias = [&](const std::string& candidate) {
-            constexpr const char* kHeadPrefix = "item\\objectcomponents\\head\\";
+        auto addCollectionAlias = [&](const std::string& candidate) {
+            constexpr const char* kObjectPrefix = "item\\objectcomponents\\";
             constexpr const char* kCollectionsPrefix = "Item\\ObjectComponents\\Collections\\";
 
             const std::string candidateKey = NameKey(candidate);
-            if (!StartsWithCI(candidateKey, kHeadPrefix)) return;
+            if (!StartsWithCI(candidateKey, kObjectPrefix)) return;
+            if (StartsWithCI(candidateKey, "item\\objectcomponents\\collections\\")) return;
+            if (StartsWithCI(candidateKey, "item\\objectcomponents\\collection\\")) return;
 
-            const size_t fileStart = std::strlen(kHeadPrefix);
+            const size_t folderStart = std::strlen(kObjectPrefix);
+            const size_t fileStart = candidateKey.find('\\', folderStart);
+            if (fileStart == std::string::npos || fileStart + 1 >= candidateKey.size()) return;
             const size_t stemEnd = candidateKey.find_last_of('.');
-            if (stemEnd == std::string::npos || stemEnd <= fileStart) return;
-            if (candidateKey.find("helm", fileStart) >= stemEnd) return;
+            if (stemEnd == std::string::npos || stemEnd <= fileStart + 1) return;
 
             std::string alias = candidate;
-            alias.replace(0, fileStart, kCollectionsPrefix);
+            alias.replace(0, fileStart + 1, kCollectionsPrefix);
             addDerivedAlias(std::move(alias));
         };
 
         for (size_t i = 0; i < candidates.size(); ++i)
         {
-            addHeadCollectionAlias(candidates[i]);
+            addCollectionAlias(candidates[i]);
             addModelExtensionAlias(candidates[i]);
         }
+    }
+
+    void AppendObjectComponentTextureAliases(const std::string& name, std::vector<std::string>& aliases)
+    {
+        const std::string key = NameKey(name);
+        if (!StartsWithCI(key, "item\\objectcomponents\\")) return;
+        if (StartsWithCI(key, "item\\objectcomponents\\collections\\")) return;
+        if (StartsWithCI(key, "item\\objectcomponents\\collection\\")) return;
+        if (!EndsWithCI(key, ".blp") && !EndsWithCI(key, ".tga")) return;
+
+        constexpr const char* kObjectPrefix = "item\\objectcomponents\\";
+        constexpr const char* kCollectionsPrefix = "Item\\ObjectComponents\\Collections\\";
+        const size_t folderStart = std::strlen(kObjectPrefix);
+        const size_t fileStart = key.find('\\', folderStart);
+        if (fileStart == std::string::npos || fileStart + 1 >= key.size()) return;
+        const size_t stemEnd = key.find_last_of('.');
+        if (stemEnd == std::string::npos || stemEnd <= fileStart + 1) return;
+
+        std::string alias = name;
+        alias.replace(0, fileStart + 1, kCollectionsPrefix);
+        AddUniqueAlias(aliases, name, std::move(alias));
+
+        constexpr const char* kCollectionPrefix = "Item\\ObjectComponents\\Collection\\";
+        alias = name;
+        alias.replace(0, fileStart + 1, kCollectionPrefix);
+        AddUniqueAlias(aliases, name, std::move(alias));
     }
 
     /**
@@ -409,7 +490,9 @@ namespace
             return true;
 
         std::vector<std::string> aliases;
+        AppendSemicolonTextureAliases(name, aliases);
         AppendObjectComponentRaceGenderAliases(name, aliases);
+        AppendObjectComponentTextureAliases(name, aliases);
         AppendTextureComponentAliases(name, aliases);
         for (const std::string& alias : aliases)
         {

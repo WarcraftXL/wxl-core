@@ -82,6 +82,13 @@ namespace wxl::game::m2
     inline uint32_t FileSize  (void* model) { return static_cast<off::M2Model*>(model)->fileSize; }
 
     /**
+     * @brief Returns the model path stem stored by the native loader.
+     * @param model  the model object.
+     * @return Inline path stem without extension.
+     */
+    inline const char* PathStem(void* model) { return static_cast<off::M2Model*>(model)->pathStem; }
+
+    /**
      * @brief Returns the parsed model header.
      * @param model  the model object.
      * @return the header; the .m2 buffer is parsed in place so the buffer base is the header.

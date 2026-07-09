@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <limits>
 
 namespace
 {
@@ -61,6 +62,89 @@ namespace
         size_t i = 0;
         while (i < n.size() && n[i] == '\\') ++i;
         return n.substr(i);
+    }
+
+    struct PatchArchiveCandidate
+    {
+        std::string relPath;
+        uint64_t rank = 0;
+        bool locale = false;
+    };
+
+    bool PatchTokenRank(const std::string& tokenRaw, uint64_t& rank)
+    {
+        if (tokenRaw.empty()) return false;
+
+        std::string token = ToLower(tokenRaw);
+        bool allDigits = true;
+        bool allLetters = true;
+        for (char c : token)
+        {
+            allDigits = allDigits && (c >= '0' && c <= '9');
+            allLetters = allLetters && (c >= 'a' && c <= 'z');
+        }
+
+        if (allDigits)
+        {
+            uint64_t value = 0;
+            for (char c : token)
+            {
+                value = value * 10 + static_cast<uint64_t>(c - '0');
+                if (value > 999999) return false;
+            }
+            if (value <= 3) return false;
+            rank = value;
+            return true;
+        }
+
+        if (allLetters)
+        {
+            uint64_t value = 0;
+            for (char c : token)
+            {
+                const uint64_t next = value * 26 + static_cast<uint64_t>(c - 'a' + 1);
+                if (next < value || next > (std::numeric_limits<uint64_t>::max() - 1000000ull))
+                    return false;
+                value = next;
+            }
+            rank = 1000000ull + value;
+            return true;
+        }
+
+        return false;
+    }
+
+    void CollectPatchArchives(const std::string& root,
+                              const std::string& relDir,
+                              const std::string& prefix,
+                              bool locale,
+                              std::vector<PatchArchiveCandidate>& out)
+    {
+        const std::string absDir = root + "\\" + relDir;
+        WIN32_FIND_DATAA fd{};
+        HANDLE h = FindFirstFileA((absDir + "\\" + prefix + "*.mpq").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) return;
+
+        do
+        {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+
+            std::string name = fd.cFileName;
+            std::string lower = ToLower(name);
+            const std::string lowerPrefix = ToLower(prefix);
+            if (lower.rfind(lowerPrefix, 0) != 0) continue;
+            if (lower.size() <= lowerPrefix.size() + 4) continue;
+            if (lower.substr(lower.size() - 4) != ".mpq") continue;
+
+            std::string token = lower.substr(lowerPrefix.size(),
+                                             lower.size() - lowerPrefix.size() - 4);
+            uint64_t rank = 0;
+            if (!PatchTokenRank(token, rank)) continue;
+
+            out.push_back({ relDir + "\\" + name, rank, locale });
+        } while (FindNextFileA(h, &fd));
+
+        FindClose(h);
     }
 }
 
@@ -116,8 +200,25 @@ namespace wxl::host::mpq
         });
         for (const std::string& d : looseDirs) m_looseRoots.push_back(data + "\\" + d + "\\");
 
+        std::vector<PatchArchiveCandidate> customPatchArchives;
+        if (!loc.empty())
+            CollectPatchArchives(root, "Data\\" + loc, "patch-" + loc + "-", true, customPatchArchives);
+        CollectPatchArchives(root, "Data", "patch-", false, customPatchArchives);
+
+        std::sort(customPatchArchives.begin(), customPatchArchives.end(),
+            [](const PatchArchiveCandidate& a, const PatchArchiveCandidate& b) {
+                if (a.rank != b.rank) return a.rank > b.rank;
+                if (a.locale != b.locale) return a.locale > b.locale;
+                return ToLower(a.relPath) > ToLower(b.relPath);
+            });
+
         // Archive set, highest priority first (search order).
-        std::vector<std::string> candidates = {
+        std::vector<std::string> candidates;
+        candidates.reserve(customPatchArchives.size() + 16);
+        for (const PatchArchiveCandidate& c : customPatchArchives)
+            candidates.push_back(c.relPath);
+
+        const std::vector<std::string> stockCandidates = {
             "Data\\" + loc + "\\patch-" + loc + "-3.MPQ", "Data\\patch-3.MPQ",
             "Data\\" + loc + "\\patch-" + loc + "-2.MPQ", "Data\\patch-2.MPQ",
             "Data\\" + loc + "\\patch-" + loc + ".MPQ",   "Data\\patch.MPQ",
@@ -134,6 +235,7 @@ namespace wxl::host::mpq
             "Data\\common-2.MPQ",
             "Data\\common.MPQ",
         };
+        candidates.insert(candidates.end(), stockCandidates.begin(), stockCandidates.end());
 
         // Resolve by exact name only (never enumerate); skip the internal (listfile) and (attributes).
         const DWORD openFlags = MPQ_OPEN_READ_ONLY | MPQ_OPEN_NO_LISTFILE | MPQ_OPEN_NO_ATTRIBUTES;

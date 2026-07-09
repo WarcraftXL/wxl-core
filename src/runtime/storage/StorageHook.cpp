@@ -42,6 +42,7 @@ namespace
     // Marks a synthetic handle at +0x00 (a native handle holds a small kind there).
     constexpr uint32_t kHandleMagic = 0x464C5857; // 'WXLF'
     constexpr size_t   kMaxArchiveName = 512;     // upper bound when copying a name out of the native boundary
+    constexpr uint32_t kLargeBlobStreamThreshold = 8u * 1024u * 1024u;
 
 #pragma pack(push, 1)
     /**
@@ -224,6 +225,7 @@ namespace
         bool ok = true;
         void* view = nullptr;
         void* mapHandle = nullptr;
+        const bool largeBlob = r.id != 0 && r.size >= kLargeBlobStreamThreshold;
         if (r.id == 0)
         {
             // Inline: bytes came back in the open response.
@@ -231,6 +233,30 @@ namespace
             if (f->buffer && r.size) memcpy(f->buffer, r.inlineData.data(), r.size);
             ok = (f->buffer != nullptr);
             mode = "inline";
+        }
+        else if (largeBlob && !wholeFile)
+        {
+            // Keep large host blobs in the 64-bit host and stream chunks on Read().
+            // Mapping every 20-30 MB HD character M2 costs precious 32-bit address space.
+            f->buffer = nullptr;
+            f->hostId = r.id;
+            mode = "stream-large";
+        }
+        else if (largeBlob && wholeFile)
+        {
+            // Whole-file opens need handle+0x18 populated. Copy once, then release the host section so
+            // the client does not hold both a malloc buffer and a mapped view for the same large file.
+            f->buffer = static_cast<uint8_t*>(malloc(r.size ? r.size : 1));
+            uint32_t off = 0;
+            while (f->buffer && off < r.size)
+            {
+                uint32_t n = ipc::FileReadChunk(r.id, off, f->buffer + off, r.size - off);
+                if (n == 0) break;
+                off += n;
+            }
+            ipc::FileClose(r.id);
+            ok = (f->buffer != nullptr && off == r.size);
+            mode = "whole-large";
         }
         else if (ipc::MapBlob(r.id, r.size, view, mapHandle))
         {

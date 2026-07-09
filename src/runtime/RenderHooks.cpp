@@ -23,6 +23,7 @@
 #include "gpu/Proxy.hpp"
 #include "offsets/engine/Gx.hpp"
 #include "offsets/game/M2.hpp"
+#include "structure/m2/M2Format.hpp"
 
 #include <windows.h>
 #include <d3d9.h>
@@ -39,6 +40,8 @@ namespace
 
     // The model currently drawing, captured between a batch-draw enter and its DrawIndexedPrimitive.
     void* g_curModel = nullptr;
+    // The current M2 batch draw context; its copied skin-section pointer is populated before the DIP call.
+    void* g_curDrawCtx = nullptr;
     // Re-entrancy guard: a subscriber re-issues the draw through the hooked vtable, so do not re-emit.
     bool  g_inM2Emit = false;
 
@@ -66,9 +69,49 @@ namespace
      */
     void __fastcall hkDrawBatch(void* ctx, void* edx)
     {
+        void* prevModel = g_curModel;
+        void* prevCtx   = g_curDrawCtx;
         g_curModel = static_cast<off::DrawBatchContext*>(ctx)->model;
+        g_curDrawCtx = ctx;
         g_origDrawBatch(ctx, edx);
-        g_curModel = nullptr;
+        g_curDrawCtx = prevCtx;
+        g_curModel = prevModel;
+    }
+
+    /**
+     * @brief Re-expands modern character skin section index starts before the D3D draw.
+     *
+     * The 3.3.5 M2 draw path truncates M2SkinSection::indexStart to 16 bits when passing StartIndex to
+     * DrawIndexedPrimitive. Retail character skins use section.level as the high 16 bits of the index window.
+     * By the time DIP is called, drawCtx+0x90 points at the copied M2SkinSection for this batch, so the vtable
+     * hook can restore the full 32-bit StartIndex without touching normal legacy sections.
+     */
+    unsigned ExpandM2StartIndex(unsigned startIndex) noexcept
+    {
+        if (!g_curDrawCtx) return startIndex;
+        __try
+        {
+            const auto* ctx = static_cast<const off::DrawBatchContext*>(g_curDrawCtx);
+            const auto* sec = static_cast<const wxl::structure::m2::M2SkinSection*>(ctx->section);
+            if (!sec || sec->level == 0) return startIndex;
+            if ((startIndex & 0xFFFFu) != sec->indexStart) return startIndex;
+            const unsigned expanded = (static_cast<unsigned>(sec->level) << 16) | sec->indexStart;
+            static unsigned logged = 0;
+            if (logged < 16)
+            {
+                ++logged;
+                WLOG_INFO("render: expanded M2 StartIndex %u -> %u (section=%u level=%u count=%u)",
+                          startIndex, expanded,
+                          static_cast<unsigned>(sec->skinSectionId),
+                          static_cast<unsigned>(sec->level),
+                          static_cast<unsigned>(sec->indexCount));
+            }
+            return expanded;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return startIndex;
+        }
     }
 
     /**
@@ -139,11 +182,12 @@ namespace
         if (g_ribbonModern)
             return DrawRibbonMultiTexture(static_cast<IDirect3DDevice9*>(dev), pt, bv, mi, nv, si, pc);
 
-        long r = g_origDIP(dev, pt, bv, mi, nv, si, pc);
+        const unsigned drawStartIndex = ExpandM2StartIndex(si);
+        long r = g_origDIP(dev, pt, bv, mi, nv, drawStartIndex, pc);
         if (g_curModel && !g_inM2Emit)
         {
             g_inM2Emit = true;
-            ev::M2BatchDrawArgs a{ dev, g_curModel, pt, bv, mi, nv, si, pc };
+            ev::M2BatchDrawArgs a{ dev, g_curModel, pt, bv, mi, nv, drawStartIndex, pc };
             ev::Emit(ev::Event::OnM2BatchDraw, &a);
             g_inM2Emit = false;
         }

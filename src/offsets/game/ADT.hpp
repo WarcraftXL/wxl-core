@@ -142,6 +142,13 @@ namespace wxl::offsets::game::adt
     constexpr uint32_t kPsConstNativeHeight    = 16;
     constexpr uint32_t kPsConstNativeUvRatio   = 20;
     constexpr uint32_t kPsConstSecondPassCount = 8; // c13..c20 uploaded as one block
+    // Served-terrain-shader contract: c21 = the extras' UV-tiling ratios; c13..c21 as one block.
+    constexpr uint32_t kPsConstExtrasUvRatio   = 21;
+    constexpr uint32_t kPsConstTerrainBindCount = 9;
+    // Relocated served-terrain-shader block: c22..c24 extras pairs, c25..c27 native pairs, c28.y
+    // native layer-3 height, c29 native uv ratios, c30 extras uv ratios (c13..c21 collided with
+    // the additive shader family's own constant use; c22..c30 verified free on every permutation).
+    constexpr uint32_t kPsConstTerrainBindBase = 22;
     // Signatures for kTexResolve / kSetSamplerTexture above.
     using Map_TexResolveFn  = void*(__cdecl*)(void* handle, int a, int b);
     using Map_SamplerBindFn = void(__fastcall*)(void* device, void* edx, uint32_t selector, void* tex);

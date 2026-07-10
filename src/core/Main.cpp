@@ -20,8 +20,8 @@
 #include "core/Logger.hpp"
 #include "game/Catalog.hpp"
 #include "game/gx/Gx.hpp"
-#include "runtime/adt/Adt.hpp"
 #include "runtime/GameHooks.hpp"
+#include "runtime/ModuleInstall.hpp"
 #include "runtime/InputHooks.hpp"
 #include "runtime/PhasingHooks.hpp"
 #include "runtime/RenderHooks.hpp"
@@ -51,7 +51,7 @@ namespace
             Sleep(100);
 
         wxl::runtime::render::Install(); // device/render events: OnEndScene, OnFrame, OnM2BatchDraw, ...
-        wxl::runtime::adt::Install();    // terrain per-layer UV-scale (ATSC) post-hook
+        wxl::runtime::modules::RunAll(); // module-registered installers (wxl-modern-adt, ...)
         wxl::runtime::game::Install();   // game events: OnModelLoad, ...
         wxl::runtime::input::Install();  // window events: OnInput
         wxl::runtime::phasing::Install(); // terrain-phase per-tile loader redirect

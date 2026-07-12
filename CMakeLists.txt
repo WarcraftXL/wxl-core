@@ -10,6 +10,30 @@ project(WarcraftXL LANGUAGES CXX)
 # DLL needs no x64 toolchain and pays no build/deploy cost. build.ps1 -Host flips it on in an x64 configure.
 option(WXL_BUILD_HOST "Build WarcraftXLHost.exe (64-bit asset host)" OFF)
 
+# wxl-modern-assets per-format toggles: exclude an entire format pipeline (source down-convert, both its
+# DLL and host halves) at configure time, without touching source. common/ and textures/dds stay in
+# unconditionally (shared infrastructure, not format-specific). ADT gets WXL_MODERN_ADT here once it
+# migrates into wxl-modern-assets.
+option(WXL_MODERN_M2  "Build wxl-modern-assets M2 support"          ON)
+option(WXL_MODERN_M3  "Build wxl-modern-assets M3 support"          ON)
+option(WXL_MODERN_WMO "Build wxl-modern-assets WMO support"         ON)
+option(WXL_MODERN_BLP "Build wxl-modern-assets BLP/texture support" ON)
+
+set(WXL_MODERN_ASSETS_EXCLUDE_REGEX "")
+if(NOT WXL_MODERN_M2)
+    string(APPEND WXL_MODERN_ASSETS_EXCLUDE_REGEX "|/wxl-modern-assets/(shared|host|src)/models/m2/")
+endif()
+if(NOT WXL_MODERN_M3)
+    string(APPEND WXL_MODERN_ASSETS_EXCLUDE_REGEX "|/wxl-modern-assets/(shared|host|src)/models/m3/")
+endif()
+if(NOT WXL_MODERN_WMO)
+    string(APPEND WXL_MODERN_ASSETS_EXCLUDE_REGEX "|/wxl-modern-assets/(shared|host|src)/models/wmo/")
+endif()
+if(NOT WXL_MODERN_BLP)
+    string(APPEND WXL_MODERN_ASSETS_EXCLUDE_REGEX "|/wxl-modern-assets/(shared|host|src)/textures/blp/")
+endif()
+string(REGEX REPLACE "^\\|" "" WXL_MODERN_ASSETS_EXCLUDE_REGEX "${WXL_MODERN_ASSETS_EXCLUDE_REGEX}")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)   # feeds the IDE the real C++20 flags
@@ -37,6 +61,9 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     file(GLOB_RECURSE WXL_RUNTIME_SCRIPT CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/*/src/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/*/shared/*.cpp")
+    if(WXL_MODERN_ASSETS_EXCLUDE_REGEX)
+        list(FILTER WXL_RUNTIME_SCRIPT EXCLUDE REGEX "${WXL_MODERN_ASSETS_EXCLUDE_REGEX}")
+    endif()
 
     # Vendored ImGui (core + dx9/win32 backends). Compiled in but DORMANT until a script wires it up.
     file(GLOB WXL_IMGUI CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/*.cpp")
@@ -120,6 +147,9 @@ if(WXL_BUILD_HOST AND CMAKE_SIZEOF_VOID_P EQUAL 8)
     file(GLOB_RECURSE WXL_HOST_SCRIPT CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/*/host/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/*/shared/*.cpp")
+    if(WXL_MODERN_ASSETS_EXCLUDE_REGEX)
+        list(FILTER WXL_HOST_SCRIPT EXCLUDE REGEX "${WXL_MODERN_ASSETS_EXCLUDE_REGEX}")
+    endif()
 
     add_executable(WarcraftXLHost
         ${WXL_HOST_CORE}

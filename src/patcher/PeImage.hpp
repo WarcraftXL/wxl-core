@@ -79,6 +79,15 @@ namespace wxl::patcher
          */
         bool AddImport(const char* dll, const char* func, const char* tagSection);
 
+        /**
+         * @brief Appends raw machine code as a new executable section (a code cave).
+         * @param code        bytes to place in the new section.
+         * @param len         byte count.
+         * @param tagSection  name for the new section, checkable later via HasSection.
+         * @return The virtual address of the appended code, or 0 on failure.
+         */
+        uint32_t AppendCode(const uint8_t* code, uint32_t len, const char* tagSection);
+
         /** @brief Returns the underlying PE byte buffer. */
         std::vector<uint8_t>& bytes() { return bytes_; }
 

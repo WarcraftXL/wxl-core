@@ -214,4 +214,45 @@ namespace wxl::patcher
         bytes_.resize(secRaw + addRawSize, 0);
         return true;
     }
+
+    /**
+     * @brief Appends raw machine code as a new executable section (a code cave).
+     * @param code        bytes to place in the new section.
+     * @param len         byte count.
+     * @param tagSection  name for the new section, checkable later via HasSection.
+     * @return The virtual address of the appended code, or 0 on failure.
+     */
+    uint32_t PeImage::AppendCode(const uint8_t* code, uint32_t len, const char* tagSection)
+    {
+        IMAGE_NT_HEADERS32* nt = Nt(bytes_);
+        IMAGE_FILE_HEADER&       fh = nt->FileHeader;
+        IMAGE_OPTIONAL_HEADER32& oh = nt->OptionalHeader;
+        IMAGE_SECTION_HEADER*    sec = IMAGE_FIRST_SECTION(nt);
+
+        IMAGE_SECTION_HEADER& last = sec[fh.NumberOfSections - 1];
+        const uint32_t secRva = AlignUp(last.VirtualAddress + last.Misc.VirtualSize, oh.SectionAlignment);
+        const uint32_t secRaw = AlignUp(static_cast<uint32_t>(bytes_.size()), oh.FileAlignment);
+
+        IMAGE_SECTION_HEADER& add = sec[fh.NumberOfSections];
+        if (reinterpret_cast<uint8_t*>(&add + 1) - bytes_.data() > static_cast<ptrdiff_t>(oh.SizeOfHeaders))
+            return 0;
+        memset(&add, 0, sizeof(add));
+        memcpy(add.Name, tagSection, strnlen(tagSection, 8));
+        add.Misc.VirtualSize = len;
+        add.VirtualAddress   = secRva;
+        add.SizeOfRawData    = AlignUp(len, oh.FileAlignment);
+        add.PointerToRawData = secRaw;
+        add.Characteristics  = IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ;
+
+        oh.SizeOfImage = AlignUp(secRva + len, oh.SectionAlignment);
+        fh.NumberOfSections += 1;
+
+        // Resizing the buffer reallocates and invalidates every pointer above; capture first.
+        const uint32_t addRawSize = add.SizeOfRawData;
+        const uint32_t va = oh.ImageBase + secRva;
+        bytes_.resize(secRaw, 0);
+        bytes_.insert(bytes_.end(), code, code + len);
+        bytes_.resize(secRaw + addRawSize, 0);
+        return va;
+    }
 }

@@ -101,6 +101,23 @@ namespace wxl::offsets::game::world
     // --- cursor world pick ---
     // CWorldFrame singleton holder: *(void**)kWorldFrame is the world frame (pass as the this/ECX).
     constexpr uintptr_t kWorldFrame = 0x00B7436C;
+    // Native world->screen projection used by world text, chat bubbles and target indicators.
+    // Fastcall: ECX = world frame, EDX is unused; worldPos/outScreen are float[3].
+    // Returns nonzero when on-screen.
+    constexpr uintptr_t kGetScreenCoordinates = 0x004F6D20;
+    using GetScreenCoordinatesFn = int(__fastcall*)(void* worldFrame, void* unusedEdx,
+                                                    const float* worldPos, float* outScreen,
+                                                    uint32_t* clipFlags);
+    // UI coordinate multipliers used by Blizzard's world-space projection conversion.
+    constexpr uintptr_t kUiTexCoordAlphaMultiplier1 = 0x00AC0CB4;
+    constexpr uintptr_t kUiTexCoordAlphaMultiplier3 = 0x00AC0CBC;
+    // CGWorldFrame::SetupDefaultAction refreshes its hit-test point from the active input
+    // object's normalized cursor immediately before calling HitTestPoint.
+    constexpr size_t kWorldFrameInput = 0x00A0;
+    constexpr size_t kInputCursorNdcX = 0x1224;
+    constexpr size_t kInputCursorNdcY = 0x1228;
+    constexpr uintptr_t kDdcWidth  = 0x00AC0CB4;
+    constexpr uintptr_t kDdcHeight = 0x00AC0CB8;
     // Full cursor pick: sets up the world projection, builds the ray, and intersects, in one call. This is the engine's own per-frame mouseover entry
     // this = world frame; result[0..5] = {objLo, objHi, posX, posY, posZ, t}; returns the hit type.
     constexpr uintptr_t kPickAtScreen = 0x004F9DA0;
@@ -118,7 +135,8 @@ namespace wxl::offsets::game::world
     constexpr uint32_t kPickFlagsCursor = 1;
     // The CWorld::Intersect mask the wrapper applies internally (terrain + WMO + M2/doodad geometry).
     constexpr uint32_t kPickMaskAnything = 0x01000124;
-    // Freshest cached cursor on the world frame, in DDC pixels (refreshed from mouse-move).
+    // Scratch hit-test coordinates populated by CGWorldFrame::SetupDefaultAction.
+    // Do not use these as a live cursor source; they can retain an older action point.
     constexpr size_t kWorldFrameCursorDdcX = 0x310;
     constexpr size_t kWorldFrameCursorDdcY = 0x314;
 

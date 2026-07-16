@@ -42,6 +42,14 @@ namespace wxl::runtime::modules
     void RunAll();
 
     /**
+     * @brief Registers an installer that must run before the graphics-device wait.
+     */
+    void RegisterEarly(const char* name, InstallFn fn);
+
+    /** Runs every registered early installer in registration order. */
+    void RunEarly();
+
+    /**
      * @brief Registers a boot-time installer.
      *
      * Boot installers run on the loader thread inside DllMain, after the log opens and before the

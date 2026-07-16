@@ -82,12 +82,17 @@ int main(int argc, char** argv)
 
     wxl::patcher::PeImage pe(file);
     if (!pe.valid()) { printf("[WarcraftXL] not a 32-bit PE\n"); return 1; }
-    if (pe.HasSection(kTagSection))
-    { printf("[WarcraftXL] already patched ('%s' present)\n", kTagSection); return 0; }
 
-    // 4 GB address space, then every registered PatchScript (byte edits), then the import (structural).
+    // Always ensure 4 GB address space, even when an older patcher already injected the .wxl section.
     pe.SetLargeAddressAware();
+    if (pe.HasSection(kTagSection))
+    {
+        if (!WriteAll(target, file)) { printf("[WarcraftXL] cannot write '%s'\n", target); return 1; }
+        printf("[WarcraftXL] already patched ('%s' present), ensured large-address-aware\n", kTagSection);
+        return 0;
+    }
 
+    // Apply every registered PatchScript (byte edits), then the import (structural).
     for (wxl::patcher::PatchScript* const s : wxl::patcher::registry::Scripts())
     {
         if (!s->Apply(pe))

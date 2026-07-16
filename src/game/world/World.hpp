@@ -55,7 +55,7 @@ namespace wxl::game::world
      * @param typeMask  Accepted object type mask.
      * @return The object, or null when not found or filtered out.
      */
-    inline void* GetObject(unsigned long long guid, unsigned typeMask)
+    inline void* ResolveObject(unsigned long long guid, unsigned typeMask)
     { return Native<off::GetObjectFn>(off::kGetObjectByGuid)(guid, typeMask, "wxl", 0); }
 
     /**

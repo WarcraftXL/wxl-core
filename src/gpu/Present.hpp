@@ -30,6 +30,12 @@
 namespace wxl::gpu::present
 {
     /**
+     * @brief Drains proxy presentation work before D3D9 Reset.
+     * @return true when it is safe to enter the native reset; false when the GPU did not drain in time.
+     */
+    bool PrepareForReset();
+
+    /**
      * @brief Presents the engine's current backbuffer through the proxy's own swapchain.
      *
      * Lazily creates (and resizes) the swapchain on the device's window. On success the caller must not

@@ -19,6 +19,11 @@
 namespace wxl::runtime::game
 {
     /**
+     * @brief Reserves the large-M2 virtual address arena before world loading fragments the client VA space.
+     */
+    void ReserveM2Memory();
+
+    /**
      * @brief Installs the function-entry detours that republish game-logic events.
      *
      * Emits OnModelLoad, OnDoodadSpawn, OnWorldEnter, OnWorldLeave, OnTextureUpload and

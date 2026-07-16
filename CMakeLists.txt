@@ -80,7 +80,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/include")
 
     add_subdirectory(deps/minhook)
-    target_link_libraries(WarcraftXL PRIVATE minhook d3d9 d3dcompiler)
+    target_link_libraries(WarcraftXL PRIVATE minhook d3d9 d3dcompiler shell32)
     target_compile_definitions(WarcraftXL PRIVATE ${WXL_DEFS})
 
     source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${WXL_CORE_SRC} ${WXL_RUNTIME_SCRIPT})

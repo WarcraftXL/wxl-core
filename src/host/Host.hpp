@@ -150,6 +150,13 @@ namespace wxl::host
      */
     bool ResolveFdid(uint32_t fileDataId, std::string& outPath);
 
+    /**
+     * @brief Invokes each resolver once with a sentinel id so lazy path tables load before IPC requests.
+     *
+     * The sentinel is not expected to resolve; this only moves cold initialization off the client wait path.
+     */
+    void WarmResolvers();
+
     // --- host environment (set by the host at startup; read by modules that read the archives themselves,
     //     e.g. a resolver mounting its own MpqStore to load DB2 path tables) ---
 
@@ -194,4 +201,13 @@ namespace wxl::host
 
     /** @brief Logs the registered hooks to the host log, grouped by hook point. */
     void LogRegisteredHandlers();
+
+    /**
+     * @brief Reports whether per-hook timing is enabled by WXL_HOST_PROFILE (enabled by default).
+     * @return false only when the variable begins with 0, n, N, f, or F
+     */
+    bool ProfilingEnabled();
+
+    /** @brief Logs each active hook's profiling window and atomically resets its counters. */
+    void LogAndResetHandlerProfile();
 }

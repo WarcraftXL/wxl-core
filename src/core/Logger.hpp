@@ -31,6 +31,19 @@ namespace wxl::core::log
      */
     void Printf(const char* fmt, ...);
 
+    /** @brief Appends and immediately flushes a warning line. */
+    void Warnf(const char* fmt, ...);
+
+    /** @brief Appends and immediately flushes an error line. */
+    void Errorf(const char* fmt, ...);
+
+    /**
+     * @brief Flushes buffered log output without closing the file.
+     *
+     * Intended for sparse periodic diagnostics that must survive the host's process-watcher shutdown.
+     */
+    void Flush();
+
     /** 
      * @brief Flushes and closes the log file.
      */
@@ -39,5 +52,5 @@ namespace wxl::core::log
 
 // Record macros. All levels go to the same file; the tag is informational.
 #define WLOG_INFO(...)  ::wxl::core::log::Printf(__VA_ARGS__)
-#define WLOG_WARN(...)  ::wxl::core::log::Printf(__VA_ARGS__)
-#define WLOG_ERROR(...) ::wxl::core::log::Printf(__VA_ARGS__)
+#define WLOG_WARN(...)  ::wxl::core::log::Warnf(__VA_ARGS__)
+#define WLOG_ERROR(...) ::wxl::core::log::Errorf(__VA_ARGS__)

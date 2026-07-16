@@ -19,6 +19,8 @@
 #include <windows.h>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <mutex>
 
 namespace
@@ -26,20 +28,77 @@ namespace
     FILE*      g_file = nullptr;
     std::mutex g_mutex;
 
+    bool EnvEnabled(const char* name, bool fallback)
+    {
+        const char* raw = std::getenv(name);
+        if (!raw || !*raw) return fallback;
+        return !(*raw == '0' || *raw == 'n' || *raw == 'N');
+    }
+
+    bool FlushEveryLine()
+    {
+        static const bool enabled = EnvEnabled("WXL_LOG_FLUSH", false);
+        return enabled;
+    }
+
+    bool DebugStringEnabled()
+    {
+        static const bool enabled = EnvEnabled("WXL_LOG_DEBUGSTRING", IsDebuggerPresent() != 0);
+        return enabled;
+    }
+
+    bool IsImportant(const char* line)
+    {
+        return std::strstr(line, "ERROR") ||
+               std::strstr(line, "WARN") ||
+               std::strstr(line, "Fatal") ||
+               std::strstr(line, "fatal") ||
+               std::strstr(line, "crashed") ||
+               std::strstr(line, "failed");
+    }
+
     /**
      * @brief Appends one finished line under the lock and mirrors it to the debugger.
      * @param line  fully formatted line to write.
      */
     void Emit(const char* line)
     {
+        static unsigned pending = 0;
         std::lock_guard<std::mutex> lock(g_mutex);
-        OutputDebugStringA(line);
-        if (g_file) { fputs(line, g_file); fflush(g_file); }
+        if (DebugStringEnabled()) OutputDebugStringA(line);
+        if (g_file)
+        {
+            fputs(line, g_file);
+            ++pending;
+            if (FlushEveryLine() || pending >= 64 || IsImportant(line))
+            {
+                fflush(g_file);
+                pending = 0;
+            }
+        }
     }
 }
 
 namespace wxl::core::log
 {
+    /** @brief Formats one optional-level line and hands it to the synchronized sink. */
+    void VPrintf(const char* level, const char* fmt, va_list args)
+    {
+        char body[1024];
+        vsnprintf(body, sizeof(body), fmt, args);
+
+        SYSTEMTIME t;
+        GetLocalTime(&t);
+        char line[1152];
+        if (level)
+            snprintf(line, sizeof(line), "[%02d:%02d:%02d] %s: %s\n",
+                     t.wHour, t.wMinute, t.wSecond, level, body);
+        else
+            snprintf(line, sizeof(line), "[%02d:%02d:%02d] %s\n",
+                     t.wHour, t.wMinute, t.wSecond, body);
+        Emit(line);
+    }
+
     /**
      * @brief Opens the log file at the given path. Idempotent.
      * @param path  filesystem path of the log file.
@@ -49,6 +108,7 @@ namespace wxl::core::log
         std::lock_guard<std::mutex> lock(g_mutex);
         if (g_file) return;
         fopen_s(&g_file, path, "w");
+        if (g_file) setvbuf(g_file, nullptr, _IOFBF, 64 * 1024);
     }
 
     /**
@@ -57,18 +117,35 @@ namespace wxl::core::log
      */
     void Printf(const char* fmt, ...)
     {
-        char body[1024];
         va_list args;
         va_start(args, fmt);
-        vsnprintf(body, sizeof(body), fmt, args);
+        VPrintf(nullptr, fmt, args);
         va_end(args);
+    }
 
-        SYSTEMTIME t;
-        GetLocalTime(&t);
-        char line[1152];
-        snprintf(line, sizeof(line), "[%02d:%02d:%02d] %s\n",
-                 t.wHour, t.wMinute, t.wSecond, body);
-        Emit(line);
+    /** @brief Appends a warning line; the WARN tag makes the buffered sink flush it immediately. */
+    void Warnf(const char* fmt, ...)
+    {
+        va_list args;
+        va_start(args, fmt);
+        VPrintf("WARN", fmt, args);
+        va_end(args);
+    }
+
+    /** @brief Appends an error line; the ERROR tag makes the buffered sink flush it immediately. */
+    void Errorf(const char* fmt, ...)
+    {
+        va_list args;
+        va_start(args, fmt);
+        VPrintf("ERROR", fmt, args);
+        va_end(args);
+    }
+
+    /** @brief Flushes buffered log output without closing the file. */
+    void Flush()
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_file) fflush(g_file);
     }
 
     /** 
@@ -77,6 +154,6 @@ namespace wxl::core::log
     void Close()
     {
         std::lock_guard<std::mutex> lock(g_mutex);
-        if (g_file) { fclose(g_file); g_file = nullptr; }
+        if (g_file) { fflush(g_file); fclose(g_file); g_file = nullptr; }
     }
 }

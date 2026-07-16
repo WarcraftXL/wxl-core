@@ -47,6 +47,11 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kVersionGateInit = 0x0083CF51; // version-too-high branch
     constexpr uintptr_t kVersionGateAnim = 0x0083C745; // anim-parse version branch
 
+    constexpr uintptr_t kSceneTriangleHitTest = 0x0081D510;
+    using M2_SceneTriangleHitTestFn = int(__thiscall*)(
+        void* scratch, uint16_t* indexBegin, uint16_t* indexEnd, int vertexBase,
+        float* point, int mode, int candidate, float* bestDepth, int currentHit);
+
     // .skin filename builder (pathStem, profileIndex, outBuf): copies the path, strips the extension,
     // appends the two-digit skin suffix. outBuf is a fixed-size engine buffer.
     constexpr uintptr_t kBuildSkinPath = 0x00835A80;
@@ -88,6 +93,7 @@ namespace wxl::offsets::game::m2
     // Shared per-batch alpha/material/cull setter: chooses the alpha-test reference from the blend mode
     // and pushes it to the device.
     constexpr uintptr_t kSetupBatchAlpha = 0x0081FE90;
+    constexpr uintptr_t kSortOpaqueGeoBatches = 0x0081EAD0;
     // Pushes the alpha-test reference to the device.
     constexpr uintptr_t kPushAlphaRef = 0x00873BA0;
 
@@ -109,6 +115,7 @@ namespace wxl::offsets::game::m2
     // POST-hook guarantees the bone copy is the last write before GPU upload, regardless of
     // scene-list ordering. Both sites use fastcall (ecx = instance) with 5 stack args; ret 0x14.
     constexpr uintptr_t kBuildBonePalette = 0x0082F0F0;
+    constexpr uintptr_t kRenderBatchShadowMap = 0x00829BA0;
 
     // --- track evaluators (sampled per bone / per light each frame from the bone-palette build) ---
     // Vec3 track evaluator (model, runtimeBone, track, out, baseValue): samples a translation/scale
@@ -164,6 +171,7 @@ namespace wxl::offsets::game::m2
     // --- runtime instance object fields ---
     constexpr size_t kOffInstInitFlags      = 0x10;  // init flags (bit 0 = anim init done; bit 6 = char-select present)
     constexpr size_t kOffInstModel          = 0x2C;  // -> runtime model
+    constexpr size_t kOffInstParent         = 0x48;  // -> parent M2 instance (null for root)
     constexpr size_t kOffInstBonePalette    = 0x98;  // -> bone matrices, row-major 4x4
     constexpr size_t kBonePaletteStride     = 0x40;  // one bone matrix
     // Array of render-object pointers (4 bytes each), indexed by M2SkinProfile batch index.
@@ -275,11 +283,14 @@ namespace wxl::offsets::game::m2
         uint32_t initFlags;        // kOffInstInitFlags (bit 0 = anim init done; bit 1 = geometry ready)
         uint8_t  _pad14[kOffInstModel - (kOffInstInitFlags + sizeof(uint32_t))];
         void*    model;            // kOffInstModel -> M2Model (raw M2 instance)
-        uint8_t  _pad30[kOffInstBonePalette - (kOffInstModel + sizeof(void*))];
+        uint8_t  _pad30[kOffInstParent - (kOffInstModel + sizeof(void*))];
+        void*    parent;           // kOffInstParent -> native parent M2 instance
+        uint8_t  _pad4c[kOffInstBonePalette - (kOffInstParent + sizeof(void*))];
         void*    bonePalettePtr;   // kOffInstBonePalette -> heap bone-matrix buffer (row-major 4x4, kBonePaletteStride each)
     };
     static_assert(offsetof(M2Instance, initFlags)     == kOffInstInitFlags,   "M2Instance.initFlags");
     static_assert(offsetof(M2Instance, model)         == kOffInstModel,       "M2Instance.model");
+    static_assert(offsetof(M2Instance, parent)        == kOffInstParent,      "M2Instance.parent");
     static_assert(offsetof(M2Instance, bonePalettePtr)== kOffInstBonePalette, "M2Instance.bonePalettePtr");
 
     /** @brief Runtime model: flags, path stem, the parsed .m2 buffer, its size, and the live skin profile. */
@@ -399,6 +410,7 @@ namespace wxl::offsets::game::m2
     using M2_AnimLoadCompleteFn = void(__cdecl*)(void* node);
     // Per-batch alpha setter: native this-in-ECX.
     using M2_SetupBatchAlphaFn = void(__fastcall*)(void* drawContext);
+    using M2_SortOpaqueGeoBatchesFn = int(__cdecl*)(void* lhs, void* rhs);
     // Alpha-test reference push (ref on stack).
     using M2_PushAlphaRefFn = void(__cdecl*)(float ref);
     // Ribbon de-relocator (base, fileSize, ctx, ribbons): rebases each ribbon's sub-array offsets.
@@ -434,6 +446,9 @@ namespace wxl::offsets::game::m2
     // override the engine's fill (e.g. CharSweep for collection M2s attached to a character).
     using M2_BuildBonePaletteFn = void (__fastcall*)(void* renderCtx, void* edx,
         void* sa1, void* sa2, void* sa3, uint32_t sa4, uint32_t sa5);
+    using M2_RenderBatchShadowMapFn = void (__thiscall*)(
+        void* instance, uint32_t batchMode, void* skinBatch, void* drawList,
+        uint32_t drawIndex, void* skinSection, void* previousSection);
     // SlotDispatch(cmo, edx, modelSlot, itemDataPtr, postFlag): equip-slot handler; loads the model.
     using M2_SlotDispatchFn     = void (__fastcall*)(void* cmo, void* edx, uint32_t modelSlot, void* itemDataPtr, uint32_t postFlag);
     // SlotClear(cmo, edx, equipSlotWow): clears a WoW equipment slot on the CMO.

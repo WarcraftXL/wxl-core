@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "runtime/InputHooks.hpp"
+#include "runtime/LuaBindings.hpp"
 
 #include "core/Logger.hpp"
 #include "events/Event.hpp"
@@ -70,6 +71,10 @@ namespace
      */
     LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l)
     {
+        // The window procedure runs on WoW's main UI thread. Register addon globals here before
+        // the original handler dispatches the key/mouse event into FrameScript.
+        wxl::runtime::lua::Install();
+
         bool handled = false;
         ev::InputArgs a{ m, static_cast<uintptr_t>(w), static_cast<uintptr_t>(l), &handled };
         ev::Emit(ev::Event::OnInput, &a);

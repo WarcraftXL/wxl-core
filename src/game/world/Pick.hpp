@@ -69,7 +69,7 @@ namespace wxl::game::world
     }
 
     /**
-     * @brief Reads the engine's freshest cached cursor position in device (DDC) pixels.
+     * @brief Reads the engine's live cursor position in device (DDC) pixels.
      * @param ddcX  receives the cursor X.
      * @param ddcY  receives the cursor Y.
      * @return true when the world frame is up; false otherwise.
@@ -78,8 +78,21 @@ namespace wxl::game::world
     {
         void* wf = *reinterpret_cast<void**>(woff::kWorldFrame);
         if (!wf) return false;
-        ddcX = *reinterpret_cast<float*>(reinterpret_cast<char*>(wf) + woff::kWorldFrameCursorDdcX);
-        ddcY = *reinterpret_cast<float*>(reinterpret_cast<char*>(wf) + woff::kWorldFrameCursorDdcY);
+        void* input = *reinterpret_cast<void**>(reinterpret_cast<char*>(wf) + woff::kWorldFrameInput);
+        if (!input) return false;
+
+        // This is the same NDCToDDC conversion used by CGWorldFrame::SetupDefaultAction
+        // immediately before its native HitTestPoint call (WorldFrame.cpp).
+        const float ndcX = *reinterpret_cast<float*>(
+            reinterpret_cast<char*>(input) + woff::kInputCursorNdcX);
+        const float ndcY = *reinterpret_cast<float*>(
+            reinterpret_cast<char*>(input) + woff::kInputCursorNdcY);
+        const float ddcWidth = *reinterpret_cast<float*>(woff::kDdcWidth);
+        const float ddcHeight = *reinterpret_cast<float*>(woff::kDdcHeight);
+        if (ddcWidth <= 0.0f || ddcHeight <= 0.0f) return false;
+
+        ddcX = ndcX * ddcWidth;
+        ddcY = ndcY * ddcHeight;
         return true;
     }
 

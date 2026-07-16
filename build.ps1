@@ -112,8 +112,8 @@ function Build-Host {
 }
 
 function Invoke-AutoPatch {
-    $patcher = Join-Path $ClientPath "wxl-patcher.exe"
-    if (-not (Test-Path $patcher)) { $patcher = Join-Path $buildDir "$Config\wxl-patcher.exe" }
+    $patcher = Join-Path $buildDir "$Config\wxl-patcher.exe"
+    if (-not (Test-Path $patcher)) { $patcher = Join-Path $ClientPath "wxl-patcher.exe" }
     if (-not (Test-Path $patcher)) {
         throw "wxl-patcher.exe not found. Build first (.\build.ps1)."
     }

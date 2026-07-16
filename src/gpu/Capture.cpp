@@ -41,6 +41,7 @@ namespace
     ResetFn    g_origReset     = nullptr;
     EndSceneFn g_origEndScene  = nullptr;
     PresentFn  g_origPresent   = nullptr;
+    UINT       g_customPresentMisses = 0;
 
     HRESULT STDMETHODCALLTYPE HookReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp);
 
@@ -67,13 +68,27 @@ namespace
     HRESULT STDMETHODCALLTYPE HookPresent(IDirect3DDevice9* dev, const RECT* src, const RECT* dst, HWND wnd, const RGNDATA* dirty)
     {
         // The d3d9on12 windowed (DWM) present does not show the backbuffer, so own the present in windowed
-        // mode: show the frame through our own swapchain and skip the native present. Fullscreen keeps the
-        // native present, which composites correctly.
+        // mode: show the frame through our own swapchain and skip the native present. Exclusive fullscreen is
+        // normally translated to borderless-windowed at device creation to avoid unstable On12 driver resets;
+        // only the explicit compatibility opt-out keeps the native fullscreen present path.
         if (g_windowed)
         {
             HWND target = wnd ? wnd : g_devWindow;
             if (target && wxl::gpu::present::Present(dev, target))
+            {
+                g_customPresentMisses = 0;
                 return S_OK;
+            }
+
+            // This proxy owns windowed presentation, so calling the D3D9On12 Present underneath it is
+            // unsafe. In particular, glue-screen/reset transitions can make the custom presenter miss one
+            // frame while resources are being replaced; falling through here then enters D3D9On12 with a
+            // backbuffer whose underlying resource was managed by our queue and can crash inside d3d9on12.
+            // Keep DWM's last completed frame and retry on the next engine Present instead.
+            ++g_customPresentMisses;
+            if (g_customPresentMisses <= 4 || (g_customPresentMisses % 600) == 0)
+                Log("capture: custom present miss %u; native windowed Present suppressed", g_customPresentMisses);
+            return S_OK;
         }
         return g_origPresent(dev, src, dst, wnd, dirty);
     }
@@ -115,6 +130,23 @@ namespace
             pp->hDeviceWindow, pp->Flags, pp->PresentationInterval);
     }
 
+    /** @brief True only when the user explicitly opts back into native D3D9On12 exclusive fullscreen. */
+    bool AllowExclusiveFullscreen()
+    {
+        static const bool allowed = []() {
+            char value[16] = {};
+            const DWORD n = GetEnvironmentVariableA("WXL_EXCLUSIVE_FULLSCREEN", value, sizeof(value));
+            if (n && n < sizeof(value))
+            {
+                const char c = value[0];
+                if (c != '0' && c != 'n' && c != 'N' && c != 'f' && c != 'F')
+                    return true;
+            }
+            return GetFileAttributesA("WarcraftXLExclusiveFullscreen.flag") != INVALID_FILE_ATTRIBUTES;
+        }();
+        return allowed;
+    }
+
     /**
      * @brief Makes windowed present params compatible with the flip-model swapchain On12 must use.
      *
@@ -122,7 +154,8 @@ namespace
      * and needs at least two buffers, so a windowed device asking for a lockable single-buffer chain (which
      * the engine does) presents to a surface DWM never composites, leaving the window white. Clearing the
      * lockable flag and raising the buffer count to two lets the windowed flip-model present reach DWM.
-     * Fullscreen is left untouched (it presents without DWM and already works).
+     * Native exclusive fullscreen is left untouched here; PrepareNativePresentParams decides whether the
+     * compatibility opt-out permits it before applying this windowed sanitize.
      * @param pp  present parameters to sanitize in place, may be null.
      */
     void SanitizePresentParams(D3DPRESENT_PARAMETERS* pp)
@@ -144,6 +177,26 @@ namespace
     }
 
     /**
+     * @brief Builds parameters for the native On12 device while leaving WoW's requested mode unchanged.
+     *
+     * NVIDIA driver 576.80 repeatedly null-dereferences inside D3D9On12 while resetting an exclusive
+     * fullscreen device. Borderless-windowed retains the same fullscreen window and desktop refresh rate but
+     * avoids that driver path; the proxy's composition presenter already owns windowed output.
+     */
+    void PrepareNativePresentParams(D3DPRESENT_PARAMETERS* pp)
+    {
+        if (!pp) return;
+        if (!pp->Windowed && !AllowExclusiveFullscreen())
+        {
+            Log("capture: exclusive fullscreen %ux%u@%u redirected to borderless-windowed for stable On12 reset",
+                pp->BackBufferWidth, pp->BackBufferHeight, pp->FullScreen_RefreshRateInHz);
+            pp->Windowed = TRUE;
+            pp->FullScreen_RefreshRateInHz = 0;
+        }
+        SanitizePresentParams(pp);
+    }
+
+    /**
      * @brief Re-sanitizes present params on a device reset (resolution change, mode switch).
      *
      * The engine resets the device (it does not recreate it) when the resolution or window mode changes, so
@@ -155,13 +208,26 @@ namespace
      */
     HRESULT STDMETHODCALLTYPE HookReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp)
     {
-        SanitizePresentParams(pp);
-        if (pp)
+        if (!pp) return g_origReset(dev, pp);
+
+        Log("capture: Reset begin %ux%u windowed=%d BBCount=%u",
+            pp->BackBufferWidth, pp->BackBufferHeight, pp->Windowed, pp->BackBufferCount);
+        if (!wxl::gpu::present::PrepareForReset())
         {
-            g_windowed = pp->Windowed;
-            if (pp->hDeviceWindow) g_devWindow = pp->hDeviceWindow;
+            Log("capture: Reset deferred because proxy GPU work did not drain");
+            return D3DERR_DEVICELOST;
         }
-        return g_origReset(dev, pp);
+
+        // Do not rewrite WoW's persistent presentation-parameter block. The engine compares that
+        // state later and repeatedly resets the device if our On12-only BBCount/Flags changes leak
+        // back into it, producing a brief hide/flicker loop during loading. Sanitize a call copy.
+        D3DPRESENT_PARAMETERS sanitized = *pp;
+        PrepareNativePresentParams(&sanitized);
+        g_windowed = sanitized.Windowed;
+        if (sanitized.hDeviceWindow) g_devWindow = sanitized.hDeviceWindow;
+        const HRESULT hr = g_origReset(dev, &sanitized);
+        Log("capture: Reset end hr=0x%08lX", (unsigned long)hr);
+        return hr;
     }
 
     /**
@@ -256,10 +322,12 @@ namespace
         HRESULT STDMETHODCALLTYPE CreateDevice(UINT a, D3DDEVTYPE t, HWND fw, DWORD bf, D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** ret) override
         {
             LogPresentParams(pp);
-            SanitizePresentParams(pp);
-            g_devWindow = (pp && pp->hDeviceWindow) ? pp->hDeviceWindow : fw;
-            g_windowed  = pp ? pp->Windowed : TRUE;
-            HRESULT hr = real_->CreateDevice(a, t, fw, bf, pp, ret);
+            if (!pp) return real_->CreateDevice(a, t, fw, bf, pp, ret);
+            D3DPRESENT_PARAMETERS native = *pp;
+            PrepareNativePresentParams(&native);
+            g_devWindow = native.hDeviceWindow ? native.hDeviceWindow : fw;
+            g_windowed  = native.Windowed;
+            HRESULT hr = real_->CreateDevice(a, t, fw, bf, &native, ret);
             if (SUCCEEDED(hr) && ret && *ret) Capture(*ret, queue_);
             return hr;
         }
@@ -283,10 +351,12 @@ namespace
         {
             if (!realEx_) return E_NOTIMPL;
             LogPresentParams(pp);
-            SanitizePresentParams(pp);
-            g_devWindow = (pp && pp->hDeviceWindow) ? pp->hDeviceWindow : fw;
-            g_windowed  = pp ? pp->Windowed : TRUE;
-            HRESULT hr = realEx_->CreateDeviceEx(a, t, fw, bf, pp, fsm, ret);
+            if (!pp) return realEx_->CreateDeviceEx(a, t, fw, bf, pp, fsm, ret);
+            D3DPRESENT_PARAMETERS native = *pp;
+            PrepareNativePresentParams(&native);
+            g_devWindow = native.hDeviceWindow ? native.hDeviceWindow : fw;
+            g_windowed  = native.Windowed;
+            HRESULT hr = realEx_->CreateDeviceEx(a, t, fw, bf, &native, native.Windowed ? nullptr : fsm, ret);
             if (SUCCEEDED(hr) && ret && *ret) Capture(*ret, queue_);
             return hr;
         }

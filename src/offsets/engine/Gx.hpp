@@ -76,6 +76,7 @@ namespace wxl::offsets::engine::gx
     // can name which model is rendering.
     constexpr uintptr_t kDrawTriangleBatch      = 0x008203B0;
     constexpr size_t    kDrawBatchCtxModelField = 0x60; // draw context -> current model
+    constexpr size_t    kDrawBatchCtxSectionField = 0x90; // draw context -> copied M2SkinSection
 
     // --- typed views over the device objects ---
     // The constants above are the curated landmarks; these structs give named, typed access to the same
@@ -102,8 +103,11 @@ namespace wxl::offsets::engine::gx
     {
         uint8_t  _pad00[kDrawBatchCtxModelField];
         void*    model;            // kDrawBatchCtxModelField -> current model
+        uint8_t  _pad64[kDrawBatchCtxSectionField - (kDrawBatchCtxModelField + sizeof(void*))];
+        void*    section;          // kDrawBatchCtxSectionField -> copied M2SkinSection for this draw
     };
     static_assert(offsetof(DrawBatchContext, model) == kDrawBatchCtxModelField, "DrawBatchContext.model");
+    static_assert(offsetof(DrawBatchContext, section) == kDrawBatchCtxSectionField, "DrawBatchContext.section");
 #pragma pack(pop)
 
     // World-frame finalize render callback, once per frame. Hook its entry and fire the event after the

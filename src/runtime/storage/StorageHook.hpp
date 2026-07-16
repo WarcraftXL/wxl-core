@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 namespace wxl::runtime::storage
@@ -56,21 +57,11 @@ namespace wxl::runtime::storage
     void RegisterClientProvider(ClientProvideFn fn);
 
     /**
-     * @brief Callback type for served-bytes filters.
-     * @param name    file name the bytes were served under
-     * @param buffer  served file bytes (read-only)
-     * @param size    served byte count
-     * @return the byte count the native loader should see (<= size to trim trailing data)
+     * @brief Filter for materialized host bytes before the native loader sees them.
+     * @return Byte count to expose to native code; may trim trailing module side tables.
      */
     using ServeFilterFn = uint32_t(*)(const char* name, const uint8_t* buffer, uint32_t size);
 
-    /**
-     * @brief Registers a served-bytes filter.
-     *
-     * Filters run once per host-served file, after the bytes are materialized and before the
-     * native loader sees them. Each filter may record side tables and return a smaller size to
-     * hide trailing data from the engine. Safe to call from a global constructor.
-     * @param fn  filter callback to register
-     */
+    /** Registers a served-bytes filter; safe from a module global constructor. */
     void RegisterServeFilter(ServeFilterFn fn);
 }

@@ -165,7 +165,9 @@ namespace wxl::structure::m2
     /**
      * @brief One skin submesh, 0x30 bytes.
      *
-     * level > 0 = a (level<<16 | id) sub-batch the loader does not handle.
+     * Modern character and equipment-component skins can use level as high bits for indexStart:
+     * (level << 16) | indexStart.
+     * Other legacy skins may still use it as a LOD/sub-batch marker.
      */
     struct M2SkinSection
     {

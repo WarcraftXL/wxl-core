@@ -56,6 +56,18 @@ namespace wxl::core::hook
         return true;
     }
 
+    bool Enable(void* target)
+    {
+        const MH_STATUS s = MH_EnableHook(target);
+        if (s != MH_OK && s != MH_ERROR_ENABLED)
+        {
+            WLOG_ERROR("hook: enable @0x%p failed (%s)", target, MH_StatusToString(s));
+            return false;
+        }
+        WLOG_INFO("hook: enabled early @0x%p", target);
+        return true;
+    }
+
     /**
      * @brief Enables every installed hook.
      * @return true if all hooks were enabled.

@@ -24,12 +24,14 @@
 
 #include <windows.h>
 #include <cctype>
+#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -41,6 +43,12 @@ namespace
     // Marks a synthetic handle at +0x00 (a native handle holds a small kind there).
     constexpr uint32_t kHandleMagic = 0x464C5857; // 'WXLF'
     constexpr size_t   kMaxArchiveName = 512;     // upper bound when copying a name out of the native boundary
+    constexpr uint32_t kLargeBlobStreamThreshold = 8u * 1024u * 1024u;
+    constexpr uint32_t kModelBlobStreamThreshold = 512u * 1024u;
+    constexpr uint32_t kTextureBlobStreamThreshold = 512u * 1024u;
+    constexpr uint32_t kSoundBlobStreamThreshold = 256u * 1024u;
+    constexpr uint32_t kStreamReadAheadSize = 512u * 1024u;
+    constexpr uint32_t kStreamReadAheadDirectThreshold = 256u * 1024u;
 
 #pragma pack(push, 1)
     /**
@@ -65,6 +73,13 @@ namespace
     };
 #pragma pack(pop)
     static_assert(sizeof(HostFile) == 0x30, "HostFile must match the native 0x30 file layout");
+
+    struct StreamWindow
+    {
+        uint32_t base = 0;
+        uint32_t size = 0;
+        std::vector<uint8_t> bytes;
+    };
 
     /**
      * @brief Reports whether a handle is a synthetic host handle.
@@ -94,15 +109,18 @@ namespace
     std::unordered_set<std::string> g_knownMisses;
     constexpr size_t kKnownMissCap = 16384;
 
+    std::mutex g_streamWindowMutex;
+    std::unordered_map<HostFile*, StreamWindow> g_streamWindows;
+
+    void ClearStreamWindow(HostFile* f)
+    {
+        std::lock_guard<std::mutex> lock(g_streamWindowMutex);
+        g_streamWindows.erase(f);
+    }
+
     std::vector<wxl::runtime::storage::ClientProvideFn>& ClientProviders()
     {
         static std::vector<wxl::runtime::storage::ClientProvideFn> v;
-        return v;
-    }
-
-    std::vector<wxl::runtime::storage::ServeFilterFn>& ServeFilters()
-    {
-        static std::vector<wxl::runtime::storage::ServeFilterFn> v;
         return v;
     }
 
@@ -121,17 +139,32 @@ namespace
         return true;
     }
 
+    std::vector<wxl::runtime::storage::ServeFilterFn>& ServeFilters()
+    {
+        static std::vector<wxl::runtime::storage::ServeFilterFn> filters;
+        return filters;
+    }
+
+    bool VerboseStorageLogs()
+    {
+        static const bool enabled = [] {
+            const char* raw = std::getenv("WXL_VERBOSE_ASSET_LOGS");
+            if (!raw || !*raw) raw = std::getenv("WXL_ASSET_LOGS");
+            if (!raw || !*raw) raw = std::getenv("WXL_CLIENT_STORAGE_LOGS");
+            if (!raw || !*raw) return false;
+            const char c = static_cast<char>(std::tolower(static_cast<unsigned char>(*raw)));
+            return c != '0' && c != 'n' && c != 'f';
+        }();
+        return enabled;
+    }
+
     /**
      * @brief Reports whether a name is routed to the host.
      *
      * Skips .pub/.url, which are existence probes rather than archive content. Skips the modern terrain
      * sidecars the client has no loader for: .tex (the per-map texture catalog) and _lod.adt (the
      * low-detail tile). Serving their bytes stalls or faults the terrain load, so the open is left to miss
-     * natively and the loader proceeds without them. Skips audio (.wav/.mp3/.ogg): world sound loads read
-     * through the client's async path, which a synthetic handle never completes (glue-screen music reads
-     * synchronously and survives; world SFX/music never finish loading). No transform targets audio and no
-     * host-only source ships it, so the native archives already serve it correctly. The name is already
-     * validated/non-empty (CopyArchiveName).
+     * natively and the loader proceeds without them. The name is already validated/non-empty (CopyArchiveName).
      * @param name  file name to test.
      * @return true when the name should be served from the host.
      */
@@ -154,6 +187,220 @@ namespace
         for (char& c : key)
             c = (c == '/') ? '\\' : static_cast<char>(tolower(static_cast<unsigned char>(c)));
         return key;
+    }
+
+    bool StreamReadAheadEnabled()
+    {
+        static int enabled = []() -> int {
+            const char* env = std::getenv("WXL_STREAM_READAHEAD");
+            if (env && (*env == '0' || *env == 'n' || *env == 'N')) return 0;
+            FILE* flag = fopen("WarcraftXL_stream_readahead.disable", "rb");
+            if (flag)
+            {
+                fclose(flag);
+                return 0;
+            }
+            return 1;
+        }();
+        return enabled != 0;
+    }
+
+    bool StreamWholeLargeModelsEnabled()
+    {
+        static int enabled = []() -> int {
+            const char* env = std::getenv("WXL_STREAM_WHOLE_LARGE_M2");
+            if (env && (*env == '0' || *env == 'n' || *env == 'N')) return 0;
+            FILE* flag = fopen("WarcraftXL_stream_whole_large_m2.disable", "rb");
+            if (flag)
+            {
+                fclose(flag);
+                return 0;
+            }
+            return 1;
+        }();
+        return enabled != 0;
+    }
+
+    bool StreamLargeSoundsEnabled()
+    {
+        static int enabled = []() -> int {
+            const char* env = std::getenv("WXL_STREAM_SOUNDS");
+            if (env && (*env == '0' || *env == 'n' || *env == 'N')) return 0;
+            FILE* flag = fopen("WarcraftXL_stream_sounds.disable", "rb");
+            if (flag)
+            {
+                fclose(flag);
+                return 0;
+            }
+            return 1;
+        }();
+        return enabled != 0;
+    }
+
+    bool StreamLargeTexturesEnabled()
+    {
+        static int enabled = []() -> int {
+            const char* env = std::getenv("WXL_STREAM_TEXTURES");
+            if (env && (*env == '0' || *env == 'n' || *env == 'N')) return 0;
+            FILE* flag = fopen("WarcraftXL_stream_textures.disable", "rb");
+            if (flag)
+            {
+                fclose(flag);
+                return 0;
+            }
+            return 1;
+        }();
+        return enabled != 0;
+    }
+
+    uint32_t ModelBlobStreamThreshold()
+    {
+        static uint32_t threshold = []() -> uint32_t {
+            const char* envMb = std::getenv("WXL_STREAM_MODEL_THRESHOLD_MB");
+            if (envMb && *envMb)
+            {
+                const unsigned long mb = std::strtoul(envMb, nullptr, 10);
+                if (mb > 0 && mb < 2048) return static_cast<uint32_t>(mb) * 1024u * 1024u;
+            }
+
+            const char* envKb = std::getenv("WXL_STREAM_MODEL_THRESHOLD_KB");
+            if (envKb && *envKb)
+            {
+                const unsigned long kb = std::strtoul(envKb, nullptr, 10);
+                if (kb >= 64 && kb < 2048u * 1024u) return static_cast<uint32_t>(kb) * 1024u;
+            }
+
+            return kModelBlobStreamThreshold;
+        }();
+        return threshold;
+    }
+
+    uint32_t SoundBlobStreamThreshold()
+    {
+        static uint32_t threshold = []() -> uint32_t {
+            const char* envMb = std::getenv("WXL_STREAM_SOUND_THRESHOLD_MB");
+            if (envMb && *envMb)
+            {
+                const unsigned long mb = std::strtoul(envMb, nullptr, 10);
+                if (mb > 0 && mb < 2048) return static_cast<uint32_t>(mb) * 1024u * 1024u;
+            }
+
+            const char* envKb = std::getenv("WXL_STREAM_SOUND_THRESHOLD_KB");
+            if (envKb && *envKb)
+            {
+                const unsigned long kb = std::strtoul(envKb, nullptr, 10);
+                if (kb >= 32 && kb < 2048u * 1024u) return static_cast<uint32_t>(kb) * 1024u;
+            }
+
+            return kSoundBlobStreamThreshold;
+        }();
+        return threshold;
+    }
+
+    uint32_t TextureBlobStreamThreshold()
+    {
+        static uint32_t threshold = []() -> uint32_t {
+            const char* envMb = std::getenv("WXL_STREAM_TEXTURE_THRESHOLD_MB");
+            if (envMb && *envMb)
+            {
+                const unsigned long mb = std::strtoul(envMb, nullptr, 10);
+                if (mb > 0 && mb < 2048) return static_cast<uint32_t>(mb) * 1024u * 1024u;
+            }
+
+            const char* envKb = std::getenv("WXL_STREAM_TEXTURE_THRESHOLD_KB");
+            if (envKb && *envKb)
+            {
+                const unsigned long kb = std::strtoul(envKb, nullptr, 10);
+                if (kb >= 32 && kb < 2048u * 1024u) return static_cast<uint32_t>(kb) * 1024u;
+            }
+
+            return kTextureBlobStreamThreshold;
+        }();
+        return threshold;
+    }
+
+    bool IsModelFile(std::string_view name)
+    {
+        return EndsWithCI(name, ".m2") || EndsWithCI(name, ".mdx");
+    }
+
+    bool IsSoundFile(std::string_view name)
+    {
+        return EndsWithCI(name, ".wav") || EndsWithCI(name, ".mp3") || EndsWithCI(name, ".ogg");
+    }
+
+    bool IsTextureFile(std::string_view name)
+    {
+        return EndsWithCI(name, ".blp");
+    }
+
+    uint32_t ReadHostDirect(HostFile* f, uint32_t off, void* dst, uint32_t want)
+    {
+        uint8_t* p = static_cast<uint8_t*>(dst);
+        uint32_t got = 0;
+        while (got < want)
+        {
+            uint32_t n = ipc::FileReadChunk(f->hostId, off + got, p + got, want - got);
+            if (n == 0) break;
+            got += n;
+        }
+        return got;
+    }
+
+    uint32_t ReadHostStream(HostFile* f, void* dst, uint32_t want)
+    {
+        if (!StreamReadAheadEnabled() || want >= kStreamReadAheadDirectThreshold)
+            return ReadHostDirect(f, f->position, dst, want);
+
+        uint8_t* out = static_cast<uint8_t*>(dst);
+        uint32_t got = 0;
+        while (got < want)
+        {
+            const uint32_t pos = f->position + got;
+            uint32_t copied = 0;
+            {
+                std::lock_guard<std::mutex> lock(g_streamWindowMutex);
+                auto it = g_streamWindows.find(f);
+                if (it != g_streamWindows.end())
+                {
+                    const StreamWindow& w = it->second;
+                    if (w.size && pos >= w.base && pos < w.base + w.size)
+                    {
+                        const uint32_t inWindow = pos - w.base;
+                        const uint32_t available = w.size - inWindow;
+                        copied = (available < want - got) ? available : (want - got);
+                        memcpy(out + got, w.bytes.data() + inWindow, copied);
+                    }
+                }
+            }
+            if (copied)
+            {
+                got += copied;
+                continue;
+            }
+
+            const uint32_t remaining = (pos < f->size) ? (f->size - pos) : 0;
+            const uint32_t fetch = (remaining < kStreamReadAheadSize) ? remaining : kStreamReadAheadSize;
+            if (!fetch) break;
+
+            std::vector<uint8_t> fresh(fetch);
+            uint32_t n = ipc::FileReadChunk(f->hostId, pos, fresh.data(), fetch);
+            if (n == 0) break;
+            fresh.resize(n);
+
+            {
+                std::lock_guard<std::mutex> lock(g_streamWindowMutex);
+                StreamWindow& w = g_streamWindows[f];
+                w.base = pos;
+                w.size = n;
+                w.bytes = std::move(fresh);
+
+                const uint32_t copyNow = (w.size < want - got) ? w.size : (want - got);
+                memcpy(out + got, w.bytes.data(), copyNow);
+                got += copyNow;
+            }
+        }
+        return got;
     }
 
     /**
@@ -233,6 +480,16 @@ namespace
         bool ok = true;
         void* view = nullptr;
         void* mapHandle = nullptr;
+        const bool modelBlob = r.id != 0 && IsModelFile(handleName);
+        const bool textureBlob = r.id != 0 && IsTextureFile(handleName);
+        const bool soundBlob = r.id != 0 && IsSoundFile(handleName);
+        const bool largeBlob = r.id != 0 && r.size >= kLargeBlobStreamThreshold;
+        const bool streamModelBlob = modelBlob && r.size >= ModelBlobStreamThreshold() &&
+                                     StreamWholeLargeModelsEnabled();
+        const bool streamTextureBlob = !wholeFile && textureBlob && r.size >= TextureBlobStreamThreshold() &&
+                                       StreamLargeTexturesEnabled();
+        const bool streamSoundBlob = soundBlob && r.size >= SoundBlobStreamThreshold() &&
+                                     StreamLargeSoundsEnabled();
         if (r.id == 0)
         {
             // Inline: bytes came back in the open response.
@@ -240,6 +497,33 @@ namespace
             if (f->buffer && r.size) memcpy(f->buffer, r.inlineData.data(), r.size);
             ok = (f->buffer != nullptr);
             mode = "inline";
+        }
+        else if ((largeBlob && !wholeFile) || streamModelBlob || streamTextureBlob || streamSoundBlob)
+        {
+            // Keep large host blobs in the 64-bit host and stream chunks on Read().
+            // Mapping every 20-30 MB HD character M2, decode-copied BLP, or FMOD-copied audio costs
+            // precious 32-bit address space.
+            f->buffer = nullptr;
+            f->hostId = r.id;
+            mode = streamModelBlob ? "stream-model" :
+                   (streamTextureBlob ? "stream-texture" :
+                   (streamSoundBlob ? "stream-sound" : "stream-large"));
+        }
+        else if (largeBlob && wholeFile)
+        {
+            // Whole-file opens need handle+0x18 populated. Copy once, then release the host section so
+            // the client does not hold both a malloc buffer and a mapped view for the same large file.
+            f->buffer = static_cast<uint8_t*>(malloc(r.size ? r.size : 1));
+            uint32_t off = 0;
+            while (f->buffer && off < r.size)
+            {
+                uint32_t n = ipc::FileReadChunk(r.id, off, f->buffer + off, r.size - off);
+                if (n == 0) break;
+                off += n;
+            }
+            ipc::FileClose(r.id);
+            ok = (f->buffer != nullptr && off == r.size);
+            mode = "whole-large";
         }
         else if (ipc::MapBlob(r.id, r.size, view, mapHandle))
         {
@@ -273,8 +557,7 @@ namespace
             mode = "stream";
         }
 
-        // Served-bytes filters: a module may record trailing side tables (ATSC/ATHB/ATL2, ...) and
-        // trim them off so the native loader sees only the bytes it understands.
+        // Module filters may consume/record trailing side tables and trim them before native parsing.
         if (ok && f->buffer && f->size)
             for (wxl::runtime::storage::ServeFilterFn filter : ServeFilters())
             {
@@ -285,7 +568,7 @@ namespace
         if (ok)
         {
             if (out) *out = f;
-            if (g_served < 60)
+            if (VerboseStorageLogs() && g_served < 60)
                 WLOG_INFO("Storage: serve '%s' (%u B, %s) from host%s",
                           handleName.c_str(), r.size, mode, logSuffix ? logSuffix : "");
             ++g_served;
@@ -362,7 +645,7 @@ namespace
             // goes straight native. Only a CONFIRMED miss is cached -- a timeout/desync (r.hostMiss == false)
             // falls back to native for this open alone and is retried next time, never poisoning the name.
             RememberMiss(std::move(key));
-            if (g_missed < 200)
+            if (VerboseStorageLogs() && g_missed < 200)
             {
                 if (specificAnim)
                     WLOG_INFO("Storage: anim MISS '%s' (specific) -> native archive", safeName.c_str());
@@ -430,16 +713,12 @@ namespace
             }
             else
             {
-                uint8_t* p = static_cast<uint8_t*>(dst);
-                while (got < want)
-                {
-                    uint32_t n = ipc::FileReadChunk(f->hostId, f->position + got, p + got, want - got);
-                    if (n == 0) break;
-                    got += n;
-                }
+                got = ReadHostStream(f, dst, want);
             }
 
             f->position += got;
+            if (!f->buffer && f->hostId && f->position >= f->size)
+                ClearStreamWindow(f);
             if (read) *read = got;
             return (got == len) ? 1 : 0; // nonzero only when the full request was satisfied
         }
@@ -480,6 +759,7 @@ namespace
         if (IsOurs(handle))
         {
             auto* f = reinterpret_cast<HostFile*>(handle);
+            ClearStreamWindow(f);
             if (f->mapView)
             {
                 // Zero-copy: buffer points into the mapping, so unmap (do not free) then release the section.
@@ -521,7 +801,8 @@ namespace
             if (out) *out = nullptr;
             return 0;
         }
-        WLOG_INFO("archive-mount: keep '%s'", name ? name : "(null)");
+        if (VerboseStorageLogs())
+            WLOG_INFO("archive-mount: keep '%s'", name ? name : "(null)");
         return g_origArchiveMount(name, priority, flags, out);
     }
 }

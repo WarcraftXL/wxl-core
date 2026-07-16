@@ -23,6 +23,7 @@
 #include "runtime/GameHooks.hpp"
 #include "runtime/ModuleInstall.hpp"
 #include "runtime/InputHooks.hpp"
+#include "runtime/LuaBindings.hpp"
 #include "runtime/PhasingHooks.hpp"
 #include "runtime/RenderHooks.hpp"
 #include "runtime/storage/StorageHook.hpp"
@@ -42,6 +43,8 @@ namespace
      */
     DWORD WINAPI MainThread(LPVOID)
     {
+        // Time-sensitive hooks must be live before the client builds its message-handler tables.
+        wxl::runtime::modules::RunEarly();
         wxl::runtime::storage::Install();
 
         // Wait for the graphics device (and the window) before installing detours that publish the
@@ -55,7 +58,10 @@ namespace
         wxl::runtime::game::Install();   // game events: OnModelLoad, ...
         wxl::runtime::input::Install();  // window events: OnInput
         wxl::runtime::phasing::Install(); // terrain-phase per-tile loader redirect
+        wxl::runtime::lua::InstallHooks();
         wxl::core::hook::EnableAll();
+        wxl::runtime::lua::Activate();
+        wxl::runtime::lua::Install(true);
 
         WLOG_INFO("wxl-core ready");
         return 0;
@@ -80,6 +86,7 @@ BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID)
 
         wxl::core::hook::Init();
         wxl::game::RegisterAllBindings();
+        wxl::runtime::game::ReserveM2Memory();
 
         // Arm the archive-mount guard now, on the loader thread, before the client builds its archive
         // set: the deferred main thread below is raced past by the client's startup, so a guard armed

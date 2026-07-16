@@ -23,6 +23,16 @@
 // each replaced table. Modules never include this; they use wxl::game / wxl::events.
 namespace wxl::offsets::game::db2
 {
+    // Item DBC. Several hot consumers read this ID table inline instead of calling the generic accessor.
+    namespace item
+    {
+        constexpr uintptr_t kStorageObject = 0x00AD3D4C;
+        constexpr uintptr_t kMaxId         = 0x00AD3D58;
+        constexpr uintptr_t kMinId         = 0x00AD3D5C;
+        constexpr uintptr_t kIdTable       = 0x00AD3D6C;
+        constexpr size_t    kRecordSize    = 32;
+    }
+
     // -------------------------------------------------------------------------
     // Map storage. The engine compacts each on-disk map row into a fixed-size in-memory record and
     // indexes it by (id - minId). The override merges modern map rows into this storage in place.
@@ -80,6 +90,9 @@ namespace wxl::offsets::game::db2
     namespace itemdisplayinfo
     {
         constexpr uintptr_t kStorageObject  = 0x00AD3DDC; // storage instance
+        constexpr uintptr_t kMaxId          = 0x00AD3DE8;
+        constexpr uintptr_t kMinId          = 0x00AD3DEC;
+        constexpr uintptr_t kIdTable        = 0x00AD3DFC;
         // sub_4cfd90: thiscall(ecx=storageObj, displayId, outBuf); fills outBuf with the 256-byte
         // record copy (field pointers point into the live DBC string block); returns non-zero if found.
         constexpr uintptr_t kLookup         = 0x004CFD90;

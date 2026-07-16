@@ -15,11 +15,14 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "runtime/GameHooks.hpp"
+#include "runtime/AssetProfile.hpp"
+#include "runtime/LuaBindings.hpp"
 
 #include "core/Hook.hpp"
 #include "core/Logger.hpp"
 #include "core/Mem.hpp"
 #include "events/Event.hpp"
+#include "game/m2/M2.hpp"
 #include "offsets/engine/Frame.hpp"
 #include "offsets/engine/Gx.hpp"
 #include "offsets/engine/Sound.hpp"
@@ -32,11 +35,16 @@
 
 #include <windows.h>
 
+#include <algorithm>
+#include <atomic>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace
 {
@@ -50,15 +58,21 @@ namespace
     namespace frame = wxl::offsets::engine::frame;
     namespace unit  = wxl::offsets::game::unit;
     namespace snd   = wxl::offsets::engine::sound;
+    namespace aprof = wxl::runtime::assetprof;
 
     m2::M2_InitFn              g_origM2Init            = nullptr;
     m2::M2_FinalizeSkinFn      g_origFinalizeSkin      = nullptr;
     m2::M2_BuildBatchMaterialFn g_origBuildBatchMaterial = nullptr;
+    m2::M2_BufferAllocFn       g_origM2BufferAlloc     = nullptr;
+    m2::M2_BufferFreeFn        g_origM2BufferFree      = nullptr;
     m2::M2_SetupBatchAlphaFn   g_origSetupAlpha    = nullptr;
+    m2::M2_SortOpaqueGeoBatchesFn g_origSortOpaqueGeoBatches = nullptr;
     m2::M2_SlotDispatchFn      g_origSlotDispatch  = nullptr;
     m2::M2_SlotClearFn         g_origSlotClear     = nullptr;
     m2::M2_PerFrameUpdateFn    g_origM2PerFrame    = nullptr;
     m2::M2_BuildBonePaletteFn  g_origBuildBonePalette = nullptr;
+    m2::M2_RenderBatchShadowMapFn g_origRenderBatchShadowMap = nullptr;
+    m2::M2_SceneTriangleHitTestFn g_origSceneTriangleHitTest = nullptr;
     dd::SpawnFromMDDFFn        g_origDoodadSpawn  = nullptr;
     wmo::Wmo_SpawnFromModfFn   g_origWmoSpawn     = nullptr;
     gxoff::TextureUpdateFn       g_origTexUpdate    = nullptr;
@@ -74,6 +88,389 @@ namespace
     unit::ObjectMsgHandlerFn   g_origObjDestroy   = nullptr;
     unit::TargetSetFn          g_origTargetSet    = nullptr;
     snd::PlaySoundFn           g_origPlaySound    = nullptr;
+    std::atomic<uint32_t>      g_sceneHitTestFaults{ 0 };
+    std::atomic<uint32_t>      g_textureUpdateFaults{ 0 };
+    std::atomic<uint32_t>      g_opaqueSortFaults{ 0 };
+    std::atomic<uint32_t>      g_shadowBoneOverflowSkips{ 0 };
+
+    constexpr uint32_t kDefaultVirtualM2AllocThreshold = 1u * 1024u * 1024u;
+    // Reserve only what the observed city workload actually needs. A 256 MB reservation stranded roughly
+    // 190 MB of scarce 32-bit VA while CM2Model later failed to find a separate 15 MB contiguous block.
+    constexpr uint32_t kDefaultM2ArenaSizeMb = 128u;
+
+    /**
+     * @brief Contains a stale M2 collision-buffer read after disconnect/reconnect world teardown.
+     *
+     * Returning the caller's current hit is the native loop's no-new-triangle result. Keeping the guard at
+     * this leaf lets CM2Scene's outer geometry/collision code finish its cleanup and matrix restoration.
+     */
+    int __fastcall hkSceneTriangleHitTest(
+        void* scratch, void* /*edx*/, uint16_t* indexBegin, uint16_t* indexEnd, int vertexBase,
+        float* point, int mode, int candidate, float* bestDepth, int currentHit)
+    {
+        __try
+        {
+            return g_origSceneTriangleHitTest(
+                scratch, indexBegin, indexEnd, vertexBase, point, mode, candidate, bestDepth, currentHit);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            const uint32_t faults = g_sceneHitTestFaults.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (faults == 1 || (faults & (faults - 1)) == 0)
+                WLOG_WARN("M2 scene hit-test skipped stale collision data (faults=%u)", faults);
+            return currentHit;
+        }
+    }
+
+    struct VirtualM2Allocation
+    {
+        void* base = nullptr;      // non-null for standalone VirtualAlloc
+        uint32_t arenaOffset = 0;  // valid when base == nullptr
+        uint32_t arenaSize = 0;
+    };
+
+    struct M2ArenaRange
+    {
+        uint32_t offset = 0;
+        uint32_t size = 0;
+    };
+
+    uint32_t AlignUpU32(uint32_t value, uint32_t align)
+    {
+        return (value + align - 1u) & ~(align - 1u);
+    }
+
+    std::mutex g_virtualM2AllocMutex;
+    std::unordered_map<void*, VirtualM2Allocation> g_virtualM2Allocs;
+    uint8_t* g_m2ArenaBase = nullptr;
+    uint32_t g_m2ArenaSize = 0;
+    std::vector<M2ArenaRange> g_m2ArenaFree;
+
+    /** @brief Logs a coarse 32-bit address-space snapshot around very large model allocations. */
+    void LogClientAddressSpace(const char* reason)
+    {
+        SYSTEM_INFO info{};
+        GetSystemInfo(&info);
+        uintptr_t address = reinterpret_cast<uintptr_t>(info.lpMinimumApplicationAddress);
+        const uintptr_t maximum = reinterpret_cast<uintptr_t>(info.lpMaximumApplicationAddress);
+        uint64_t committed = 0, reserved = 0, freeBytes = 0, largestFree = 0;
+        while (address < maximum)
+        {
+            MEMORY_BASIC_INFORMATION mbi{};
+            if (!VirtualQuery(reinterpret_cast<const void*>(address), &mbi, sizeof(mbi)) || !mbi.RegionSize)
+                break;
+            const uint64_t bytes = static_cast<uint64_t>(mbi.RegionSize);
+            if (mbi.State == MEM_COMMIT) committed += bytes;
+            else if (mbi.State == MEM_RESERVE) reserved += bytes;
+            else if (mbi.State == MEM_FREE)
+            {
+                freeBytes += bytes;
+                largestFree = std::max(largestFree, bytes);
+            }
+            const uintptr_t next = address + static_cast<uintptr_t>(mbi.RegionSize);
+            if (next <= address) break;
+            address = next;
+        }
+
+        uint64_t arenaFree = 0, arenaLargest = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
+            for (const M2ArenaRange& range : g_m2ArenaFree)
+            {
+                arenaFree += range.size;
+                arenaLargest = std::max<uint64_t>(arenaLargest, range.size);
+            }
+        }
+        WLOG_INFO(
+            "client-memory: reason=%s commit_mb=%.1f reserve_mb=%.1f free_mb=%.1f largest_free_mb=%.1f arena_free_mb=%.1f arena_largest_mb=%.1f",
+            reason ? reason : "unknown",
+            static_cast<double>(committed) / (1024.0 * 1024.0),
+            static_cast<double>(reserved) / (1024.0 * 1024.0),
+            static_cast<double>(freeBytes) / (1024.0 * 1024.0),
+            static_cast<double>(largestFree) / (1024.0 * 1024.0),
+            static_cast<double>(arenaFree) / (1024.0 * 1024.0),
+            static_cast<double>(arenaLargest) / (1024.0 * 1024.0));
+    }
+
+    bool LargeM2VirtualAllocEnabled()
+    {
+        static int cached = -1;
+        if (cached >= 0)
+            return cached != 0;
+
+        char env[16]{};
+        const DWORD n = GetEnvironmentVariableA("WXL_M2_VIRTUAL_ALLOC", env, sizeof env);
+        if (n > 0 && (env[0] == '0' || env[0] == 'n' || env[0] == 'N'))
+        {
+            cached = 0;
+            return false;
+        }
+
+        cached = (GetFileAttributesA("WarcraftXL_m2_virtual_alloc.disable") == INVALID_FILE_ATTRIBUTES) ? 1 : 0;
+        return cached != 0;
+    }
+
+    uint32_t VirtualM2AllocThreshold()
+    {
+        static uint32_t cached = 0;
+        if (cached)
+            return cached;
+
+        char env[32]{};
+        DWORD n = GetEnvironmentVariableA("WXL_M2_VIRTUAL_ALLOC_THRESHOLD_MB", env, sizeof env);
+        if (n > 0)
+        {
+            const unsigned long mb = std::strtoul(env, nullptr, 10);
+            if (mb > 0 && mb < 2048)
+            {
+                cached = static_cast<uint32_t>(mb) * 1024u * 1024u;
+                return cached;
+            }
+        }
+
+        n = GetEnvironmentVariableA("WXL_M2_VIRTUAL_ALLOC_THRESHOLD_KB", env, sizeof env);
+        if (n > 0)
+        {
+            const unsigned long kb = std::strtoul(env, nullptr, 10);
+            if (kb >= 64 && kb < 2048u * 1024u)
+            {
+                cached = static_cast<uint32_t>(kb) * 1024u;
+                return cached;
+            }
+        }
+
+        cached = kDefaultVirtualM2AllocThreshold;
+        return cached;
+    }
+
+    uint32_t M2ArenaSizeMb()
+    {
+        static uint32_t cached = 0;
+        if (cached)
+            return cached;
+
+        char env[32]{};
+        const DWORD n = GetEnvironmentVariableA("WXL_M2_ARENA_MB", env, sizeof env);
+        if (n > 0)
+        {
+            const unsigned long mb = std::strtoul(env, nullptr, 10);
+            if (mb >= 64 && mb <= 2048)
+            {
+                cached = static_cast<uint32_t>(mb);
+                return cached;
+            }
+        }
+
+        cached = kDefaultM2ArenaSizeMb;
+        return cached;
+    }
+
+    bool M2ArenaEnabled()
+    {
+        static int cached = -1;
+        if (cached >= 0)
+            return cached != 0;
+
+        char env[16]{};
+        const DWORD n = GetEnvironmentVariableA("WXL_M2_ARENA", env, sizeof env);
+        if (n > 0 && (env[0] == '0' || env[0] == 'n' || env[0] == 'N'))
+        {
+            cached = 0;
+            return false;
+        }
+
+        cached = (GetFileAttributesA("WarcraftXL_m2_arena.disable") == INVALID_FILE_ATTRIBUTES) ? 1 : 0;
+        return cached != 0;
+    }
+
+    bool EnsureM2ArenaLocked()
+    {
+        if (g_m2ArenaBase)
+            return true;
+        if (!M2ArenaEnabled())
+            return false;
+
+        const uint32_t mb = M2ArenaSizeMb();
+        const uint64_t bytes64 = static_cast<uint64_t>(mb) * 1024u * 1024u;
+        if (bytes64 > 0xffffffffu)
+            return false;
+
+        auto* base = static_cast<uint8_t*>(
+            VirtualAlloc(nullptr, static_cast<SIZE_T>(bytes64), MEM_RESERVE, PAGE_READWRITE));
+        if (!base)
+        {
+            WLOG_WARN("m2-memory: failed to reserve %u MB arena", mb);
+            return false;
+        }
+
+        g_m2ArenaBase = base;
+        g_m2ArenaSize = static_cast<uint32_t>(bytes64);
+        g_m2ArenaFree.clear();
+        g_m2ArenaFree.push_back({ 0, g_m2ArenaSize });
+        WLOG_INFO("m2-memory: reserved %u MB large-model arena", mb);
+        return true;
+    }
+
+    bool CommitArenaRange(uint32_t offset, uint32_t size)
+    {
+        if (!g_m2ArenaBase || size == 0)
+            return false;
+        return VirtualAlloc(g_m2ArenaBase + offset, size, MEM_COMMIT, PAGE_READWRITE) != nullptr;
+    }
+
+    void FreeArenaRangeLocked(uint32_t offset, uint32_t size)
+    {
+        if (!g_m2ArenaBase || size == 0)
+            return;
+
+        VirtualFree(g_m2ArenaBase + offset, size, MEM_DECOMMIT);
+
+        M2ArenaRange r{ offset, size };
+        auto it = g_m2ArenaFree.begin();
+        while (it != g_m2ArenaFree.end() && it->offset < offset)
+            ++it;
+        it = g_m2ArenaFree.insert(it, r);
+
+        if (it != g_m2ArenaFree.begin())
+        {
+            auto prev = it - 1;
+            if (prev->offset + prev->size == it->offset)
+            {
+                prev->size += it->size;
+                it = g_m2ArenaFree.erase(it);
+                it = prev;
+            }
+        }
+
+        auto next = it + 1;
+        if (next != g_m2ArenaFree.end() && it->offset + it->size == next->offset)
+        {
+            it->size += next->size;
+            g_m2ArenaFree.erase(next);
+        }
+    }
+
+    void* TryArenaM2AllocLocked(uint32_t size)
+    {
+        if (!EnsureM2ArenaLocked())
+            return nullptr;
+
+        const uint32_t need = AlignUpU32(size + 0x20u, 0x1000u);
+        for (size_t i = 0; i < g_m2ArenaFree.size(); ++i)
+        {
+            const M2ArenaRange range = g_m2ArenaFree[i];
+            const uint32_t allocOffset = range.offset;
+            if (range.size < need)
+                continue;
+
+            if (need == range.size)
+            {
+                g_m2ArenaFree.erase(g_m2ArenaFree.begin() + static_cast<ptrdiff_t>(i));
+            }
+            else
+            {
+                g_m2ArenaFree[i].offset = range.offset + need;
+                g_m2ArenaFree[i].size = range.size - need;
+            }
+
+            if (!CommitArenaRange(range.offset, need))
+            {
+                FreeArenaRangeLocked(range.offset, need);
+                return nullptr;
+            }
+
+            auto* ptr = g_m2ArenaBase + allocOffset + 0x10u;
+            ptr[-1] = 0x10u;
+            g_virtualM2Allocs.emplace(ptr, VirtualM2Allocation{ nullptr, range.offset, need });
+            return ptr;
+        }
+
+        return nullptr;
+    }
+
+    void* TryVirtualM2Alloc(uint32_t size)
+    {
+        const SIZE_T total = static_cast<SIZE_T>(size) + 0x20u;
+        auto* base = static_cast<uint8_t*>(VirtualAlloc(nullptr, total, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (!base)
+            return nullptr;
+
+        const uintptr_t aligned = (reinterpret_cast<uintptr_t>(base) + 0x1Fu) & ~uintptr_t(0x0Fu);
+        auto* ptr = reinterpret_cast<uint8_t*>(aligned);
+        const uintptr_t shift = reinterpret_cast<uintptr_t>(ptr) - reinterpret_cast<uintptr_t>(base);
+        if (shift == 0 || shift > 0xFF)
+        {
+            VirtualFree(base, 0, MEM_RELEASE);
+            return nullptr;
+        }
+        ptr[-1] = static_cast<uint8_t>(shift);
+
+        std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
+        g_virtualM2Allocs.emplace(ptr, VirtualM2Allocation{ base, 0, 0 });
+        return ptr;
+    }
+
+    void __cdecl hkM2BufferFree(void* ptr)
+    {
+        if (!ptr)
+            return;
+
+        VirtualM2Allocation alloc{};
+        bool ours = false;
+        {
+            std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
+            auto it = g_virtualM2Allocs.find(ptr);
+            if (it != g_virtualM2Allocs.end())
+            {
+                alloc = it->second;
+                g_virtualM2Allocs.erase(it);
+                ours = true;
+            }
+
+            if (ours && !alloc.base)
+            {
+                FreeArenaRangeLocked(alloc.arenaOffset, alloc.arenaSize);
+                return;
+            }
+        }
+
+        if (ours && alloc.base)
+        {
+            VirtualFree(alloc.base, 0, MEM_RELEASE);
+            return;
+        }
+
+        g_origM2BufferFree(ptr);
+    }
+
+    void* __cdecl hkM2BufferAlloc(uint32_t size, const char* tag, int line)
+    {
+        if (size >= VirtualM2AllocThreshold() && LargeM2VirtualAllocEnabled())
+        {
+            void* ptr = nullptr;
+            {
+                std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
+                ptr = TryArenaM2AllocLocked(size);
+            }
+            if (ptr)
+            {
+                WLOG_INFO("m2-memory: arena buffer %u bytes (%s)", size, tag ? tag : "M2");
+                if (size >= 8u * 1024u * 1024u) LogClientAddressSpace("m2-arena");
+                return ptr;
+            }
+
+            if (void* standalone = TryVirtualM2Alloc(size))
+            {
+                WLOG_INFO("m2-memory: virtual buffer %u bytes (%s)", size, tag ? tag : "M2");
+                if (size >= 8u * 1024u * 1024u) LogClientAddressSpace("m2-virtual");
+                return standalone;
+            }
+            if (size >= 8u * 1024u * 1024u) LogClientAddressSpace("m2-virtual-failed");
+            WLOG_WARN("m2-memory: VirtualAlloc failed for %u bytes, falling back to native allocator", size);
+        }
+
+        return g_origM2BufferAlloc(size, tag, line);
+    }
 
     /**
      * @brief Detours model init, emitting OnModelLoadPre at entry and OnModelLoad after parsing.
@@ -82,12 +479,41 @@ namespace
      */
     int __fastcall hkM2Init(void* model)
     {
+        const uint64_t preStarted = aprof::Now();
         ev::ModelLoadArgs pre{ model };
         ev::Emit(ev::Event::OnModelLoadPre, &pre);
+        if (preStarted) aprof::Record(aprof::Phase::M2Pre, aprof::Now() - preStarted);
+
+        const uint64_t nativeStarted = aprof::Now();
         const int r = g_origM2Init(model);
+        if (nativeStarted) aprof::Record(aprof::Phase::M2Native, aprof::Now() - nativeStarted);
+
+        const uint64_t postStarted = aprof::Now();
         ev::ModelLoadArgs a{ model };
         ev::Emit(ev::Event::OnModelLoad, &a);
+        if (postStarted) aprof::Record(aprof::Phase::M2Post, aprof::Now() - postStarted);
         return r;
+    }
+
+    bool ProbeEffectObject(void* effect) noexcept
+    {
+        if (!effect) return true;
+        __try
+        {
+            volatile uint8_t head = *static_cast<uint8_t*>(effect);
+            volatile uint32_t vertexTable = *reinterpret_cast<uint32_t*>(
+                static_cast<uint8_t*>(effect) + 0x2C);
+            volatile uint32_t pixelTable = *reinterpret_cast<uint32_t*>(
+                static_cast<uint8_t*>(effect) + 0x194);
+            (void)head;
+            (void)vertexTable;
+            (void)pixelTable;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
     }
 
     /**
@@ -103,6 +529,140 @@ namespace
         ev::M2SkinFinalizeArgs a{ model };
         ev::Emit(ev::Event::OnM2SkinFinalize, &a);
         g_origFinalizeSkin(model);
+
+        // Native finalize stores one optional CShaderEffect pointer per skin batch at model+0x188.
+        // Diagnose and clear values that are already invalid here; the sorter guard below covers keys
+        // that become stale later (for example across an effect-manager/device lifecycle transition).
+        uint32_t invalid = 0;
+        uint32_t firstIndex = 0;
+        void* firstEffect = nullptr;
+        char path[128]{};
+        __try
+        {
+            auto* bytes = static_cast<uint8_t*>(model);
+            auto* skin = *reinterpret_cast<wxl::game::m2::M2SkinProfile**>(bytes + m2::kOffModelSkin);
+            auto** effects = *reinterpret_cast<void***>(bytes + m2::kOffModelSubMeshCopy);
+            if (skin && effects)
+            {
+                const uint32_t count = std::min<uint32_t>(skin->batchCount, 0x4000u);
+                for (uint32_t i = 0; i < count; ++i)
+                {
+                    void* effect = effects[i];
+                    if (effect && !ProbeEffectObject(effect))
+                    {
+                        if (invalid == 0) { firstIndex = i; firstEffect = effect; }
+                        effects[i] = nullptr;
+                        ++invalid;
+                    }
+                }
+            }
+
+            const char* source = reinterpret_cast<const char*>(bytes + m2::kOffModelPathStem);
+            size_t i = 0;
+            for (; i + 1 < sizeof path && source[i]; ++i) path[i] = source[i];
+            path[i] = '\0';
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            path[0] = '\0';
+        }
+        if (invalid)
+            WLOG_WARN("M2 finalize: cleared %u invalid effect key(s), first batch=%u effect=%p model='%s'",
+                      invalid, firstIndex, firstEffect, path[0] ? path : "(unreadable)");
+    }
+
+    /**
+     * @brief Probes the optional shader-effect sort key carried by one 0x44-byte CM2 scene element.
+     *
+     * CM2Scene::SortOpaqueGeoBatches reads two effect-owned arrays through element+0x30 using the
+     * vertex/pixel shader indices at +0x34/+0x38. The effect pointer is not needed by DrawBatch itself;
+     * it only refines ordering. A stale key can therefore be cleared without dropping the geometry.
+     */
+    bool ProbeOpaqueEffectKey(void* rawEntry, void** effectOut, int32_t* vertexIndexOut,
+                              int32_t* pixelIndexOut) noexcept
+    {
+        if (effectOut) *effectOut = nullptr;
+        if (vertexIndexOut) *vertexIndexOut = -1;
+        if (pixelIndexOut) *pixelIndexOut = -1;
+        if (!rawEntry) return false;
+
+        __try
+        {
+            auto* entry = static_cast<uint8_t*>(rawEntry);
+            void* effect = *reinterpret_cast<void**>(entry + 0x30);
+            const int32_t vertexIndex = *reinterpret_cast<int32_t*>(entry + 0x34);
+            const int32_t pixelIndex = *reinterpret_cast<int32_t*>(entry + 0x38);
+            if (effectOut) *effectOut = effect;
+            if (vertexIndexOut) *vertexIndexOut = vertexIndex;
+            if (pixelIndexOut) *pixelIndexOut = pixelIndex;
+            if (!effect) return true;
+
+            // ComputeElementShaders produces small non-negative table indices. Rejecting absurd values
+            // also prevents signed index wrap before touching the effect-owned arrays.
+            if (vertexIndex < 0 || pixelIndex < 0 || vertexIndex > 0x10000 || pixelIndex > 0x10000)
+                return false;
+
+            volatile uint32_t vertexKey = *reinterpret_cast<uint32_t*>(
+                static_cast<uint8_t*>(effect) + 0x2C + static_cast<uint32_t>(vertexIndex) * 4u);
+            volatile uint32_t pixelKey = *reinterpret_cast<uint32_t*>(
+                static_cast<uint8_t*>(effect) + 0x194 + static_cast<uint32_t>(pixelIndex) * 4u);
+            (void)vertexKey;
+            (void)pixelKey;
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    void ClearOpaqueEffectKey(void* rawEntry) noexcept
+    {
+        if (!rawEntry) return;
+        __try
+        {
+            *reinterpret_cast<void**>(static_cast<uint8_t*>(rawEntry) + 0x30) = nullptr;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+    }
+
+    int PointerOrder(const void* lhs, const void* rhs) noexcept
+    {
+        const uintptr_t a = reinterpret_cast<uintptr_t>(lhs);
+        const uintptr_t b = reinterpret_cast<uintptr_t>(rhs);
+        return a < b ? -1 : (a > b ? 1 : 0);
+    }
+
+    int __cdecl hkSortOpaqueGeoBatches(void* lhs, void* rhs)
+    {
+        void* lhsEffect = nullptr;
+        void* rhsEffect = nullptr;
+        int32_t lhsVs = -1, lhsPs = -1, rhsVs = -1, rhsPs = -1;
+        const bool lhsOk = ProbeOpaqueEffectKey(lhs, &lhsEffect, &lhsVs, &lhsPs);
+        const bool rhsOk = ProbeOpaqueEffectKey(rhs, &rhsEffect, &rhsVs, &rhsPs);
+
+        if (!lhsOk) ClearOpaqueEffectKey(lhs);
+        if (!rhsOk) ClearOpaqueEffectKey(rhs);
+        if (!lhsOk || !rhsOk)
+        {
+            const uint32_t faults = g_opaqueSortFaults.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (faults == 1 || (faults & (faults - 1)) == 0)
+                WLOG_WARN("M2 opaque-sort: cleared stale effect key (faults=%u lhsFx=%p lhsVS=%d lhsPS=%d rhsFx=%p rhsVS=%d rhsPS=%d)",
+                          faults, lhsEffect, lhsVs, lhsPs, rhsEffect, rhsVs, rhsPs);
+        }
+
+        __try
+        {
+            return g_origSortOpaqueGeoBatches(lhs, rhs);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            const uint32_t faults = g_opaqueSortFaults.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (faults == 1 || (faults & (faults - 1)) == 0)
+                WLOG_WARN("M2 opaque-sort: native comparator fault quarantined (faults=%u lhs=%p rhs=%p)",
+                          faults, lhs, rhs);
+            return PointerOrder(lhs, rhs);
+        }
     }
 
     /**
@@ -285,11 +845,41 @@ namespace
      * @param y2    upload rect bottom.
      * @param flag  native upload flag.
      */
+    // Keep SEH in a POD-only leaf. TextureUpdate invokes the texture's completion callback before it
+    // returns; a late font-atlas/cache callback can retain a row/tree pointer whose owner was rebuilt
+    // during world entry. Letting that AV escape kills the client from TextureCallback (0x006C9F50).
+    bool SafeTextureUpdate(void* tex, int x, int y, int x2, int y2, int flag) noexcept
+    {
+        __try
+        {
+            g_origTexUpdate(tex, x, y, x2, y2, flag);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
     void __cdecl hkTexUpdate(void* tex, int x, int y, int x2, int y2, int flag)
     {
         ev::TextureUploadArgs a{ tex, static_cast<uint32_t>(x2 - x), static_cast<uint32_t>(y2 - y) };
         ev::Emit(ev::Event::OnTextureUpload, &a);
-        g_origTexUpdate(tex, x, y, x2, y2, flag);
+        const uint64_t started = aprof::Now();
+        const bool completed = SafeTextureUpdate(tex, x, y, x2, y2, flag);
+        if (!completed)
+        {
+            const uint32_t faults = g_textureUpdateFaults.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (faults == 1 || (faults & (faults - 1)) == 0)
+                WLOG_WARN("texture: skipped stale native upload callback (faults=%u tex=%p rect=%d,%d..%d,%d)",
+                          faults, tex, x, y, x2, y2);
+        }
+        else if (started)
+        {
+            const uint64_t width = x2 > x ? static_cast<uint64_t>(x2 - x) : 0;
+            const uint64_t height = y2 > y ? static_cast<uint64_t>(y2 - y) : 0;
+            aprof::Record(aprof::Phase::TextureUpload, aprof::Now() - started, width * height);
+        }
         if (auto* tbl = *reinterpret_cast<uint32_t**>(gxoff::kMipTablePtr))
             std::memset(tbl, 0, gxoff::kMipTableSlots * sizeof(uint32_t));
     }
@@ -455,7 +1045,9 @@ namespace
      */
     void* __cdecl hkTexCreate(const char* name, uint32_t flags, int* status, uint32_t flags2)
     {
+        const uint64_t started = aprof::Now();
         void* handle = g_origTexCreate(name, flags, status, flags2);
+        if (started) aprof::Record(aprof::Phase::TextureRequest, aprof::Now() - started);
 
         ev::BlpLoadArgs a{ name, handle };
         ev::Emit(ev::Event::OnBlpLoad, &a);
@@ -589,9 +1181,13 @@ namespace
      */
     void __cdecl hkWmoRootComplete(void* root)
     {
+        const uint64_t preStarted = aprof::Now();
         ev::WmoRootLoadArgs a{ root };
         ev::Emit(ev::Event::OnWmoRootLoad, &a);
+        if (preStarted) aprof::Record(aprof::Phase::WmoRootPre, aprof::Now() - preStarted);
+        const uint64_t nativeStarted = aprof::Now();
         g_origWmoRoot(root);
+        if (nativeStarted) aprof::Record(aprof::Phase::WmoRootNative, aprof::Now() - nativeStarted);
     }
 
     /**
@@ -604,9 +1200,13 @@ namespace
      */
     void __fastcall hkWmoGroupParse(void* group, void* edx)
     {
+        const uint64_t preStarted = aprof::Now();
         ev::WmoGroupLoadArgs a{ group };
         ev::Emit(ev::Event::OnWmoGroupLoad, &a);
+        if (preStarted) aprof::Record(aprof::Phase::WmoGroupPre, aprof::Now() - preStarted);
+        const uint64_t nativeStarted = aprof::Now();
         g_origWmoGroup(group, edx);
+        if (nativeStarted) aprof::Record(aprof::Phase::WmoGroupNative, aprof::Now() - nativeStarted);
     }
 
     /**
@@ -620,6 +1220,7 @@ namespace
         ev::WorldLeaveArgs leave{ mapId }; // old world still loaded: id is the one being left
         ev::Emit(ev::Event::OnWorldLeave, &leave);
         g_origWorldEnter(worldTime, withLoadingScreen);
+        wxl::runtime::lua::Install(true);
         const auto entered = static_cast<uint32_t>(*reinterpret_cast<int32_t*>(wld::kCurrentMapId));
         ev::WorldEnterArgs enter{ entered };
         ev::Emit(ev::Event::OnWorldEnter, &enter);
@@ -634,6 +1235,7 @@ namespace
         ev::UpdateArgs a{ *reinterpret_cast<float*>(frame::kDeltaSeconds),
                           *reinterpret_cast<uint32_t*>(frame::kFrameTimeMs) };
         ev::Emit(ev::Event::OnUpdate, &a);
+        aprof::RecordFrame(a.dt);
     }
 
     /**
@@ -711,15 +1313,85 @@ namespace
         ev::BuildBonePaletteArgs a{ renderCtx };
         ev::Emit(ev::Event::OnBuildBonePalette, &a);
     }
+
+    /**
+     * @brief Rejects M2 shadow batches whose palette would overrun WoW's VS constant cache.
+     *
+     * The native shadow path begins at c31 and copies three float4 registers per bone. The cache contains
+     * c0..c255, so 75 bones is the largest representable palette. Retail skins can carry larger batches when
+     * a transform/split was skipped or failed; letting the native function process one overwrites the adjacent
+     * Gx vertex-declaration table with bone-matrix floats and crashes later in GxPrimVertexPtr.
+     */
+    void __fastcall hkRenderBatchShadowMap(
+        void* instance, void*, uint32_t batchMode, void* skinBatch, void* drawList,
+        uint32_t drawIndex, void* skinSection, void* previousSection)
+    {
+        constexpr uint32_t kMaxShadowBones = (256u - 31u) / 3u;
+        uint32_t boneCount = 0;
+        __try
+        {
+            if (skinSection)
+                boneCount = *reinterpret_cast<const uint16_t*>(
+                    static_cast<const uint8_t*>(skinSection) + 0x0C);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            boneCount = kMaxShadowBones + 1;
+        }
+
+        if (boneCount > kMaxShadowBones)
+        {
+            const uint32_t skipped = ++g_shadowBoneOverflowSkips;
+            if (skipped <= 32 || (skipped % 1000u) == 0)
+            {
+                char path[264] = "<unreadable>";
+                __try
+                {
+                    const auto* bytes = static_cast<const uint8_t*>(instance);
+                    const auto* model = bytes ? *reinterpret_cast<void* const*>(bytes + m2::kOffInstModel) : nullptr;
+                    if (model)
+                    {
+                        std::strncpy(path,
+                            reinterpret_cast<const char*>(model) + m2::kOffModelPathStem,
+                            sizeof(path) - 1);
+                        path[sizeof(path) - 1] = '\0';
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                    std::strcpy(path, "<unreadable>");
+                }
+                WLOG_WARN("M2 shadow: skipped oversized palette bones=%u max=%u draw=%u model='%s' (skips=%u)",
+                          boneCount, kMaxShadowBones, drawIndex, path, skipped);
+            }
+            return;
+        }
+
+        g_origRenderBatchShadowMap(instance, batchMode, skinBatch, drawList,
+                                   drawIndex, skinSection, previousSection);
+    }
+
 }
 
 namespace wxl::runtime::game
 {
+    void ReserveM2Memory()
+    {
+        std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
+        EnsureM2ArenaLocked();
+    }
+
     /**
      * @brief Installs every game-logic detour through the core hook layer.
      */
     void Install()
     {
+        wxl::core::hook::Install("M2BufferAlloc", m2::kBufferAlloc,
+                                 reinterpret_cast<void*>(&hkM2BufferAlloc),
+                                 reinterpret_cast<void**>(&g_origM2BufferAlloc));
+        wxl::core::hook::Install("M2BufferFree", m2::kBufferFree,
+                                 reinterpret_cast<void*>(&hkM2BufferFree),
+                                 reinterpret_cast<void**>(&g_origM2BufferFree));
         wxl::core::hook::Install("M2Init", m2::kInit,
                                  reinterpret_cast<void*>(&hkM2Init),
                                  reinterpret_cast<void**>(&g_origM2Init));
@@ -732,6 +1404,12 @@ namespace wxl::runtime::game
         wxl::core::hook::Install("M2SetupBatchAlpha", m2::kSetupBatchAlpha,
                                  reinterpret_cast<void*>(&hkSetupBatchAlpha),
                                  reinterpret_cast<void**>(&g_origSetupAlpha));
+        wxl::core::hook::Install("M2SortOpaqueGeoBatches", m2::kSortOpaqueGeoBatches,
+                                 reinterpret_cast<void*>(&hkSortOpaqueGeoBatches),
+                                 reinterpret_cast<void**>(&g_origSortOpaqueGeoBatches));
+        wxl::core::hook::Install("M2SceneTriangleHitTest", m2::kSceneTriangleHitTest,
+                                 reinterpret_cast<void*>(&hkSceneTriangleHitTest),
+                                 reinterpret_cast<void**>(&g_origSceneTriangleHitTest));
         wxl::core::hook::Install("DoodadSpawn", dd::kSpawnFromMDDF,
                                  reinterpret_cast<void*>(&hkDoodadSpawn),
                                  reinterpret_cast<void**>(&g_origDoodadSpawn));
@@ -790,6 +1468,9 @@ namespace wxl::runtime::game
         wxl::core::hook::Install("M2BuildBonePalette", m2::kBuildBonePalette,
                                  reinterpret_cast<void*>(&hkBuildBonePalette),
                                  reinterpret_cast<void**>(&g_origBuildBonePalette));
+        wxl::core::hook::Install("M2RenderBatchShadowMap", m2::kRenderBatchShadowMap,
+                                 reinterpret_cast<void*>(&hkRenderBatchShadowMap),
+                                 reinterpret_cast<void**>(&g_origRenderBatchShadowMap));
 
         // Liquid-row null guard: this one liquid consumer dereferences the LiquidType row flag without the
         // null check the others have, so an unknown liquid id (from any served source) faults. Skip the
@@ -799,6 +1480,6 @@ namespace wxl::runtime::game
             wxl::core::mem::Patch(reinterpret_cast<void*>(adt::kLiquidRowFlagTest), guard, sizeof guard);
         }
 
-        WLOG_INFO("game: hooks installed (M2Init, M2FinalizeSkin, M2SetupBatchAlpha, DoodadSpawn, TextureUpdate, TextureCreate, ChunkBuild, WmoRootComplete, WmoGroupParse, CWorldEnter, FramePump, ObjectUpdate, ObjectDestroy, TargetSet, PlaySound, CharModelSlotDispatch, CharModelSlotClear, M2PerFrameUpdate, M2BuildBonePalette)");
+        WLOG_INFO("game: hooks installed (M2BufferAlloc, M2BufferFree, M2Init, M2FinalizeSkin, M2SetupBatchAlpha, M2SortOpaqueGeoBatches, M2RenderBatchShadowMap, DoodadSpawn, TextureUpdate, TextureCreate, ChunkBuild, WmoRootComplete, WmoGroupParse, CWorldEnter, FramePump, ObjectUpdate, ObjectDestroy, TargetSet, PlaySound, CharModelSlotDispatch, CharModelSlotClear, M2PerFrameUpdate, M2BuildBonePalette)");
     }
 }

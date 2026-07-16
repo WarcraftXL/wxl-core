@@ -51,6 +51,14 @@ namespace wxl::core::hook
         return Install(name, reinterpret_cast<void*>(target), detour, original);
     }
 
+    /** Enables one previously installed hook immediately. */
+    bool Enable(void* target);
+
+    inline bool Enable(uintptr_t target)
+    {
+        return Enable(reinterpret_cast<void*>(target));
+    }
+
     /**
      * @brief Enables every installed hook, called after all features have registered.
      * @return true if all hooks were enabled.

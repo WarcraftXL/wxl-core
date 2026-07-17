@@ -16,7 +16,8 @@
 
 #include "core/Mem.hpp"
 
-#include <windows.h>
+#include "common/Mem.hpp"
+
 #include <cstring>
 
 namespace wxl::core::mem
@@ -30,12 +31,7 @@ namespace wxl::core::mem
      */
     bool Patch(void* dst, const void* src, size_t len)
     {
-        DWORD old = 0;
-        if (!VirtualProtect(dst, len, PAGE_EXECUTE_READWRITE, &old)) return false;
-        std::memcpy(dst, src, len);
-        VirtualProtect(dst, len, old, &old);
-        FlushInstructionCache(GetCurrentProcess(), dst, len);
-        return true;
+        return ::wxl::mem::WithWritable(dst, len, [&] { std::memcpy(dst, src, len); });
     }
 
     /**
@@ -47,11 +43,6 @@ namespace wxl::core::mem
      */
     bool Fill(void* dst, uint8_t value, size_t len)
     {
-        DWORD old = 0;
-        if (!VirtualProtect(dst, len, PAGE_EXECUTE_READWRITE, &old)) return false;
-        std::memset(dst, value, len);
-        VirtualProtect(dst, len, old, &old);
-        FlushInstructionCache(GetCurrentProcess(), dst, len);
-        return true;
+        return ::wxl::mem::WithWritable(dst, len, [&] { std::memset(dst, value, len); });
     }
 }

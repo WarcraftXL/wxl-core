@@ -105,43 +105,21 @@ namespace
     uint64_t g_profileNextSummary = 0; // guarded by g_profileMutex
     uint64_t g_profileLastSummary = 0; // guarded by g_profileMutex
 
-    /** @brief Reads a bounded unsigned environment value. */
-    bool ReadEnvU32(const char* name, uint32_t minimum, uint32_t maximum, uint32_t& value)
-    {
-        char raw[32];
-        const DWORD n = GetEnvironmentVariableA(name, raw, static_cast<DWORD>(sizeof(raw)));
-        if (!n || n >= sizeof(raw)) return false;
-
-        char* end = nullptr;
-        const unsigned long parsed = std::strtoul(raw, &end, 10);
-        if (end == raw || *end != '\0' || parsed < minimum || parsed > maximum) return false;
-        value = static_cast<uint32_t>(parsed);
-        return true;
-    }
-
     /** @brief Returns the immutable, process-wide profiler configuration. */
     const ProfileConfig& GetProfileConfig()
     {
         static const ProfileConfig config = []() {
             ProfileConfig c;
 
-            char enabled[16];
-            const DWORD n = GetEnvironmentVariableA(
-                "WXL_IPC_PROFILE", enabled, static_cast<DWORD>(sizeof(enabled)));
-            if (n && n < sizeof(enabled))
-            {
-                const unsigned char first = static_cast<unsigned char>(enabled[0]);
-                const int lower = std::tolower(first);
-                if (first == '0' || lower == 'n' || lower == 'f') c.enabled = false;
-            }
+            c.enabled = wxl::config::Env("WXL_IPC_PROFILE", c.enabled);
 
             // Keep the shorter interval name as a compatibility alias, but prefer the host-aligned name.
-            if (!ReadEnvU32("WXL_IPC_PROFILE_INTERVAL_SEC", 1, 3600, c.intervalSeconds))
-                ReadEnvU32("WXL_IPC_PROFILE_INTERVAL_S", 1, 3600, c.intervalSeconds);
+            c.intervalSeconds = wxl::config::U32("WXL_IPC_PROFILE_INTERVAL_SEC",
+                wxl::config::U32("WXL_IPC_PROFILE_INTERVAL_S", c.intervalSeconds, 1, 3600), 1, 3600);
 
             // The first name is shared with the host profiler; the second is accepted for older configs.
-            if (!ReadEnvU32("WXL_IPC_SLOW_REQUEST_MS", 1, 30000, c.slowRequestMs))
-                ReadEnvU32("WXL_IPC_PROFILE_SLOW_MS", 1, 30000, c.slowRequestMs);
+            c.slowRequestMs = wxl::config::U32("WXL_IPC_SLOW_REQUEST_MS",
+                wxl::config::U32("WXL_IPC_PROFILE_SLOW_MS", c.slowRequestMs, 1, 30000), 1, 30000);
 
             LARGE_INTEGER frequency{};
             if (QueryPerformanceFrequency(&frequency) && frequency.QuadPart > 0)

@@ -18,6 +18,8 @@
 #include "gpu/Device.hpp"
 #include "gpu/Present.hpp"
 
+#include "common/Config.hpp"
+
 #include <windows.h>
 
 namespace
@@ -105,16 +107,7 @@ namespace
     /** @brief True when the no-op-reset skip is enabled (default on; WXL_NOOP_RESET=0 disables). */
     bool NoopResetEnabled()
     {
-        static const bool enabled = []() {
-            char value[16] = {};
-            const DWORD n = GetEnvironmentVariableA("WXL_NOOP_RESET", value, sizeof(value));
-            if (n && n < sizeof(value))
-            {
-                const char c = value[0];
-                if (c == '0' || c == 'n' || c == 'N' || c == 'f' || c == 'F') return false;
-            }
-            return true;
-        }();
+        static const bool enabled = wxl::config::Env("WXL_NOOP_RESET", true);
         return enabled;
     }
 
@@ -255,17 +248,10 @@ namespace
     /** @brief True only when the user explicitly opts back into native D3D9On12 exclusive fullscreen. */
     bool AllowExclusiveFullscreen()
     {
-        static const bool allowed = []() {
-            char value[16] = {};
-            const DWORD n = GetEnvironmentVariableA("WXL_EXCLUSIVE_FULLSCREEN", value, sizeof(value));
-            if (n && n < sizeof(value))
-            {
-                const char c = value[0];
-                if (c != '0' && c != 'n' && c != 'N' && c != 'f' && c != 'F')
-                    return true;
-            }
-            return GetFileAttributesA("WarcraftXLExclusiveFullscreen.flag") != INVALID_FILE_ATTRIBUTES;
-        }();
+        // Opt-IN (default off): a truthy env value or the presence of the .flag file enables it.
+        static const bool allowed =
+            wxl::config::Env("WXL_EXCLUSIVE_FULLSCREEN", false)
+            || GetFileAttributesA("WarcraftXLExclusiveFullscreen.flag") != INVALID_FILE_ATTRIBUTES;
         return allowed;
     }
 

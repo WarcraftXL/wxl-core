@@ -51,6 +51,27 @@ namespace wxl::core::hook
         return Install(name, reinterpret_cast<void*>(target), detour, original);
     }
 
+    /**
+     * @brief Typed detour install: the detour and the trampoline out-pointer must share ONE
+     *        function type, so wiring a hook to the wrong original no longer compiles.
+     *
+     * Replaces the call-site boilerplate
+     *   Install(name, addr, reinterpret_cast<void*>(&hk), reinterpret_cast<void**>(&orig))
+     * with
+     *   Install(name, addr, &hk, &orig)
+     * @param name      label used for logging.
+     * @param target    engine function address to detour.
+     * @param detour    replacement function (deducing the shared function type).
+     * @param original  receives the trampoline; must point to a pointer of the same type.
+     * @return true if the detour was created.
+     */
+    template <class Fn>
+    bool Install(const char* name, uintptr_t target, Fn* detour, Fn** original)
+    {
+        return Install(name, reinterpret_cast<void*>(target),
+                       reinterpret_cast<void*>(detour), reinterpret_cast<void**>(original));
+    }
+
     /** Enables one previously installed hook immediately. */
     bool Enable(void* target);
 

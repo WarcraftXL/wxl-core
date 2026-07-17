@@ -18,6 +18,7 @@
 
 #include "runtime/storage/ShmClient.hpp"
 
+#include "common/Config.hpp"
 #include "core/Hook.hpp"
 #include "core/Logger.hpp"
 #include "core/Mem.hpp"
@@ -208,14 +209,10 @@ namespace
 
     bool VerboseStorageLogs()
     {
-        static const bool enabled = [] {
-            const char* raw = std::getenv("WXL_VERBOSE_ASSET_LOGS");
-            if (!raw || !*raw) raw = std::getenv("WXL_ASSET_LOGS");
-            if (!raw || !*raw) raw = std::getenv("WXL_CLIENT_STORAGE_LOGS");
-            if (!raw || !*raw) return false;
-            const char c = static_cast<char>(std::tolower(static_cast<unsigned char>(*raw)));
-            return c != '0' && c != 'n' && c != 'f';
-        }();
+        static const bool enabled =
+            wxl::config::Env("WXL_VERBOSE_ASSET_LOGS",
+                wxl::config::Env("WXL_ASSET_LOGS",
+                    wxl::config::Env("WXL_CLIENT_STORAGE_LOGS", false)));
         return enabled;
     }
 
@@ -256,131 +253,53 @@ namespace
 
     bool StreamReadAheadEnabled()
     {
-        static int enabled = []() -> int {
-            const char* env = std::getenv("WXL_STREAM_READAHEAD");
-            if (env && (*env == '0' || *env == 'n' || *env == 'N')) return 0;
-            FILE* flag = fopen("WarcraftXL_stream_readahead.disable", "rb");
-            if (flag)
-            {
-                fclose(flag);
-                return 0;
-            }
-            return 1;
-        }();
-        return enabled != 0;
+        static const bool enabled =
+            wxl::config::Flag("WXL_STREAM_READAHEAD", "WarcraftXL_stream_readahead.disable");
+        return enabled;
     }
 
     bool StreamWholeLargeModelsEnabled()
     {
-        static int enabled = []() -> int {
-            const char* env = std::getenv("WXL_STREAM_WHOLE_LARGE_M2");
-            if (env && (*env == '0' || *env == 'n' || *env == 'N')) return 0;
-            FILE* flag = fopen("WarcraftXL_stream_whole_large_m2.disable", "rb");
-            if (flag)
-            {
-                fclose(flag);
-                return 0;
-            }
-            return 1;
-        }();
-        return enabled != 0;
+        static const bool enabled =
+            wxl::config::Flag("WXL_STREAM_WHOLE_LARGE_M2", "WarcraftXL_stream_whole_large_m2.disable");
+        return enabled;
     }
 
     bool StreamLargeSoundsEnabled()
     {
-        static int enabled = []() -> int {
-            const char* env = std::getenv("WXL_STREAM_SOUNDS");
-            if (env && (*env == '0' || *env == 'n' || *env == 'N')) return 0;
-            FILE* flag = fopen("WarcraftXL_stream_sounds.disable", "rb");
-            if (flag)
-            {
-                fclose(flag);
-                return 0;
-            }
-            return 1;
-        }();
-        return enabled != 0;
+        static const bool enabled =
+            wxl::config::Flag("WXL_STREAM_SOUNDS", "WarcraftXL_stream_sounds.disable");
+        return enabled;
     }
 
     bool StreamLargeTexturesEnabled()
     {
-        static int enabled = []() -> int {
-            const char* env = std::getenv("WXL_STREAM_TEXTURES");
-            if (env && (*env == '0' || *env == 'n' || *env == 'N')) return 0;
-            FILE* flag = fopen("WarcraftXL_stream_textures.disable", "rb");
-            if (flag)
-            {
-                fclose(flag);
-                return 0;
-            }
-            return 1;
-        }();
-        return enabled != 0;
+        static const bool enabled =
+            wxl::config::Flag("WXL_STREAM_TEXTURES", "WarcraftXL_stream_textures.disable");
+        return enabled;
     }
 
     uint32_t ModelBlobStreamThreshold()
     {
-        static uint32_t threshold = []() -> uint32_t {
-            const char* envMb = std::getenv("WXL_STREAM_MODEL_THRESHOLD_MB");
-            if (envMb && *envMb)
-            {
-                const unsigned long mb = std::strtoul(envMb, nullptr, 10);
-                if (mb > 0 && mb < 2048) return static_cast<uint32_t>(mb) * 1024u * 1024u;
-            }
-
-            const char* envKb = std::getenv("WXL_STREAM_MODEL_THRESHOLD_KB");
-            if (envKb && *envKb)
-            {
-                const unsigned long kb = std::strtoul(envKb, nullptr, 10);
-                if (kb >= 64 && kb < 2048u * 1024u) return static_cast<uint32_t>(kb) * 1024u;
-            }
-
-            return kModelBlobStreamThreshold;
-        }();
+        static const uint32_t threshold = wxl::config::BytesMbKb(
+            "WXL_STREAM_MODEL_THRESHOLD_MB", "WXL_STREAM_MODEL_THRESHOLD_KB",
+            kModelBlobStreamThreshold, 64, 2048u * 1024u);
         return threshold;
     }
 
     uint32_t SoundBlobStreamThreshold()
     {
-        static uint32_t threshold = []() -> uint32_t {
-            const char* envMb = std::getenv("WXL_STREAM_SOUND_THRESHOLD_MB");
-            if (envMb && *envMb)
-            {
-                const unsigned long mb = std::strtoul(envMb, nullptr, 10);
-                if (mb > 0 && mb < 2048) return static_cast<uint32_t>(mb) * 1024u * 1024u;
-            }
-
-            const char* envKb = std::getenv("WXL_STREAM_SOUND_THRESHOLD_KB");
-            if (envKb && *envKb)
-            {
-                const unsigned long kb = std::strtoul(envKb, nullptr, 10);
-                if (kb >= 32 && kb < 2048u * 1024u) return static_cast<uint32_t>(kb) * 1024u;
-            }
-
-            return kSoundBlobStreamThreshold;
-        }();
+        static const uint32_t threshold = wxl::config::BytesMbKb(
+            "WXL_STREAM_SOUND_THRESHOLD_MB", "WXL_STREAM_SOUND_THRESHOLD_KB",
+            kSoundBlobStreamThreshold, 32, 2048u * 1024u);
         return threshold;
     }
 
     uint32_t TextureBlobStreamThreshold()
     {
-        static uint32_t threshold = []() -> uint32_t {
-            const char* envMb = std::getenv("WXL_STREAM_TEXTURE_THRESHOLD_MB");
-            if (envMb && *envMb)
-            {
-                const unsigned long mb = std::strtoul(envMb, nullptr, 10);
-                if (mb > 0 && mb < 2048) return static_cast<uint32_t>(mb) * 1024u * 1024u;
-            }
-
-            const char* envKb = std::getenv("WXL_STREAM_TEXTURE_THRESHOLD_KB");
-            if (envKb && *envKb)
-            {
-                const unsigned long kb = std::strtoul(envKb, nullptr, 10);
-                if (kb >= 32 && kb < 2048u * 1024u) return static_cast<uint32_t>(kb) * 1024u;
-            }
-
-            return kTextureBlobStreamThreshold;
-        }();
+        static const uint32_t threshold = wxl::config::BytesMbKb(
+            "WXL_STREAM_TEXTURE_THRESHOLD_MB", "WXL_STREAM_TEXTURE_THRESHOLD_KB",
+            kTextureBlobStreamThreshold, 32, 2048u * 1024u);
         return threshold;
     }
 

@@ -1,4 +1,4 @@
-// File log, always on.
+// Compatibility surface over the shared leveled logger (common/Log.hpp).
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,41 +16,50 @@
 
 #pragma once
 
-/// File log, always on, Release included.
+#include "common/Log.hpp"
+
+#include <cstdarg>
+
+/// Historical entry points, now thin forwarders into wxl::log (levels, runtime threshold,
+/// compile-time floor). The WLOG_* macros live in common/Log.hpp; prefer them at new call sites.
 namespace wxl::core::log
 {
-    /**
-     * @brief Opens the log file at the given path. Idempotent.
-     * @param path  filesystem path of the log file.
-     */
-    void Open(const char* path);
+    /** @brief Opens the log file at the given path. Idempotent. */
+    inline void Open(const char* path) { ::wxl::log::Open(path); }
 
-    /**
-     * @brief Appends one formatted line. Thread-safe.
-     * @param fmt  printf-style format string followed by its arguments.
-     */
-    void Printf(const char* fmt, ...);
+    /** @brief Appends one Info line. Thread-safe; filtered by the runtime threshold. */
+    inline void Printf(const char* fmt, ...)
+    {
+        if (!::wxl::log::Enabled(::wxl::log::Level::Info)) return;
+        va_list args;
+        va_start(args, fmt);
+        ::wxl::log::WriteV(::wxl::log::Level::Info, fmt, args);
+        va_end(args);
+    }
 
     /** @brief Appends and immediately flushes a warning line. */
-    void Warnf(const char* fmt, ...);
+    inline void Warnf(const char* fmt, ...)
+    {
+        if (!::wxl::log::Enabled(::wxl::log::Level::Warn)) return;
+        va_list args;
+        va_start(args, fmt);
+        ::wxl::log::WriteV(::wxl::log::Level::Warn, fmt, args);
+        va_end(args);
+    }
 
     /** @brief Appends and immediately flushes an error line. */
-    void Errorf(const char* fmt, ...);
+    inline void Errorf(const char* fmt, ...)
+    {
+        if (!::wxl::log::Enabled(::wxl::log::Level::Error)) return;
+        va_list args;
+        va_start(args, fmt);
+        ::wxl::log::WriteV(::wxl::log::Level::Error, fmt, args);
+        va_end(args);
+    }
 
-    /**
-     * @brief Flushes buffered log output without closing the file.
-     *
-     * Intended for sparse periodic diagnostics that must survive the host's process-watcher shutdown.
-     */
-    void Flush();
+    /** @brief Flushes buffered log output without closing the file. */
+    inline void Flush() { ::wxl::log::Flush(); }
 
-    /** 
-     * @brief Flushes and closes the log file.
-     */
-    void Close();
+    /** @brief Flushes and closes the log file. */
+    inline void Close() { ::wxl::log::Close(); }
 }
-
-// Record macros. All levels go to the same file; the tag is informational.
-#define WLOG_INFO(...)  ::wxl::core::log::Printf(__VA_ARGS__)
-#define WLOG_WARN(...)  ::wxl::core::log::Warnf(__VA_ARGS__)
-#define WLOG_ERROR(...) ::wxl::core::log::Errorf(__VA_ARGS__)

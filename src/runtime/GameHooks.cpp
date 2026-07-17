@@ -18,6 +18,7 @@
 #include "runtime/AssetProfile.hpp"
 #include "runtime/LuaBindings.hpp"
 
+#include "common/Config.hpp"
 #include "core/Hook.hpp"
 #include "core/Logger.hpp"
 #include "core/Mem.hpp"
@@ -198,93 +199,30 @@ namespace
 
     bool LargeM2VirtualAllocEnabled()
     {
-        static int cached = -1;
-        if (cached >= 0)
-            return cached != 0;
-
-        char env[16]{};
-        const DWORD n = GetEnvironmentVariableA("WXL_M2_VIRTUAL_ALLOC", env, sizeof env);
-        if (n > 0 && (env[0] == '0' || env[0] == 'n' || env[0] == 'N'))
-        {
-            cached = 0;
-            return false;
-        }
-
-        cached = (GetFileAttributesA("WarcraftXL_m2_virtual_alloc.disable") == INVALID_FILE_ATTRIBUTES) ? 1 : 0;
-        return cached != 0;
+        static const bool enabled =
+            wxl::config::Flag("WXL_M2_VIRTUAL_ALLOC", "WarcraftXL_m2_virtual_alloc.disable");
+        return enabled;
     }
 
     uint32_t VirtualM2AllocThreshold()
     {
-        static uint32_t cached = 0;
-        if (cached)
-            return cached;
-
-        char env[32]{};
-        DWORD n = GetEnvironmentVariableA("WXL_M2_VIRTUAL_ALLOC_THRESHOLD_MB", env, sizeof env);
-        if (n > 0)
-        {
-            const unsigned long mb = std::strtoul(env, nullptr, 10);
-            if (mb > 0 && mb < 2048)
-            {
-                cached = static_cast<uint32_t>(mb) * 1024u * 1024u;
-                return cached;
-            }
-        }
-
-        n = GetEnvironmentVariableA("WXL_M2_VIRTUAL_ALLOC_THRESHOLD_KB", env, sizeof env);
-        if (n > 0)
-        {
-            const unsigned long kb = std::strtoul(env, nullptr, 10);
-            if (kb >= 64 && kb < 2048u * 1024u)
-            {
-                cached = static_cast<uint32_t>(kb) * 1024u;
-                return cached;
-            }
-        }
-
-        cached = kDefaultVirtualM2AllocThreshold;
-        return cached;
+        static const uint32_t bytes = wxl::config::BytesMbKb(
+            "WXL_M2_VIRTUAL_ALLOC_THRESHOLD_MB", "WXL_M2_VIRTUAL_ALLOC_THRESHOLD_KB",
+            kDefaultVirtualM2AllocThreshold, 64, 2048u * 1024u);
+        return bytes;
     }
 
     uint32_t M2ArenaSizeMb()
     {
-        static uint32_t cached = 0;
-        if (cached)
-            return cached;
-
-        char env[32]{};
-        const DWORD n = GetEnvironmentVariableA("WXL_M2_ARENA_MB", env, sizeof env);
-        if (n > 0)
-        {
-            const unsigned long mb = std::strtoul(env, nullptr, 10);
-            if (mb >= 64 && mb <= 2048)
-            {
-                cached = static_cast<uint32_t>(mb);
-                return cached;
-            }
-        }
-
-        cached = kDefaultM2ArenaSizeMb;
-        return cached;
+        static const uint32_t mb =
+            wxl::config::U32("WXL_M2_ARENA_MB", kDefaultM2ArenaSizeMb, 64, 2048);
+        return mb;
     }
 
     bool M2ArenaEnabled()
     {
-        static int cached = -1;
-        if (cached >= 0)
-            return cached != 0;
-
-        char env[16]{};
-        const DWORD n = GetEnvironmentVariableA("WXL_M2_ARENA", env, sizeof env);
-        if (n > 0 && (env[0] == '0' || env[0] == 'n' || env[0] == 'N'))
-        {
-            cached = 0;
-            return false;
-        }
-
-        cached = (GetFileAttributesA("WarcraftXL_m2_arena.disable") == INVALID_FILE_ATTRIBUTES) ? 1 : 0;
-        return cached != 0;
+        static const bool enabled = wxl::config::Flag("WXL_M2_ARENA", "WarcraftXL_m2_arena.disable");
+        return enabled;
     }
 
     bool EnsureM2ArenaLocked()

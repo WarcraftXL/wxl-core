@@ -115,7 +115,12 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     file(GLOB        WXL_PATCHER_CORE   CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/patcher/*.cpp")
     file(GLOB_RECURSE WXL_PATCHER_SCRIPT CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/*/patcher/*.cpp")
 
-    add_executable(wxl-patcher ${WXL_PATCHER_CORE} ${WXL_PATCHER_SCRIPT})
+    # src/common/ compiles into every binary (leveled logger, env config, shared helpers): the
+    # patcher and proxy do not link core, and the host is another architecture, so the shared
+    # infrastructure is object-level, not a link dependency.
+    file(GLOB WXL_COMMON_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/common/*.cpp")
+
+    add_executable(wxl-patcher ${WXL_PATCHER_CORE} ${WXL_PATCHER_SCRIPT} ${WXL_COMMON_SRC})
     set_target_properties(wxl-patcher PROPERTIES OUTPUT_NAME "wxl-patcher")
     target_include_directories(wxl-patcher PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_compile_definitions(wxl-patcher PRIVATE ${WXL_DEFS})
@@ -125,7 +130,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     # =========================================================================
     file(GLOB WXL_GPU_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/*.cpp")
 
-    add_library(d3d9 SHARED ${WXL_GPU_SRC})
+    add_library(d3d9 SHARED ${WXL_GPU_SRC} ${WXL_COMMON_SRC})
     set_target_properties(d3d9 PROPERTIES OUTPUT_NAME "d3d9" PREFIX "")
     target_include_directories(d3d9 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_link_libraries(d3d9 PRIVATE d3d12 dxgi dcomp d3dcompiler delayimp)
@@ -166,10 +171,13 @@ if(WXL_BUILD_HOST AND CMAKE_SIZEOF_VOID_P EQUAL 8)
         list(FILTER WXL_HOST_SCRIPT EXCLUDE REGEX "${WXL_MODERN_ASSETS_EXCLUDE_REGEX}")
     endif()
 
+    # The shared infrastructure (leveled logger, env config) compiles straight into the host too.
+    file(GLOB WXL_COMMON_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/common/*.cpp")
+
     add_executable(WarcraftXLHost
         ${WXL_HOST_CORE}
         ${WXL_HOST_SCRIPT}
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/core/Logger.cpp"
+        ${WXL_COMMON_SRC}
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/src/util.cpp")
     set_target_properties(WarcraftXLHost PROPERTIES OUTPUT_NAME "WarcraftXLHost")
     target_include_directories(WarcraftXLHost PRIVATE

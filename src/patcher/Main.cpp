@@ -17,6 +17,8 @@
 #include "patcher/PatchScript.hpp"
 #include "patcher/PeImage.hpp"
 
+#include "common/Log.hpp"
+
 #include <windows.h>
 #include <io.h>
 #include <cstdint>
@@ -83,21 +85,22 @@ namespace
 int main(int argc, char** argv)
 {
     setvbuf(stdout, nullptr, _IONBF, 0);
+    wxl::log::EnableConsole("[WarcraftXL] "); // progress to stdout, failures to stderr
     const char* target = argc > 1 ? argv[1] : "Wow.exe";
-    printf("[WarcraftXL] patcher start, target='%s'\n", target);
+    WLOG_INFO("patcher start, target='%s'", target);
 
     std::vector<uint8_t> file = ReadAll(target);
-    if (file.empty()) { printf("[WarcraftXL] cannot read '%s'\n", target); return 1; }
+    if (file.empty()) { WLOG_ERROR("cannot read '%s'", target); return 1; }
 
     wxl::patcher::PeImage pe(file);
-    if (!pe.valid()) { printf("[WarcraftXL] not a 32-bit PE\n"); return 1; }
+    if (!pe.valid()) { WLOG_ERROR("'%s' is not a 32-bit PE", target); return 1; }
 
     // Always ensure 4 GB address space, even when an older patcher already injected the .wxl section.
     pe.SetLargeAddressAware();
     if (pe.HasSection(kTagSection))
     {
-        if (!WriteAll(target, file)) { printf("[WarcraftXL] cannot write '%s'\n", target); return 1; }
-        printf("[WarcraftXL] already patched ('%s' present), ensured large-address-aware\n", kTagSection);
+        if (!WriteAll(target, file)) { WLOG_ERROR("cannot write '%s'", target); return 1; }
+        WLOG_INFO("already patched ('%s' present), ensured large-address-aware", kTagSection);
         return 0;
     }
 
@@ -105,12 +108,12 @@ int main(int argc, char** argv)
     for (wxl::patcher::PatchScript* const s : wxl::patcher::registry::Scripts())
     {
         if (!s->Apply(pe))
-        { printf("[WarcraftXL] patch-script '%s' FAILED\n", s->name()); return 1; }
-        printf("[WarcraftXL] applied patch-script '%s'\n", s->name());
+        { WLOG_ERROR("patch-script '%s' FAILED", s->name()); return 1; }
+        WLOG_INFO("applied patch-script '%s'", s->name());
     }
 
     if (!pe.AddImport(kDllName, kFuncName, kTagSection))
-    { printf("[WarcraftXL] import injection failed\n"); return 1; }
+    { WLOG_ERROR("import injection failed"); return 1; }
 
     // The backup is the only recovery path if the patched image misbehaves: refuse to touch the
     // target until it is confirmed on disk.
@@ -118,14 +121,14 @@ int main(int argc, char** argv)
     if (GetFileAttributesA(backup.c_str()) == INVALID_FILE_ATTRIBUTES
         && !CopyFileA(target, backup.c_str(), TRUE))
     {
-        printf("[WarcraftXL] cannot back up '%s' to '%s' (win32=%lu), aborting before write\n",
-               target, backup.c_str(), GetLastError());
+        WLOG_ERROR("cannot back up '%s' to '%s' (win32=%lu), aborting before write",
+                   target, backup.c_str(), GetLastError());
         return 1;
     }
 
-    if (!WriteAll(target, file)) { printf("[WarcraftXL] cannot write '%s'\n", target); return 1; }
+    if (!WriteAll(target, file)) { WLOG_ERROR("cannot write '%s'", target); return 1; }
 
-    printf("[WarcraftXL] patched '%s' (+import %s!%s, %zu patch-scripts, backup '%s')\n",
-           target, kDllName, kFuncName, wxl::patcher::registry::Scripts().size(), backup.c_str());
+    WLOG_INFO("patched '%s' (+import %s!%s, %zu patch-scripts, backup '%s')",
+              target, kDllName, kFuncName, wxl::patcher::registry::Scripts().size(), backup.c_str());
     return 0;
 }

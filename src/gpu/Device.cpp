@@ -16,6 +16,9 @@
 
 #include "gpu/Device.hpp"
 
+#include "common/Config.hpp"
+#include "common/Log.hpp"
+
 #include <cstdio>
 #include <cstdarg>
 #include <cstdlib>
@@ -26,7 +29,6 @@ namespace
     ID3D12CommandQueue* g_queue     = nullptr;
     ID3D12InfoQueue*    g_infoQueue = nullptr;
     bool                g_firstUsed = false;
-    FILE*               g_log       = nullptr;
 
     /**
      * @brief Creates a direct-type D3D12 command queue.
@@ -54,10 +56,7 @@ namespace
     bool On12Usable()
     {
         static const bool usable = [] {
-            char env[8]{};
-            const DWORD n = GetEnvironmentVariableA("WXL_NO_ON12", env, sizeof env);
-            if (n > 0 && env[0] != '0' && env[0] != 'n' && env[0] != 'N' &&
-                env[0] != 'f' && env[0] != 'F')
+            if (wxl::config::Env("WXL_NO_ON12", false))
             {
                 wxl::gpu::Log("d3d9proxy: On12 disabled by WXL_NO_ON12 -> native d3d9");
                 return false;
@@ -154,14 +153,21 @@ namespace wxl::gpu
     }
 
     /**
-     * @brief Writes a formatted line to the shared diagnostic log, opening it on first use.
+     * @brief Writes a formatted Info line to the proxy's diagnostic log, opening it on first use.
+     *
+     * Routed through the shared leveled engine (this DLL's own instance): thread-safe, timestamped,
+     * creates Logs\ if missing, and honors WXL_LOG_LEVEL. Proxy lines are sparse crash diagnostics,
+     * so each is flushed to disk — the DLL has no orderly close on process exit.
      * @param fmt  printf-style format string followed by its arguments.
      */
     void Log(const char* fmt, ...)
     {
-        if (!g_log) g_log = fopen("Logs\\d3d9proxy.log", "w");
-        if (!g_log) return;
-        va_list ap; va_start(ap, fmt); vfprintf(g_log, fmt, ap); va_end(ap);
-        fputc('\n', g_log); fflush(g_log);
+        ::wxl::log::Open("Logs\\d3d9proxy.log"); // idempotent
+        if (!::wxl::log::Enabled(::wxl::log::Level::Info)) return;
+        va_list ap;
+        va_start(ap, fmt);
+        ::wxl::log::WriteV(::wxl::log::Level::Info, fmt, ap);
+        va_end(ap);
+        ::wxl::log::Flush();
     }
 }

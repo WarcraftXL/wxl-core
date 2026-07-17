@@ -122,10 +122,26 @@ namespace
         g_streamWindows.erase(f);
     }
 
+    // Providers/filters are registered by module installers while loader threads already run the
+    // open detours; every access to the two registries goes through this mutex, and iteration
+    // works on a snapshot so no module callback runs under the lock.
+    std::mutex& RegistryMutex()
+    {
+        static std::mutex m;
+        return m;
+    }
+
     std::vector<wxl::runtime::storage::ClientProvideFn>& ClientProviders()
     {
         static std::vector<wxl::runtime::storage::ClientProvideFn> v;
         return v;
+    }
+
+    /** @brief Returns a snapshot of the client providers safe to iterate without the lock. */
+    std::vector<wxl::runtime::storage::ClientProvideFn> ClientProvidersSnapshot()
+    {
+        std::lock_guard<std::mutex> lock(RegistryMutex());
+        return ClientProviders();
     }
 
     /**
@@ -147,6 +163,13 @@ namespace
     {
         static std::vector<wxl::runtime::storage::ServeFilterFn> filters;
         return filters;
+    }
+
+    /** @brief Returns a snapshot of the serve filters safe to iterate without the lock. */
+    std::vector<wxl::runtime::storage::ServeFilterFn> ServeFiltersSnapshot()
+    {
+        std::lock_guard<std::mutex> lock(RegistryMutex());
+        return ServeFilters();
     }
 
     bool VerboseStorageLogs()
@@ -577,7 +600,7 @@ namespace
 
         // Module filters may consume/record trailing side tables and trim them before native parsing.
         if (ok && f->buffer && f->size)
-            for (wxl::runtime::storage::ServeFilterFn filter : ServeFilters())
+            for (wxl::runtime::storage::ServeFilterFn filter : ServeFiltersSnapshot())
             {
                 const uint32_t served = filter(hostName.c_str(), f->buffer, f->size);
                 if (served < f->size) f->size = served;
@@ -626,7 +649,7 @@ namespace
         // A provider returns true and fills `provided` to claim the file.
         {
             std::vector<uint8_t> provided;
-            for (auto fn : ClientProviders())
+            for (auto fn : ClientProvidersSnapshot())
             {
                 if (!fn(safeName.c_str(), provided)) continue;
                 auto* f = static_cast<HostFile*>(calloc(1, sizeof(HostFile)));
@@ -915,11 +938,15 @@ namespace wxl::runtime::storage
 
     void RegisterClientProvider(ClientProvideFn fn)
     {
-        if (fn) ClientProviders().push_back(fn);
+        if (!fn) return;
+        std::lock_guard<std::mutex> lock(RegistryMutex());
+        ClientProviders().push_back(fn);
     }
 
     void RegisterServeFilter(ServeFilterFn fn)
     {
-        if (fn) ServeFilters().push_back(fn);
+        if (!fn) return;
+        std::lock_guard<std::mutex> lock(RegistryMutex());
+        ServeFilters().push_back(fn);
     }
 }

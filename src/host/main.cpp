@@ -223,10 +223,14 @@ namespace
         reused = false;
         uint32_t size = static_cast<uint32_t>(bytes.size());
 
-        std::lock_guard<std::mutex> hl(g_handleMutex);
-        auto existingName = g_blobByName.find(name);
-        if (existingName != g_blobByName.end())
+        /**
+         * @brief Reuses (and refs) an already-stored section for name if one matches.
+         * @return the existing id, or 0 when no reusable section exists. Caller holds g_handleMutex.
+         */
+        const auto tryReuseLocked = [&]() -> uint32_t
         {
+            auto existingName = g_blobByName.find(name);
+            if (existingName == g_blobByName.end()) return 0;
             auto existingBlob = g_blobs.find(existingName->second);
             if (existingBlob != g_blobs.end() && existingBlob->second.size == size && existingBlob->second.view)
             {
@@ -236,11 +240,19 @@ namespace
                 return existingName->second;
             }
             g_blobByName.erase(existingName);
+            return 0;
+        };
+
+        uint32_t id = 0;
+        {
+            std::lock_guard<std::mutex> hl(g_handleMutex);
+            if (const uint32_t existing = tryReuseLocked()) return existing;
+            id = ++g_nextHandle;
+            if (id == 0) id = ++g_nextHandle; // ids must be nonzero
         }
 
-        uint32_t id = ++g_nextHandle;
-        if (id == 0) id = ++g_nextHandle; // ids must be nonzero
-
+        // The section create/map and the (multi-MB) copy run outside the lock: this is the hottest
+        // large-file path and every open/read/close otherwise serializes behind the copy.
         char nm[64];
         BlobName(nm, sizeof(nm), id);
         HANDLE h = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, size ? size : 1, nm);
@@ -249,6 +261,15 @@ namespace
         if (!v) { CloseHandle(h); return 0; }
         if (size) memcpy(v, bytes.data(), size);
 
+        std::lock_guard<std::mutex> hl(g_handleMutex);
+        if (const uint32_t existing = tryReuseLocked())
+        {
+            // Another worker stored the same name while we copied; keep its section so the
+            // one-name-one-section dedup holds, and discard ours.
+            UnmapViewOfFile(v);
+            CloseHandle(h);
+            return existing;
+        }
         g_blobs.emplace(id, Blob{ h, v, size, 1, name });
         g_blobByName.emplace(name, id);
         g_blobBytes += size;
@@ -859,14 +880,14 @@ namespace
 
     /**
      * @brief Decodes one request payload and builds the FlexBuffers response.
-     * @param req      request payload bytes
-     * @param respOut  receives the response payload bytes
-     * @param trace    receives decoded operation, outcome, and open-stage data
+     * @param req    request payload bytes
+     * @param fbb    fresh builder that receives the finished response; the caller posts
+     *               fbb.GetBuffer() directly so the payload is never copied host-side
+     * @param trace  receives decoded operation, outcome, and open-stage data
      */
-    void ProcessRequest(const std::vector<uint8_t>& req, std::vector<uint8_t>& respOut,
+    void ProcessRequest(const std::vector<uint8_t>& req, flexbuffers::Builder& fbb,
                         hprof::RequestTrace& trace)
     {
-        flexbuffers::Builder fbb;
         if (!req.empty())
         {
             auto vec = flexbuffers::GetRoot(req.data(), req.size()).AsVector();
@@ -910,8 +931,6 @@ namespace
         }
 
         fbb.Finish();
-        const std::vector<uint8_t>& buf = fbb.GetBuffer();
-        respOut.assign(buf.begin(), buf.end());
     }
 
     /** @brief Samples transform-cache and live shared-section memory for a periodic profile report. */
@@ -986,16 +1005,17 @@ namespace
         // count still queues on the (idle, cheap) channel events instead of spinning up one CPU-bound
         // thread per logical core and starving the game client running on the same machine.
         auto worker = []() {
-            std::vector<uint8_t> req, resp;
+            std::vector<uint8_t> req;
             for (;;)
             {
                 uint32_t ch = 0, reqSeq = 0;
                 if (!wxl::host::ipc::WaitAnyRequest(ch, reqSeq, req)) break;
                 hprof::RequestTrace trace;
                 const uint64_t requestStarted = hprof::Now();
-                ProcessRequest(req, resp, trace);
+                flexbuffers::Builder fbb;
+                ProcessRequest(req, fbb, trace);
                 const uint64_t postStarted = hprof::Now();
-                wxl::host::ipc::PostResponse(ch, reqSeq, resp);
+                wxl::host::ipc::PostResponse(ch, reqSeq, fbb.GetBuffer());
                 const uint64_t requestFinished = hprof::Now();
 
                 // Profile.cpp keeps a compact non-atomic window. Serialize only its bookkeeping; archive

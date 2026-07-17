@@ -27,6 +27,7 @@
 
 #include <windows.h>
 #include <d3d9.h>
+#include <atomic>
 
 // Uses device-vtable pointer swaps (DrawIndexedPrimitive, EndScene, Present, SetRenderTarget,
 // SetDepthStencilSurface) and function-entry hooks; no mid-function inline patch, so the world render
@@ -277,7 +278,9 @@ namespace
     bool g_readableDepth = false;                      // the depth is the sampleable format vs a plain depth-stencil
     bool g_colorRedirect = false;                      // armed: redirect the color bind to g_ssaaColor
     bool g_depthRedirect = false;                      // armed: redirect the depth bind to g_worldDepth
-    bool g_depthNeeded   = false;                      // a depth-using effect is enabled (set by the module)
+    // Written by the graphics module's thread via SetReadableDepthNeeded, read on the render
+    // thread each frame — atomic so the cross-thread flag has defined visibility.
+    std::atomic<bool> g_depthNeeded{ false };          // a depth-using effect is enabled (set by the module)
 
     // Glue scene projection snapshot. The glue 3D camera is not in the world camera globals (those stay
     // identity on the glue screens), so the engine projection upload is observed during the glue model render

@@ -38,10 +38,42 @@ namespace
     using ResetFn    = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
     using EndSceneFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*);
     using PresentFn  = HRESULT(STDMETHODCALLTYPE*)(IDirect3DDevice9*, const RECT*, const RECT*, HWND, const RGNDATA*);
-    ResetFn    g_origReset     = nullptr;
-    EndSceneFn g_origEndScene  = nullptr;
-    PresentFn  g_origPresent   = nullptr;
-    UINT       g_customPresentMisses = 0;
+    // Originals are kept per captured device, not in single globals: several On12 devices can be
+    // live at once (a probe device first, the real one later), and one set of globals would send
+    // the older device's calls through the newer device's originals.
+    struct DeviceHooks
+    {
+        IDirect3DDevice9* dev      = nullptr;
+        void**            vt       = nullptr;
+        ResetFn           reset    = nullptr;
+        EndSceneFn        endScene = nullptr;
+        PresentFn         present  = nullptr;
+    };
+    constexpr size_t kMaxDeviceHooks = 8;
+    DeviceHooks g_deviceHooks[kMaxDeviceHooks];
+    size_t      g_deviceHookCount = 0;   // total ever recorded; slots recycle as a ring
+
+    /** @brief Records a device's original entry points, recycling the oldest slot when full. */
+    void RememberHooks(const DeviceHooks& rec)
+    {
+        g_deviceHooks[g_deviceHookCount % kMaxDeviceHooks] = rec;
+        ++g_deviceHookCount;
+    }
+
+    /**
+     * @brief Finds the originals recorded for a device, falling back to the most recent record.
+     * @param dev  device whose hook record is wanted.
+     * @return Matching (or latest) record, or null when nothing was ever hooked.
+     */
+    const DeviceHooks* FindHooks(IDirect3DDevice9* dev)
+    {
+        const size_t used = g_deviceHookCount < kMaxDeviceHooks ? g_deviceHookCount : kMaxDeviceHooks;
+        for (size_t i = 0; i < used; ++i)
+            if (g_deviceHooks[i].dev == dev) return &g_deviceHooks[i];
+        return g_deviceHookCount ? &g_deviceHooks[(g_deviceHookCount - 1) % kMaxDeviceHooks] : nullptr;
+    }
+
+    UINT g_customPresentMisses = 0;
 
     HRESULT STDMETHODCALLTYPE HookReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp);
 
@@ -53,7 +85,8 @@ namespace
     HRESULT STDMETHODCALLTYPE HookEndScene(IDirect3DDevice9* dev)
     {
         if (g_frame) g_frame(dev);
-        return g_origEndScene(dev);
+        const DeviceHooks* h = FindHooks(dev);
+        return h && h->endScene ? h->endScene(dev) : S_OK;
     }
 
     /**
@@ -90,7 +123,8 @@ namespace
                 Log("capture: custom present miss %u; native windowed Present suppressed", g_customPresentMisses);
             return S_OK;
         }
-        return g_origPresent(dev, src, dst, wnd, dirty);
+        const DeviceHooks* h = FindHooks(dev);
+        return h && h->present ? h->present(dev, src, dst, wnd, dirty) : S_OK;
     }
 
     /**
@@ -100,21 +134,48 @@ namespace
     void PatchEndScene(IDirect3DDevice9* dev)
     {
         void** vt = *reinterpret_cast<void***>(dev);
+
+        // If this vtable already carries our hooks (a second device sharing the first one's
+        // vtable), re-reading the slots would capture the hooks themselves as "originals" and
+        // every call would recurse until stack overflow. Reuse the originals recorded for the
+        // vtable instead of patching again.
+        if (vt[kVtEndScene] == reinterpret_cast<void*>(&HookEndScene))
+        {
+            const size_t used = g_deviceHookCount < kMaxDeviceHooks ? g_deviceHookCount : kMaxDeviceHooks;
+            for (size_t i = 0; i < used; ++i)
+            {
+                if (g_deviceHooks[i].vt != vt) continue;
+                DeviceHooks rec = g_deviceHooks[i];
+                rec.dev = dev;
+                RememberHooks(rec);
+                Log("capture: device %p shares an already-hooked vtable %p, originals reused", dev, vt);
+                return;
+            }
+            Log("capture: device %p vtable %p already hooked but has no record; leaving as-is", dev, vt);
+            return;
+        }
+
+        DeviceHooks rec;
+        rec.dev = dev;
+        rec.vt  = vt;
+
         DWORD old = 0;
         VirtualProtect(&vt[kVtEndScene], sizeof(void*), PAGE_EXECUTE_READWRITE, &old);
-        g_origEndScene = reinterpret_cast<EndSceneFn>(vt[kVtEndScene]);
+        rec.endScene = reinterpret_cast<EndSceneFn>(vt[kVtEndScene]);
         vt[kVtEndScene] = reinterpret_cast<void*>(&HookEndScene);
         VirtualProtect(&vt[kVtEndScene], sizeof(void*), old, &old);
 
         VirtualProtect(&vt[kVtPresent], sizeof(void*), PAGE_EXECUTE_READWRITE, &old);
-        g_origPresent = reinterpret_cast<PresentFn>(vt[kVtPresent]);
+        rec.present = reinterpret_cast<PresentFn>(vt[kVtPresent]);
         vt[kVtPresent] = reinterpret_cast<void*>(&HookPresent);
         VirtualProtect(&vt[kVtPresent], sizeof(void*), old, &old);
 
         VirtualProtect(&vt[kVtReset], sizeof(void*), PAGE_EXECUTE_READWRITE, &old);
-        g_origReset = reinterpret_cast<ResetFn>(vt[kVtReset]);
+        rec.reset = reinterpret_cast<ResetFn>(vt[kVtReset]);
         vt[kVtReset] = reinterpret_cast<void*>(&HookReset);
         VirtualProtect(&vt[kVtReset], sizeof(void*), old, &old);
+
+        RememberHooks(rec);
     }
 
     /**
@@ -208,7 +269,9 @@ namespace
      */
     HRESULT STDMETHODCALLTYPE HookReset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp)
     {
-        if (!pp) return g_origReset(dev, pp);
+        const DeviceHooks* h = FindHooks(dev);
+        if (!h || !h->reset) return D3DERR_INVALIDCALL;
+        if (!pp) return h->reset(dev, pp);
 
         Log("capture: Reset begin %ux%u windowed=%d BBCount=%u",
             pp->BackBufferWidth, pp->BackBufferHeight, pp->Windowed, pp->BackBufferCount);
@@ -225,7 +288,7 @@ namespace
         PrepareNativePresentParams(&sanitized);
         g_windowed = sanitized.Windowed;
         if (sanitized.hDeviceWindow) g_devWindow = sanitized.hDeviceWindow;
-        const HRESULT hr = g_origReset(dev, &sanitized);
+        const HRESULT hr = h->reset(dev, &sanitized);
         Log("capture: Reset end hr=0x%08lX", (unsigned long)hr);
         return hr;
     }

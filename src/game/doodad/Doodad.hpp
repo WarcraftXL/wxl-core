@@ -49,6 +49,25 @@ namespace wxl::game::doodad
         }
 
         /**
+         * @brief Per-thread cache of the last few committed regions VirtualQuery returned.
+         *
+         * The guarded walkers (ModelName, EnumerateChunk, ...) probe the same handful of regions
+         * hundreds of times per call — up to once per character or four times per list node — and
+         * each probe was a kernel round-trip. Entries only live within a single GetTickCount64
+         * millisecond, so a page freed by another thread is trusted no longer than roughly the
+         * check-then-read window the uncached code already had.
+         */
+        struct RegionCache
+        {
+            struct Entry { uintptr_t base = 0; uintptr_t end = 0; DWORD protect = 0; };
+            static constexpr size_t kEntries = 4;
+            Entry    e[kEntries];
+            size_t   next  = 0;
+            uint64_t stamp = 0;
+        };
+        inline RegionCache& Cache() { thread_local RegionCache c; return c; }
+
+        /**
          * @brief Reports whether [p, p+n) is committed and accessible with one of the given page protections.
          * @param p      Start address.
          * @param n      Byte count.
@@ -58,13 +77,24 @@ namespace wxl::game::doodad
         inline bool Accessible(const void* p, size_t n, DWORD allow)
         {
             if (!Plausible(p)) return false;
+            const uintptr_t a = reinterpret_cast<uintptr_t>(p);
+
+            RegionCache& c = Cache();
+            const uint64_t now = GetTickCount64();
+            if (c.stamp != now) { c = RegionCache{}; c.stamp = now; }
+            for (const RegionCache::Entry& hit : c.e)
+                if (hit.end && a >= hit.base && a + n <= hit.end)
+                    return (hit.protect & allow) != 0;
+
             MEMORY_BASIC_INFORMATION mbi;
             if (VirtualQuery(p, &mbi, sizeof mbi) == 0) return false;
             if (mbi.State != MEM_COMMIT) return false;
             if (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)) return false;
-            if ((mbi.Protect & allow) == 0) return false;
             const uintptr_t end = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
-            return reinterpret_cast<uintptr_t>(p) + n <= end;
+            c.e[c.next] = { reinterpret_cast<uintptr_t>(mbi.BaseAddress), end, mbi.Protect };
+            c.next = (c.next + 1) % RegionCache::kEntries;
+            if ((mbi.Protect & allow) == 0) return false;
+            return a + n <= end;
         }
         /**
          * @brief Reports whether [p, p+n) is readable.

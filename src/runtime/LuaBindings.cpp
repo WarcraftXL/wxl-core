@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -48,6 +49,14 @@ namespace wxl::runtime::lua
             std::string defaultValue;
         };
 
+        // Modules may register from global constructors or worker threads while the main thread
+        // installs into a fresh Lua state; every registry access goes through this mutex.
+        std::mutex& RegistryMutex()
+        {
+            static std::mutex m;
+            return m;
+        }
+
         std::vector<FunctionEntry>& Functions()
         {
             static std::vector<FunctionEntry> entries;
@@ -69,6 +78,7 @@ namespace wxl::runtime::lua
         bool AddFunction(const char* name, Callback function)
         {
             if (!name || !*name || !function) return false;
+            std::lock_guard<std::mutex> lock(RegistryMutex());
             auto& entries = Functions();
             const auto existing = std::find_if(entries.begin(), entries.end(), [name](const FunctionEntry& entry) {
                 return _stricmp(entry.name.c_str(), name) == 0;
@@ -248,8 +258,11 @@ namespace wxl::runtime::lua
         /** Keeps Blizzard's pointer validation intact except for WXL's registered callbacks. */
         void __cdecl ValidateFunctionPointer(uintptr_t function)
         {
-            for (const FunctionEntry& entry : Functions())
-                if (function == reinterpret_cast<uintptr_t>(entry.function)) return;
+            {
+                std::lock_guard<std::mutex> lock(RegistryMutex());
+                for (const FunctionEntry& entry : Functions())
+                    if (function == reinterpret_cast<uintptr_t>(entry.function)) return;
+            }
             if (g_origValidateFunctionPointer) g_origValidateFunctionPointer(function);
         }
     }
@@ -265,6 +278,7 @@ namespace wxl::runtime::lua
     bool RegisterScript(const char* name, const char* source)
     {
         if (!name || !*name || !source || !*source) return false;
+        std::lock_guard<std::mutex> lock(RegistryMutex());
         auto& entries = Scripts();
         const auto existing = std::find_if(entries.begin(), entries.end(), [name](const ScriptEntry& entry) {
             return _stricmp(entry.name.c_str(), name) == 0;
@@ -281,6 +295,7 @@ namespace wxl::runtime::lua
         if (!(std::isalpha(first) || first == '_')) return false;
         for (const unsigned char ch : std::string(name))
             if (!(std::isalnum(ch) || ch == '_' || ch == '.' || ch == '-')) return false;
+        std::lock_guard<std::mutex> lock(RegistryMutex());
         auto& entries = CVars();
         const auto existing = std::find_if(entries.begin(), entries.end(), [name](const CVarEntry& entry) {
             return _stricmp(entry.name.c_str(), name) == 0;
@@ -376,14 +391,27 @@ namespace wxl::runtime::lua
         if (!force && state == g_installedState) return;
 
         const bool contextChanged = state != g_installedState;
+
+        // Snapshot the registries so no lock is held while calling into the engine below: a script
+        // executed here may itself register (via a WXL module), which would self-deadlock.
+        std::vector<FunctionEntry> functions;
+        std::vector<ScriptEntry>   scripts;
+        std::vector<CVarEntry>     cvars;
+        {
+            std::lock_guard<std::mutex> lock(RegistryMutex());
+            functions = Functions();
+            scripts   = Scripts();
+            cvars     = CVars();
+        }
+
         const auto registerFunction = wxl::game::Native<loff::FrameScriptRegisterFunctionFn>(
             loff::kFrameScriptRegisterFunction);
-        for (const FunctionEntry& entry : Functions())
+        for (const FunctionEntry& entry : functions)
             registerFunction(entry.name.c_str(), entry.function);
 
         if (contextChanged)
         {
-            for (const CVarEntry& entry : CVars())
+            for (const CVarEntry& entry : cvars)
             {
                 // GlueXML uses a separate restricted Lua environment and does not publish the
                 // in-world RegisterCVar global. Skip it there; a new FrameScript state is detected
@@ -395,12 +423,12 @@ namespace wxl::runtime::lua
                 source += ") end";
                 Execute(state, source, entry.name.c_str());
             }
-            for (const ScriptEntry& entry : Scripts())
+            for (const ScriptEntry& entry : scripts)
                 Execute(state, entry.source, entry.name.c_str());
         }
         g_installedState = state;
         if (contextChanged)
             WLOG_INFO("lua: installed functions=%zu scripts=%zu cvars=%zu state=%p",
-                      Functions().size(), Scripts().size(), CVars().size(), state);
+                      functions.size(), scripts.size(), cvars.size(), state);
     }
 }

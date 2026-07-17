@@ -18,6 +18,7 @@
 #include "patcher/PeImage.hpp"
 
 #include <windows.h>
+#include <io.h>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -39,27 +40,35 @@ namespace
         std::vector<uint8_t> data;
         FILE* f = nullptr;
         if (fopen_s(&f, path, "rb") != 0 || !f) return data;
-        fseek(f, 0, SEEK_END);
-        long size = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        data.resize(size);
-        fread(data.data(), 1, size, f);
+        long size = -1;
+        if (fseek(f, 0, SEEK_END) == 0) size = ftell(f);
+        if (size < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return data; }
+        data.resize(static_cast<size_t>(size));
+        if (fread(data.data(), 1, data.size(), f) != data.size()) data.clear();
         fclose(f);
         return data;
     }
 
     /**
-     * @brief Writes a byte buffer to a file, overwriting any existing contents.
+     * @brief Writes a byte buffer to a file atomically: the bytes go to a sibling temp file,
+     *        flushed to disk, then swapped into place. The target is either fully replaced or
+     *        untouched — a crash or short write can never leave it truncated.
      * @param path  file path to write.
      * @param data  bytes to write.
-     * @return True on success, false if the file cannot be opened.
+     * @return True on success, false on any I/O failure (the temp file is removed).
      */
     bool WriteAll(const char* path, const std::vector<uint8_t>& data)
     {
+        const std::string tmp = std::string(path) + ".wxltmp";
         FILE* f = nullptr;
-        if (fopen_s(&f, path, "wb") != 0 || !f) return false;
-        fwrite(data.data(), 1, data.size(), f);
-        fclose(f);
+        if (fopen_s(&f, tmp.c_str(), "wb") != 0 || !f) return false;
+        const bool written = fwrite(data.data(), 1, data.size(), f) == data.size()
+                          && fflush(f) == 0
+                          && _commit(_fileno(f)) == 0;
+        const bool closed = fclose(f) == 0;
+        if (!written || !closed) { remove(tmp.c_str()); return false; }
+        if (!MoveFileExA(tmp.c_str(), path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        { remove(tmp.c_str()); return false; }
         return true;
     }
 }
@@ -103,9 +112,16 @@ int main(int argc, char** argv)
     if (!pe.AddImport(kDllName, kFuncName, kTagSection))
     { printf("[WarcraftXL] import injection failed\n"); return 1; }
 
+    // The backup is the only recovery path if the patched image misbehaves: refuse to touch the
+    // target until it is confirmed on disk.
     std::string backup = std::string(target) + ".orig";
-    if (GetFileAttributesA(backup.c_str()) == INVALID_FILE_ATTRIBUTES)
-        CopyFileA(target, backup.c_str(), TRUE);
+    if (GetFileAttributesA(backup.c_str()) == INVALID_FILE_ATTRIBUTES
+        && !CopyFileA(target, backup.c_str(), TRUE))
+    {
+        printf("[WarcraftXL] cannot back up '%s' to '%s' (win32=%lu), aborting before write\n",
+               target, backup.c_str(), GetLastError());
+        return 1;
+    }
 
     if (!WriteAll(target, file)) { printf("[WarcraftXL] cannot write '%s'\n", target); return 1; }
 

@@ -107,8 +107,20 @@ namespace wxl::host::ipc
      */
     bool WaitAnyRequest(uint32_t& channelOut, uint32_t& seqOut, std::vector<uint8_t>& reqOut)
     {
-        const DWORD rc = WaitForMultipleObjects(g_channelCount, g_reqEv, FALSE, INFINITE);
-        if (rc < WAIT_OBJECT_0 || rc >= WAIT_OBJECT_0 + g_channelCount) return false;
+        // A transient WAIT_FAILED must not retire the calling worker for the rest of the process
+        // (returning false ends its loop): retry, and only give up after sustained failure.
+        uint32_t failures = 0;
+        DWORD rc;
+        while ((rc = WaitForMultipleObjects(g_channelCount, g_reqEv, FALSE, INFINITE)) < WAIT_OBJECT_0
+               || rc >= WAIT_OBJECT_0 + g_channelCount)
+        {
+            ++failures;
+            if (failures == 1 || failures == 100)
+                wxl::core::log::Warnf("host: WaitAnyRequest unexpected rc=%lu win32=%lu (failure %u)",
+                                      rc, GetLastError(), failures);
+            if (failures >= 100) return false; // persistent: let the worker retire loudly
+            Sleep(10);
+        }
         const uint32_t i = rc - WAIT_OBJECT_0;
 
         const ControlHeader* hdr = ChannelHeader(g_base, i);

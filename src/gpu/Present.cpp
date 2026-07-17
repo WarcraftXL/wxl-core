@@ -577,9 +577,13 @@ namespace wxl::gpu::present
         const HRESULT presentHr = g_swap->Present(0, 0);
         if (FAILED(returnHr) || FAILED(presentHr))
         {
-            if (trace || !loggedSuccess)
-                Log("present: submit failed returnHr=0x%08lX presentHr=0x%08lX removedReason=0x%08lX",
-                    (unsigned long)returnHr, (unsigned long)presentHr,
+            // A persistently failing present (e.g. device removed) would otherwise log — and query
+            // the driver — every frame; sample the first few then one in 600 like the capture miss log.
+            static UINT submitFails = 0;
+            ++submitFails;
+            if (trace || submitFails <= 4 || (submitFails % 600) == 0)
+                Log("present: submit failed #%u returnHr=0x%08lX presentHr=0x%08lX removedReason=0x%08lX",
+                    submitFails, (unsigned long)returnHr, (unsigned long)presentHr,
                     (unsigned long)dev->GetDeviceRemovedReason());
             bb12->Release();
             surf->Release();

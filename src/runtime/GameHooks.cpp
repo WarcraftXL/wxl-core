@@ -1218,7 +1218,9 @@ namespace
         ev::TargetChangedArgs a{ scriptState };
         ev::Emit(ev::Event::OnTargetChanged, &a);
 
-        WLOG_INFO("target: changed");
+        // Log the first fire only: target changes are a per-combat-action event.
+        static bool logged = false;
+        if (!logged) { logged = true; WLOG_INFO("target: hook live (first change)"); }
         return r;
     }
 

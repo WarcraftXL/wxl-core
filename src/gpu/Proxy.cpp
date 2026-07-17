@@ -67,6 +67,22 @@ namespace
         Log("d3d9proxy: system d3d9 loaded (9=%p Ex=%p On12=%p On12Ex=%p)",
             g_realCreate9, g_realCreate9Ex, g_realCreate9On12, g_realCreate9On12Ex);
     }
+
+    /**
+     * @brief Loads WarcraftXL.dll once, from the first Direct3DCreate9* call.
+     *
+     * Deliberately NOT done in DllMain: calling LoadLibrary under the loader lock can deadlock
+     * against WarcraftXL.dll's own attach work. The engine creates its factory long before the
+     * runtime is needed, so first-create is early enough.
+     */
+    void EnsureRuntimeLoaded()
+    {
+        static bool attempted = false;
+        if (attempted) return;
+        attempted = true;
+        if (!LoadLibraryA("WarcraftXL.dll"))
+            Log("d3d9proxy: WarcraftXL.dll not loaded (win32=%lu)", GetLastError());
+    }
 }
 
 /**
@@ -77,6 +93,7 @@ namespace
 extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
 {
     EnsureReal();
+    EnsureRuntimeLoaded();
     if (g_realCreate9On12)
     {
         D3D9ON12_ARGS args = wxl::gpu::MakeOn12Args();
@@ -97,6 +114,7 @@ extern "C" IDirect3D9* WINAPI Direct3DCreate9(UINT sdkVersion)
 extern "C" HRESULT WINAPI Direct3DCreate9Ex(UINT sdkVersion, IDirect3D9Ex** out)
 {
     EnsureReal();
+    EnsureRuntimeLoaded();
     if (g_realCreate9On12Ex)
     {
         D3D9ON12_ARGS args = wxl::gpu::MakeOn12Args();
@@ -109,7 +127,9 @@ extern "C" HRESULT WINAPI Direct3DCreate9Ex(UINT sdkVersion, IDirect3D9Ex** out)
         }
     }
     Log("d3d9proxy: native Direct3DCreate9Ex fallback");
-    return g_realCreate9Ex ? g_realCreate9Ex(sdkVersion, out) : E_NOINTERFACE;
+    if (g_realCreate9Ex) return g_realCreate9Ex(sdkVersion, out);
+    if (out) *out = nullptr;
+    return E_NOINTERFACE;
 }
 
 /**
@@ -157,16 +177,15 @@ extern "C" __declspec(dllexport) float WxlGetSsaaFactor()
 }
 
 /**
- * @brief Loads the real d3d9 on process attach.
+ * @brief Process-attach entry point. Intentionally does no work.
+ *
+ * Loading the real d3d9 and WarcraftXL.dll happens lazily in Direct3DCreate9(Ex): a LoadLibrary
+ * issued here would run under the loader lock and can deadlock against the loaded DLL's attach.
  * @param reason  DLL notification reason.
  * @return TRUE.
  */
 BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID)
 {
-    if (reason == DLL_PROCESS_ATTACH)
-    {
-        EnsureReal();
-        LoadLibraryA("WarcraftXL.dll");
-    }
+    (void)reason;
     return TRUE;
 }

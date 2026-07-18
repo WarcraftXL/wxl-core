@@ -1,4 +1,4 @@
-// UI method context: the wxl.ui.* immediate-mode surface (windows + MVP widgets) over Dear ImGui.
+// UI method context: the wxl.ui.* immediate-mode surface over Dear ImGui. Thin aggregator of ui/*.hpp.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,122 +16,62 @@
 
 #pragma once
 
-#include "engine/lua/LuaJit.hpp"
-#include "engine/lua/ui/ImGuiHost.hpp"
+#include "engine/lua/methods/ui/Common.hpp"
+#include "engine/lua/methods/ui/Windows.hpp"
+#include "engine/lua/methods/ui/Layout.hpp"
+#include "engine/lua/methods/ui/Text.hpp"
+#include "engine/lua/methods/ui/Widgets.hpp"
+#include "engine/lua/methods/ui/Drags.hpp"
+#include "engine/lua/methods/ui/Input.hpp"
+#include "engine/lua/methods/ui/Combo.hpp"
+#include "engine/lua/methods/ui/Trees.hpp"
+#include "engine/lua/methods/ui/TabsMenus.hpp"
+#include "engine/lua/methods/ui/Popups.hpp"
+#include "engine/lua/methods/ui/Tables.hpp"
+#include "engine/lua/methods/ui/DrawList.hpp"
+#include "engine/lua/methods/ui/Style.hpp"
+#include "engine/lua/methods/ui/Query.hpp"
+#include "engine/lua/methods/ui/Constants.hpp"
 
-#include "imgui.h"
-
-/// The wxl.ui.* surface: immediate-mode widgets a Lua extension calls to describe a window, re-run every
-/// frame. Same shape as any method context -- Register() adds the fields to the `wxl` table on the stack,
-/// here under a `ui` subtable. Header-only inline, one context, no separate TU.
+/// The wxl.ui.* surface: a comprehensive, Lua-idiomatic binding of Dear ImGui's immediate-mode API. A Lua
+/// extension calls these to describe a window, re-run every frame. This file is only the aggregator: the
+/// actual bindings live in ui/*.hpp (windows, layout, text, widgets, drags/sliders, input, combos, trees,
+/// tabs/menus, popups, tables, draw lists, style, queries) and Register() wires them all onto one `ui`
+/// subtable of the `wxl` table on the stack. Flag-taking calls read integer masks from the constant tables
+/// (wxl.ui.WINDOW, .COL, .TREE, .TABLE, ...); modders combine flags with LuaJIT's bit.bor. Header-only.
 ///
 /// CONTRACT: every wxl.ui.* call is valid ONLY inside a handler of the 'draw' event (wxl.on("draw", ...)),
 /// which the ImGui host fires once per frame with the frame open. A call from anywhere else raises a Lua
-/// error rather than corrupting ImGui state. `end` is a Lua keyword, so the window closer is wxl.ui.finish.
+/// error rather than corrupting ImGui state. `end` is a Lua keyword, so the window closer is wxl.ui.finish
+/// (and the paired closers for child/combo/menu/etc. are end_child, end_combo, end_menu, ...).
 namespace wxl::lua::methods::ui
 {
-    /// Rejects a call made outside the open ImGui frame. On failure it longjmps out via luaL_error and
-    /// never returns; callers use it as `if (!InDraw(L, name)) return 0;` purely for readability.
-    inline bool InDraw(lua_State* L, const char* fn)
-    {
-        if (wxl::lua::ui::InFrame())
-            return true;
-        luaL_error(L, "wxl.ui.%s: only valid inside a 'draw' handler (wxl.on(\"draw\", ...))", fn);
-        return false; // unreachable: luaL_error does not return
-    }
-
-    /// wxl.ui.begin(title) -> visible: opens a window. visible is false when the window is collapsed or
-    /// clipped; a script may skip building its body then. wxl.ui.finish MUST still be called regardless.
-    inline int L_begin(lua_State* L)
-    {
-        if (!InDraw(L, "begin")) return 0;
-        const char* title = luaL_checkstring(L, 1);
-        lua_pushboolean(L, ImGui::Begin(title));
-        return 1;
-    }
-
-    /// wxl.ui.finish(): closes the window opened by the matching wxl.ui.begin. Always call it, even when
-    /// begin returned false (the ImGui begin/end pairing is unconditional).
-    inline int L_finish(lua_State* L)
-    {
-        if (!InDraw(L, "finish")) return 0;
-        ImGui::End();
-        return 0;
-    }
-
-    /// wxl.ui.text(s): draws a line of text. Rendered unformatted, so a % in the string is literal.
-    inline int L_text(lua_State* L)
-    {
-        if (!InDraw(L, "text")) return 0;
-        ImGui::TextUnformatted(luaL_checkstring(L, 1));
-        return 0;
-    }
-
-    /// wxl.ui.button(label) -> clicked: draws a button, true on the frame it is pressed.
-    inline int L_button(lua_State* L)
-    {
-        if (!InDraw(L, "button")) return 0;
-        lua_pushboolean(L, ImGui::Button(luaL_checkstring(L, 1)));
-        return 1;
-    }
-
-    /// wxl.ui.checkbox(label, state) -> newState: draws a checkbox seeded from state, returns its value
-    /// after this frame's interaction (immediate mode: the script feeds the value back next frame).
-    inline int L_checkbox(lua_State* L)
-    {
-        if (!InDraw(L, "checkbox")) return 0;
-        const char* label = luaL_checkstring(L, 1);
-        bool        state = lua_toboolean(L, 2) != 0;
-        ImGui::Checkbox(label, &state);
-        lua_pushboolean(L, state);
-        return 1;
-    }
-
-    /// wxl.ui.slider(label, v, min, max) -> newV: draws a float slider seeded from v, returns its value
-    /// after this frame's drag.
-    inline int L_slider(lua_State* L)
-    {
-        if (!InDraw(L, "slider")) return 0;
-        const char* label = luaL_checkstring(L, 1);
-        float       v     = static_cast<float>(luaL_checknumber(L, 2));
-        const float mn    = static_cast<float>(luaL_checknumber(L, 3));
-        const float mx    = static_cast<float>(luaL_checknumber(L, 4));
-        ImGui::SliderFloat(label, &v, mn, mx);
-        lua_pushnumber(L, v);
-        return 1;
-    }
-
-    /// wxl.ui.separator(): draws a horizontal separator line.
-    inline int L_separator(lua_State* L)
-    {
-        if (!InDraw(L, "separator")) return 0;
-        ImGui::Separator();
-        return 0;
-    }
-
-    /// wxl.ui.same_line(): keeps the next widget on the current line instead of a new one.
-    inline int L_sameLine(lua_State* L)
-    {
-        if (!InDraw(L, "same_line")) return 0;
-        ImGui::SameLine();
-        return 0;
-    }
-
     /**
      * @brief Adds the `ui` subtable (wxl.ui.*) to the table on top of the stack. Stack-neutral.
      * @param L  the engine lua_State, with the target `wxl` table at index -1.
      */
     inline void Register(lua_State* L)
     {
-        lua_newtable(L); // the wxl.ui subtable
-        lua_pushcfunction(L, &L_begin);     lua_setfield(L, -2, "begin");
-        lua_pushcfunction(L, &L_finish);    lua_setfield(L, -2, "finish");
-        lua_pushcfunction(L, &L_text);      lua_setfield(L, -2, "text");
-        lua_pushcfunction(L, &L_button);    lua_setfield(L, -2, "button");
-        lua_pushcfunction(L, &L_checkbox);  lua_setfield(L, -2, "checkbox");
-        lua_pushcfunction(L, &L_slider);    lua_setfield(L, -2, "slider");
-        lua_pushcfunction(L, &L_separator); lua_setfield(L, -2, "separator");
-        lua_pushcfunction(L, &L_sameLine);  lua_setfield(L, -2, "same_line");
-        lua_setfield(L, -2, "ui"); // wxl.ui = subtable
+        lua_newtable(L);            // the wxl.ui subtable
+        RegisterDrawListMeta(L);    // create the handle metatable before DrawList fills it (stack-neutral)
+
+        RegisterCommon(L);
+        RegisterWindows(L);
+        RegisterLayout(L);
+        RegisterText(L);
+        RegisterWidgets(L);
+        RegisterDrags(L);
+        RegisterInput(L);
+        RegisterCombo(L);
+        RegisterTrees(L);
+        RegisterTabsMenus(L);
+        RegisterPopups(L);
+        RegisterTables(L);
+        RegisterDrawList(L);
+        RegisterStyle(L);
+        RegisterQuery(L);
+        RegisterConstants(L);
+
+        lua_setfield(L, -2, "ui");  // wxl.ui = subtable
     }
 }

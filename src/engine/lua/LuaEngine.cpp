@@ -20,8 +20,14 @@
 #include "engine/lua/Loader.hpp"
 #include "engine/lua/DevReload.hpp"
 #include "engine/lua/methods/CoreMethods.hpp"
+#include "engine/lua/methods/UnitMethods.hpp"
+#include "engine/lua/methods/UiMethods.hpp"
 #include "engine/lua/events/EventBridge.hpp"
 #include "engine/lua/events/FrameEvents.hpp"
+#include "engine/lua/events/UnitEvents.hpp"
+#include "engine/lua/events/UiEvents.hpp"
+#include "engine/lua/ObjectProxy.hpp"
+#include "engine/lua/ui/ImGuiHost.hpp"
 #include "engine/events/Event.hpp"
 #include "engine/hook/Registry.hpp"
 #include "common/Log.hpp"
@@ -68,7 +74,13 @@ namespace wxl::lua
         ::wxl::events::Subscribe(::wxl::events::Event::OnFrame, &OnFrameEvent, nullptr);
 
         events::frame::Declare(); // + future context Declare() calls, one line each
+        events::unit::Declare();  // "target_changed" -> pushes a Unit object
+        events::ui::Declare();    // "draw" -> OnUiDraw (must precede SubscribeBus)
         events::SubscribeBus();
+
+        // After SubscribeBus so the ImGui host's OnUiDraw emit finds the "draw" dispatch already wired,
+        // and its OnFrame handler runs after the VM boot pump subscribed above (VM is up before "draw").
+        ui::Install();
 
         WLOG_DEBUG("[vm] lua engine installed; VM boots on the first frame");
         return true;
@@ -89,9 +101,13 @@ namespace wxl::lua
         }
         luaL_openlibs(L);
 
+        RegisterMetatables(L); // Unit metatable + weak proxy cache, before the method table is filled
+
         // Assemble the global `wxl` table: each context adds its fields to the table on top.
         lua_newtable(L);
         methods::core::Register(L);
+        methods::unit::Register(L); // fills the Unit __index method table, adds player/target/mouseover
+        methods::ui::Register(L);   // adds the wxl.ui.* subtable
         events::Bind(L); // adds wxl.on and binds the bridge to this state
         lua_setglobal(L, "wxl");
 

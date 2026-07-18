@@ -70,6 +70,7 @@ namespace wxl::offsets::game::unit
     // --- typed views over the objects above ---
     // The constants are the curated landmarks; these structs give named, typed access to the same fields,
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
+    // See engine/lua/ffi/CdefGen for the matching LuaJIT cdef, generated from the SAME constants.
     // Only RE'd fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
     /** @brief Unit / world object: the body-model slot and the world position. */

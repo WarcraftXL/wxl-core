@@ -25,6 +25,12 @@
 #include "engine/lua/methods/WorldMethods.hpp"
 #include "engine/lua/methods/UiMethods.hpp"
 #include "engine/lua/methods/TextureMethods.hpp"
+#include "engine/lua/methods/DoodadMethods.hpp"
+#include "engine/lua/methods/WmoMethods.hpp"
+#include "engine/lua/methods/M2Methods.hpp"
+#include "engine/lua/methods/CharModelMethods.hpp"
+#include "engine/lua/methods/WorldPickMethods.hpp"
+#include "engine/lua/methods/SoundMethods.hpp"
 #include "engine/lua/ui/Texture.hpp"
 #include "engine/lua/events/EventBridge.hpp"
 #include "engine/lua/events/FrameEvents.hpp"
@@ -127,8 +133,14 @@ namespace wxl::lua
         methods::unit::Register(L);   // fills the Unit __index method table, adds player/target/mouseover
         methods::camera::Register(L); // adds the wxl.camera subtable (matrices + world_to_screen)
         methods::world::Register(L);  // adds the wxl.world subtable (map id/name, viewport)
+        methods::worldpick::Register(L); // adds wxl.world.pick / focus_position onto the world subtable
         methods::ui::Register(L);     // adds the wxl.ui.* subtable
         methods::texture::Register(L);// adds the callable wxl.texture (BLP -> IDirect3DTexture9)
+        methods::doodad::Register(L);    // wxl.doodad.*    (reads a doodad_spawn lightuserdata)
+        methods::wmo::Register(L);       // wxl.wmo.*       (reads a wmo_root/group_load lightuserdata)
+        methods::m2::Register(L);        // wxl.m2.*        (reads a model/renderCtx lightuserdata)
+        methods::charmodel::Register(L); // wxl.charmodel.* (reads an item_slot_* lightuserdata)
+        methods::sound::Register(L);     // wxl.sound.*     (volume reads + set_master_volume)
         events::Bind(L); // adds wxl.on and binds the bridge to this state
         lua_setglobal(L, "wxl");
 

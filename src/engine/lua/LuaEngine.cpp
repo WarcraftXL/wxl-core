@@ -31,6 +31,10 @@
 #include "engine/lua/events/UnitEvents.hpp"
 #include "engine/lua/events/UiEvents.hpp"
 #include "engine/lua/events/GameEvents.hpp"
+#include "engine/lua/events/AssetEvents.hpp"
+#include "engine/lua/events/RenderEvents.hpp"
+#include "engine/lua/events/M2Events.hpp"
+#include "engine/lua/events/InputEvents.hpp"
 #include "engine/lua/ffi/FfiBootstrap.hpp"
 #include "engine/lua/ObjectProxy.hpp"
 #include "engine/lua/ui/ImGuiHost.hpp"
@@ -83,6 +87,10 @@ namespace wxl::lua
         events::unit::Declare();  // "target_changed" -> pushes a Unit object
         events::ui::Declare();    // "draw" -> OnUiDraw (must precede SubscribeBus)
         events::game::Declare();  // "world_click"/"object_update"/"object_destroy"/"sound_play"
+        events::asset::Declare();  // blp_load/texture_upload/model_load(_pre)/wmo_*/adt_chunk/doodad_spawn/item_slot_*/before_host_launch
+        events::render::Declare();  // end_scene/device_lost/device_reset/world_render(_end)/liquid_render
+        events::m2::Declare();      // m2_skin_finalize/m2_update/bone_palette/m2_batch_draw/m2_setup_alpha/ribbon_draw
+        events::input::Declare();   // "input" (return true to swallow)
         events::SubscribeBus();
 
         // After SubscribeBus so the ImGui host's OnUiDraw emit finds the "draw" dispatch already wired,

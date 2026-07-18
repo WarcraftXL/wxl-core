@@ -40,6 +40,7 @@ namespace wxl::lua::ui
         bool g_ready     = false; // context + backends created (lazy, first frame)
         bool g_frameOpen = false; // NewFrame issued, matching Render still pending
         bool g_inDraw    = false; // inside the OnUiDraw emission -> wxl.ui.* is legal
+        uint64_t g_frameGeneration = 0; // changes before every OnUiDraw emission
         HWND g_hwnd      = nullptr;
 
         /// Resolves the window the D3D9 device was created against. This is the reliable hwnd source: the
@@ -73,12 +74,15 @@ namespace wxl::lua::ui
             ImGuiIO& io = ImGui::GetIO();
             io.IniFilename = nullptr; // no imgui.ini on disk; extensions own their layout
 
-            if (!ImGui_ImplWin32_Init(g_hwnd) || !ImGui_ImplDX9_Init(device))
+            const bool win32Ready = ImGui_ImplWin32_Init(g_hwnd);
+            const bool dx9Ready = win32Ready && ImGui_ImplDX9_Init(device);
+            if (!win32Ready || !dx9Ready)
             {
                 WLOG_ERROR("[ui] ImGui backend init failed");
-                ImGui_ImplDX9_Shutdown();
-                ImGui_ImplWin32_Shutdown();
+                if (dx9Ready) ImGui_ImplDX9_Shutdown();
+                if (win32Ready) ImGui_ImplWin32_Shutdown();
                 ImGui::DestroyContext();
+                g_hwnd = nullptr;
                 return;
             }
 
@@ -99,6 +103,7 @@ namespace wxl::lua::ui
             ImGui_ImplWin32_NewFrame();
             ImGui::NewFrame();
             g_frameOpen = true;
+            if (++g_frameGeneration == 0) ++g_frameGeneration; // reserve zero for never-issued handles
 
             // The wxl.ui.* window: scripts registered on the 'draw' event build their UI now. InFrame()
             // is true only for the span of this emission, so a stray wxl.ui.* call elsewhere is rejected.
@@ -129,8 +134,13 @@ namespace wxl::lua::ui
         {
             if (!g_ready)
                 return;
+            if (g_frameOpen)
+            {
+                ImGui::EndFrame();
+                g_frameOpen = false;
+                g_inDraw = false;
+            }
             ImGui_ImplDX9_InvalidateDeviceObjects();
-            g_frameOpen = false;
         }
 
         /// After a successful device Reset: recreate the backend's device objects. The font atlas and
@@ -183,5 +193,10 @@ namespace wxl::lua::ui
     bool InFrame()
     {
         return g_inDraw;
+    }
+
+    uint64_t FrameGeneration()
+    {
+        return g_frameGeneration;
     }
 }

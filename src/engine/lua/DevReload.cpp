@@ -21,9 +21,12 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <vector>
 
 namespace wxl::lua::dev
 {
@@ -49,9 +52,14 @@ namespace wxl::lua::dev
             if (h == INVALID_HANDLE_VALUE)
                 return 0;
 
-            uint64_t           sig   = 1469598103934665603ULL; // FNV-1a offset basis
-            constexpr uint64_t kPrime = 1099511628211ULL;
-            auto               fold  = [&](uint64_t v) { sig ^= v; sig *= kPrime; };
+            struct FileStamp
+            {
+                std::string name;
+                uint64_t writeTime;
+                uint64_t size;
+            };
+            std::vector<FileStamp> files;
+
             do
             {
                 if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
@@ -59,13 +67,32 @@ namespace wxl::lua::dev
                 const char* dot = std::strrchr(fd.cFileName, '.');
                 if (!dot || (_stricmp(dot, ".lua") != 0 && _stricmp(dot, ".out") != 0))
                     continue;
-                for (const char* p = fd.cFileName; *p; ++p)
-                    fold(static_cast<uint8_t>(*p));
-                fold((static_cast<uint64_t>(fd.ftLastWriteTime.dwHighDateTime) << 32) |
-                     fd.ftLastWriteTime.dwLowDateTime);
-                fold((static_cast<uint64_t>(fd.nFileSizeHigh) << 32) | fd.nFileSizeLow);
+                files.push_back({
+                    fd.cFileName,
+                    (static_cast<uint64_t>(fd.ftLastWriteTime.dwHighDateTime) << 32) |
+                        fd.ftLastWriteTime.dwLowDateTime,
+                    (static_cast<uint64_t>(fd.nFileSizeHigh) << 32) | fd.nFileSizeLow,
+                });
             } while (FindNextFileA(h, &fd));
             FindClose(h);
+
+            // FindFirstFile enumeration order is not stable. Hash a deterministic order so an unchanged
+            // extension set cannot spuriously reload merely because Windows returned its entries differently.
+            std::sort(files.begin(), files.end(), [](const FileStamp& a, const FileStamp& b) {
+                const int insensitive = _stricmp(a.name.c_str(), b.name.c_str());
+                return insensitive != 0 ? insensitive < 0 : a.name < b.name;
+            });
+
+            uint64_t           sig   = 1469598103934665603ULL; // FNV-1a offset basis
+            constexpr uint64_t kPrime = 1099511628211ULL;
+            auto               fold  = [&](uint64_t v) { sig ^= v; sig *= kPrime; };
+            for (const FileStamp& file : files)
+            {
+                for (const char* p = file.name.c_str(); *p; ++p)
+                    fold(static_cast<uint8_t>(*p));
+                fold(file.writeTime);
+                fold(file.size);
+            }
             return sig;
         }
     } // namespace

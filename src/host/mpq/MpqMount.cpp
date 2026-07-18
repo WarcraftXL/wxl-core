@@ -129,12 +129,22 @@ namespace wxl::host::mpq
         if (!root.empty() && (root.back() == '\\' || root.back() == '/')) root.pop_back();
         const std::string data = root + "\\Data";
 
-        // One pass over Data\* finds three things: the locale folder (carries locale-<loc>.MPQ), the
-        // loose override folders (Data\Patch*.MPQ that are DIRECTORIES, highest priority), and any real
-        // custom patch archives (Data\Patch*.MPQ that are FILES beyond the standard patch/-2/-3 set).
+        // Mount can be retried after the client path becomes available. Tear down the previous snapshot so
+        // archive handles, search priority, locks, and the by-name index all describe the same mount.
+        for (void* archive : m_archives)
+            if (archive) SFileCloseArchive(static_cast<HANDLE>(archive));
+        m_archives.clear();
+        m_archiveNames.clear();
+        m_archiveIsExtra.clear();
+        m_archiveLocks.clear();
+        m_looseRoots.clear();
+        m_itemIndex.clear();
+
+        // One pass over Data\* finds the locale folder (carries locale-<loc>.MPQ) and loose override
+        // folders (Data\Patch*.MPQ that are DIRECTORIES, highest priority). Real custom archives are
+        // collected separately from both Data and Data\<locale>, then ranked together.
         m_locale.clear();
         std::vector<std::string> looseDirs;
-        std::vector<std::string> extraArchives;
         {
             WIN32_FIND_DATAA fd{};
             HANDLE h = FindFirstFileA((data + "\\*").c_str(), &fd);
@@ -154,10 +164,6 @@ namespace wxl::host::mpq
                             m_locale = d;
                         if (looksLikePatch) looseDirs.push_back(d);
                     }
-                    else if (looksLikePatch && dl != "patch.mpq" && dl != "patch-2.mpq" && dl != "patch-3.mpq")
-                    {
-                        extraArchives.push_back(d);
-                    }
                 } while (FindNextFileA(h, &fd));
                 FindClose(h);
             }
@@ -169,16 +175,23 @@ namespace wxl::host::mpq
         });
         for (const std::string& d : looseDirs) m_looseRoots.push_back(data + "\\" + d + "\\");
 
-        std::sort(extraArchives.begin(), extraArchives.end(), [](const std::string& a, const std::string& b) {
-            return ToLower(a) > ToLower(b); // Patch-5.MPQ before Patch-4.MPQ ...
+        std::vector<PatchArchiveCandidate> extraArchives;
+        CollectPatchArchives(root, "Data", "patch-", false, extraArchives);
+        if (!loc.empty())
+            CollectPatchArchives(root, "Data\\" + loc, "patch-" + loc + "-", true, extraArchives);
+        std::sort(extraArchives.begin(), extraArchives.end(), [](const PatchArchiveCandidate& a,
+                                                                 const PatchArchiveCandidate& b) {
+            if (a.rank != b.rank) return a.rank > b.rank;
+            if (a.locale != b.locale) return a.locale; // locale wins an equal patch tier
+            return ToLower(a.relPath) > ToLower(b.relPath);
         });
 
-        // Archive set, highest priority first (search order). Custom patches (Patch-4.MPQ and beyond)
-        // outrank the standard patch-3/-2/base set, matching the client's own patch precedence. The
-        // extra/standard split is kept per mounted archive so Locate can tell a stock file (the client
-        // reads it natively) from custom-archive content.
+        // Archive set, highest priority first (search order). Include both custom base patches and custom
+        // locale patches; omitting the latter makes the host see a different asset set than Wow.exe. Keep
+        // the extra/standard split so Locate can skip stock files that the client reads natively.
         std::vector<std::pair<std::string, bool>> candidates; // (relative path, is extra)
-        for (const std::string& d : extraArchives) candidates.push_back({ "Data\\" + d, true });
+        for (const PatchArchiveCandidate& archive : extraArchives)
+            candidates.push_back({ archive.relPath, true });
         const std::vector<std::string> standard = {
             "Data\\" + loc + "\\patch-" + loc + "-3.MPQ", "Data\\patch-3.MPQ",
             "Data\\" + loc + "\\patch-" + loc + "-2.MPQ", "Data\\patch-2.MPQ",

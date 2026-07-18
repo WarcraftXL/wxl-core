@@ -88,12 +88,19 @@ namespace wxl::lua::methods::ui
 
     // --- ImDrawList handle ---------------------------------------------------------------------------
 
+    struct DrawListHandle
+    {
+        ImDrawList* list;
+        uint64_t generation;
+    };
+
     /// Wraps a raw ImDrawList* as a Lua full userdata carrying the kDrawListMeta metatable. The pointer is
     /// owned by ImGui and valid only within the current frame, so handles must not be stashed across frames.
     inline void PushDrawList(lua_State* L, ImDrawList* dl)
     {
-        ImDrawList** ud = static_cast<ImDrawList**>(lua_newuserdata(L, sizeof(ImDrawList*)));
-        *ud = dl;
+        auto* ud = static_cast<DrawListHandle*>(lua_newuserdata(L, sizeof(DrawListHandle)));
+        ud->list = dl;
+        ud->generation = wxl::lua::ui::FrameGeneration();
         luaL_getmetatable(L, kDrawListMeta);
         lua_setmetatable(L, -2);
     }
@@ -102,10 +109,12 @@ namespace wxl::lua::methods::ui
     /// argument is not one. Also re-checks the frame is open, since the pointer would otherwise dangle.
     inline ImDrawList* CheckDrawList(lua_State* L, int i, const char* fn)
     {
-        void* ud = luaL_checkudata(L, i, kDrawListMeta);
+        auto* ud = static_cast<DrawListHandle*>(luaL_checkudata(L, i, kDrawListMeta));
         if (!wxl::lua::ui::InFrame())
             luaL_error(L, "wxl.ui.drawlist:%s: draw-list handles are only valid inside the 'draw' handler that produced them", fn);
-        return *static_cast<ImDrawList**>(ud);
+        if (ud->generation != wxl::lua::ui::FrameGeneration())
+            luaL_error(L, "wxl.ui.drawlist:%s: this draw-list handle belongs to an earlier frame", fn);
+        return ud->list;
     }
 
     /// Creates the empty kDrawListMeta metatable (with __index pointing at itself) so the DrawList methods

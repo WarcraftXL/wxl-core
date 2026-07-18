@@ -92,7 +92,14 @@ namespace wxl::events
      * @brief Args for OnWorldRenderEnd: the world -> UI boundary of the frame. A subscriber draws
      *        post-world effects here, before the client renders the interface on top.
      */
-    struct WorldRenderEndArgs { void* device; };
+    struct WorldRenderEndArgs
+    {
+        void* device;
+        void* superSampleSource;
+        float ssaaFactor;
+        void* depthSource;
+        const float* proj;
+    };
     /**
      * @brief Args for OnLiquidRender, fired before the native liquid pass draws. passType is 0 for the
      *        main pass, 1 for the secondary; instanceCount is the visible liquid instances in this pass;

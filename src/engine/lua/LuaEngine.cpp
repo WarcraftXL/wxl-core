@@ -20,10 +20,13 @@
 #include "engine/lua/Loader.hpp"
 #include "engine/lua/DevReload.hpp"
 #include "engine/lua/methods/CoreMethods.hpp"
+#include "engine/lua/methods/CameraMethods.hpp"
 #include "engine/lua/methods/UnitMethods.hpp"
 #include "engine/lua/methods/UiMethods.hpp"
+#include "engine/lua/methods/WorldMethods.hpp"
 #include "engine/lua/events/EventBridge.hpp"
 #include "engine/lua/events/FrameEvents.hpp"
+#include "engine/lua/events/GameEvents.hpp"
 #include "engine/lua/events/UnitEvents.hpp"
 #include "engine/lua/events/UiEvents.hpp"
 #include "engine/lua/ObjectProxy.hpp"
@@ -74,6 +77,7 @@ namespace wxl::lua
         ::wxl::events::Subscribe(::wxl::events::Event::OnFrame, &OnFrameEvent, nullptr);
 
         events::frame::Declare(); // + future context Declare() calls, one line each
+        events::game::Declare();  // object churn, sound, and cursor world-pick events
         events::unit::Declare();  // "target_changed" -> pushes a Unit object
         events::ui::Declare();    // "draw" -> OnUiDraw (must precede SubscribeBus)
         events::SubscribeBus();
@@ -106,8 +110,10 @@ namespace wxl::lua
         // Assemble the global `wxl` table: each context adds its fields to the table on top.
         lua_newtable(L);
         methods::core::Register(L);
+        methods::camera::Register(L); // adds the wxl.camera.* subtable
         methods::unit::Register(L); // fills the Unit __index method table, adds player/target/mouseover
         methods::ui::Register(L);   // adds the wxl.ui.* subtable
+        methods::world::Register(L); // adds the wxl.world.* subtable
         events::Bind(L); // adds wxl.on and binds the bridge to this state
         lua_setglobal(L, "wxl");
 

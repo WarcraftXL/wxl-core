@@ -22,6 +22,12 @@ option(WXL_MODERN_M2  "Build wxl-modern-assets M2 support"          ON)
 option(WXL_MODERN_M3  "Build wxl-modern-assets M3 support"          ON)
 option(WXL_MODERN_WMO "Build wxl-modern-assets WMO support"         ON)
 option(WXL_MODERN_BLP "Build wxl-modern-assets BLP/texture support" ON)
+option(WXL_MODERN_RENDER
+       "Build the D3D9On12 post-processing renderer"
+       ON)
+option(WXL_EXPERIMENTAL_WATER
+       "Build the unmasked screen-space water reflection experiment"
+       OFF)
 
 set(WXL_MODERN_ASSETS_EXCLUDE_REGEX "")
 if(NOT WXL_MODERN_M2)
@@ -102,7 +108,24 @@ call \"${WXL_LJ_BUILD_SRC_NATIVE}\\msvcbuild.bat\" static\r
     # CONFIGURE_DEPENDS re-globs at build time, so dropping a file (or a whole script) needs no edit here.
     # The DLL excludes the patcher/host trees and the proxy (engine/gpu builds its own target below).
     file(GLOB_RECURSE WXL_CORE_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
-    list(FILTER WXL_CORE_SRC EXCLUDE REGEX "/src/(patcher|host)/|/src/engine/gpu/")
+    list(FILTER WXL_CORE_SRC EXCLUDE REGEX "/src/(patcher|host|gpu)/|/src/engine/gpu/")
+
+    # wxl-modern-render consumes the richer pre-v1.1 render boundary (SSAA/readable depth/Glue post-FX).
+    # Its compatibility implementation owns the same render hooks as the new split feature, so compile one
+    # implementation or the other—never both.
+    if(WXL_MODERN_RENDER)
+        list(FILTER WXL_CORE_SRC EXCLUDE REGEX
+             "/src/features/render/(Render|M2Draw)\\.cpp$")
+    else()
+        list(FILTER WXL_CORE_SRC EXCLUDE REGEX "/src/runtime/RenderHooks\\.cpp$")
+    endif()
+
+    # wxl-host-extension supplies the richer DB2 snapshot implementation used by the runtime. Do not also
+    # compile the core copies or the two implementations define the same symbols in WarcraftXL.dll.
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/wxl-host-extension/src/db2/Db2.cpp")
+        list(FILTER WXL_CORE_SRC EXCLUDE REGEX
+             "/src/engine/assets/db2/(Db2|ItemDisplayIndex|Wdc5)\\.cpp$")
+    endif()
 
     # =========================================================================
     # Target 1: WarcraftXL.dll  (32-bit, injected) = engine + features + runtime scripts
@@ -115,6 +138,12 @@ call \"${WXL_LJ_BUILD_SRC_NATIVE}\\msvcbuild.bat\" static\r
     if(WXL_MODERN_ASSETS_EXCLUDE_REGEX)
         list(FILTER WXL_RUNTIME_SCRIPT EXCLUDE REGEX "${WXL_MODERN_ASSETS_EXCLUDE_REGEX}")
     endif()
+    if(NOT WXL_EXPERIMENTAL_WATER)
+        list(FILTER WXL_RUNTIME_SCRIPT EXCLUDE REGEX "/wxl-experimental-water/")
+    endif()
+    if(NOT WXL_MODERN_RENDER)
+        list(FILTER WXL_RUNTIME_SCRIPT EXCLUDE REGEX "/wxl-modern-render/")
+    endif()
 
     # Vendored ImGui (core + dx9/win32 backends). Compiled in but DORMANT until a feature wires it up.
     file(GLOB WXL_IMGUI CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/*.cpp")
@@ -126,6 +155,7 @@ call \"${WXL_LJ_BUILD_SRC_NATIVE}\\msvcbuild.bat\" static\r
     set_target_properties(WarcraftXL PROPERTIES OUTPUT_NAME "WarcraftXL" PREFIX "")
     target_include_directories(WarcraftXL PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts"
         "${WXL_LJ_BUILD}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/minhook/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui"
@@ -134,6 +164,12 @@ call \"${WXL_LJ_BUILD_SRC_NATIVE}\\msvcbuild.bat\" static\r
     add_subdirectory(deps/minhook)
     add_dependencies(WarcraftXL luajit_build)
     target_link_libraries(WarcraftXL PRIVATE minhook "${WXL_LJ_LIB}" d3d9 shell32)
+    if(WXL_MODERN_RENDER)
+        target_link_libraries(WarcraftXL PRIVATE d3dcompiler delayimp)
+        target_link_options(WarcraftXL PRIVATE
+            "/DELAYLOAD:d3d12.dll"
+            "/DELAYLOAD:d3dcompiler_47.dll")
+    endif()
     target_compile_definitions(WarcraftXL PRIVATE ${WXL_DEFS})
 
     source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${WXL_CORE_SRC} ${WXL_RUNTIME_SCRIPT})
@@ -142,11 +178,15 @@ call \"${WXL_LJ_BUILD_SRC_NATIVE}\\msvcbuild.bat\" static\r
     if(CLIENT_PATH)
         add_custom_command(TARGET WarcraftXL POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:WarcraftXL>" "${CLIENT_PATH}/WarcraftXL.dll"
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${CLIENT_PATH}/extensions"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${CMAKE_CURRENT_SOURCE_DIR}/docs/extensions-example/hello.lua"
-                    "${CLIENT_PATH}/extensions/hello.lua"
-            COMMENT "Deploy WarcraftXL.dll + extensions/hello.lua -> ${CLIENT_PATH}")
+            COMMENT "Deploy WarcraftXL.dll -> ${CLIENT_PATH}")
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/docs/extensions-example/hello.lua")
+            add_custom_command(TARGET WarcraftXL POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${CLIENT_PATH}/extensions"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${CMAKE_CURRENT_SOURCE_DIR}/docs/extensions-example/hello.lua"
+                        "${CLIENT_PATH}/extensions/hello.lua"
+                COMMENT "Deploy extensions/hello.lua -> ${CLIENT_PATH}")
+        endif()
     endif()
 
     # Per-module CMake hook: a module may ship scripts/<m>/module.cmake to extend the WarcraftXL target
@@ -154,6 +194,9 @@ call \"${WXL_LJ_BUILD_SRC_NATIVE}\\msvcbuild.bat\" static\r
     # and ${CMAKE_CURRENT_LIST_DIR} pointing at the module folder. Optional; most modules need none.
     file(GLOB WXL_MODULE_CMAKES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/*/module.cmake")
     foreach(_wxl_module ${WXL_MODULE_CMAKES})
+        if(NOT WXL_MODERN_RENDER AND _wxl_module MATCHES "/wxl-modern-render/module\\.cmake$")
+            continue()
+        endif()
         include("${_wxl_module}")
     endforeach()
 
@@ -174,16 +217,31 @@ call \"${WXL_LJ_BUILD_SRC_NATIVE}\\msvcbuild.bat\" static\r
     target_compile_definitions(wxl-patcher PRIVATE ${WXL_DEFS})
 
     # =========================================================================
-    # Target 3: d3d9.dll  = the native proxy (system-d3d9 passthrough + runtime loader)
+    # Target 3: d3d9.dll. The modern renderer needs the D3D9On12 proxy and its shared-device exports;
+    # otherwise use the upstream native D3D9 passthrough.
     # =========================================================================
-    file(GLOB WXL_GPU_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/gpu/*.cpp")
+    if(WXL_MODERN_RENDER)
+        file(GLOB WXL_GPU_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/*.cpp")
+        set(WXL_GPU_DEF "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/Proxy.def")
+    else()
+        file(GLOB WXL_GPU_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/gpu/*.cpp")
+        set(WXL_GPU_DEF "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/gpu/Proxy.def")
+    endif()
 
     add_library(d3d9 SHARED ${WXL_GPU_SRC} ${WXL_COMMON_SRC})
     set_target_properties(d3d9 PROPERTIES OUTPUT_NAME "d3d9" PREFIX "")
     target_include_directories(d3d9 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    # The proxy shadows a static import of Wow.exe, so a hard dependency of the proxy is a hard
-    # dependency of the game. It resolves the system d3d9 at runtime and links nothing beyond the CRT.
-    target_link_options(d3d9 PRIVATE "/DEF:${CMAKE_CURRENT_SOURCE_DIR}/src/engine/gpu/Proxy.def")
+    target_link_options(d3d9 PRIVATE "/DEF:${WXL_GPU_DEF}")
+    if(WXL_MODERN_RENDER)
+        target_link_libraries(d3d9 PRIVATE d3d12 dxgi dcomp d3dcompiler delayimp)
+        # Keep optional platform components delay-loaded: the proxy falls back to native D3D9 when On12
+        # is unavailable instead of preventing Wow.exe from starting.
+        target_link_options(d3d9 PRIVATE
+            "/DELAYLOAD:d3d12.dll"
+            "/DELAYLOAD:dxgi.dll"
+            "/DELAYLOAD:dcomp.dll"
+            "/DELAYLOAD:d3dcompiler_47.dll")
+    endif()
     target_compile_definitions(d3d9 PRIVATE ${WXL_DEFS})
 
     # Deploy: copy the freshly linked proxy into the client folder after every build.
@@ -226,6 +284,7 @@ if(WXL_BUILD_HOST AND CMAKE_SIZEOF_VOID_P EQUAL 8)
     target_include_directories(WarcraftXLHost PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/host"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/stormlib/src")
     target_link_libraries(WarcraftXLHost PRIVATE storm)

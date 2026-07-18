@@ -67,7 +67,8 @@ namespace wxl::lua::methods::ui
         const float y1 = static_cast<float>(luaL_checknumber(L, 3));
         const float x2 = static_cast<float>(luaL_checknumber(L, 4));
         const float y2 = static_cast<float>(luaL_checknumber(L, 5));
-        dl->AddRect(ImVec2(x1, y1), ImVec2(x2, y2), ReadU32(L, 6), OptFloat(L, 7, 0.0f), OptFloat(L, 8, 1.0f), 0);
+        dl->AddRect(ImVec2(x1, y1), ImVec2(x2, y2), ReadU32(L, 6),
+                    OptFloat(L, 7, 0.0f), 0, OptFloat(L, 8, 1.0f));
         return 0;
     }
 

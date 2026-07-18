@@ -79,4 +79,8 @@ namespace
     }
 }
 
-WXL_REGISTER_FEATURE("charmodel", wxl::features::kCharModel, InstallCharModel)
+// Equipment has to be observable while the Glue character models are first assembled. Waiting for the
+// normal graphics-device phase misses those initial slot dispatches and leaves collection equipment absent
+// until a later re-equip/rebuild.
+WXL_REGISTER_FEATURE_PHASED("charmodel", wxl::features::kCharModel, InstallCharModel,
+                            ::wxl::hook::Phase::Boot)

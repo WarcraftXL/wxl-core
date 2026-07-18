@@ -25,6 +25,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <unordered_map>
@@ -65,6 +66,7 @@ namespace
     uint8_t* g_m2ArenaBase = nullptr;
     uint32_t g_m2ArenaSize = 0;
     std::vector<M2ArenaRange> g_m2ArenaFree;
+    std::atomic<uint32_t> g_duplicateM2ArenaFrees{ 0 };
 
     /** @brief Logs a coarse 32-bit address-space snapshot around very large model allocations. */
     void LogClientAddressSpace(const char* reason)
@@ -272,6 +274,7 @@ namespace
 
         VirtualM2Allocation alloc{};
         bool ours = false;
+        bool staleArenaPointer = false;
         {
             std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
             auto it = g_virtualM2Allocs.find(ptr);
@@ -282,6 +285,16 @@ namespace
                 ours = true;
             }
 
+            // Blizzard's heap can never own a pointer in this exclusively reserved arena. Shared
+            // collection models may be detached twice in one frame; once the first free removes our
+            // allocation record, a duplicate must not fall through to the native heap free.
+            if (!ours && g_m2ArenaBase && g_m2ArenaSize)
+            {
+                const uintptr_t address = reinterpret_cast<uintptr_t>(ptr);
+                const uintptr_t begin = reinterpret_cast<uintptr_t>(g_m2ArenaBase);
+                const uintptr_t end = begin + static_cast<uintptr_t>(g_m2ArenaSize);
+                staleArenaPointer = address >= begin && address < end;
+            }
         }
 
         if (ours && !alloc.base)
@@ -296,6 +309,14 @@ namespace
         if (ours && alloc.base)
         {
             VirtualFree(alloc.base, 0, MEM_RELEASE);
+            return;
+        }
+
+        if (staleArenaPointer)
+        {
+            const uint32_t count = g_duplicateM2ArenaFrees.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (count == 1 || (count & (count - 1)) == 0)
+                WLOG_WARN("m2-memory: ignored duplicate/stale arena free ptr=%p (count=%u)", ptr, count);
             return;
         }
 

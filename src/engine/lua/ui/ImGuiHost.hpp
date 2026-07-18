@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 /// The ImGui host owns Dear ImGui end to end and knows nothing about the wxl.ui surface: it creates the
 /// context and the DX9/Win32 backends (lazily, on the first frame the device is up), pumps NewFrame ->
 /// Render across the engine's render events, and forwards window input. It exposes the frame to Lua by
@@ -39,4 +41,7 @@ namespace wxl::lua::ui
      * @return true only while a 'draw' handler is running.
      */
     bool InFrame();
+
+    /** @brief Monotonic id of the currently open draw frame; draw-list handles use it to reject reuse. */
+    uint64_t FrameGeneration();
 }

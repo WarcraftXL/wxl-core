@@ -34,6 +34,7 @@ namespace wxl::lua::events
             const char*        name;
             wxl::events::Event ev;
             PushFn             push;
+            ReturnFn           ret; // non-null only for swallowable events (e.g. "input")
             std::vector<int>   refs;
         };
 
@@ -55,8 +56,9 @@ namespace wxl::lua::events
             {
                 const int base = lua_gettop(L);
                 lua_rawgeti(L, LUA_REGISTRYINDEX, e.refs[i]); // push the handler
-                const int nargs = e.push ? e.push(L, args) : 0;
-                if (lua_pcall(L, nargs, 0, 0) != 0)
+                const int nargs    = e.push ? e.push(L, args) : 0;
+                const int nresults = e.ret ? 1 : 0; // a swallowable event asks for the return value
+                if (lua_pcall(L, nargs, nresults, 0) != 0)
                 {
                     const char* msg = lua_tostring(L, -1);
                     WLOG_WARN("[ext] event '%s' handler error: %s", e.name, msg ? msg : "?");
@@ -66,6 +68,8 @@ namespace wxl::lua::events
                 }
                 else
                 {
+                    if (e.ret) // consume the handler's boolean return (e.g. input swallow)
+                        e.ret(args, lua_toboolean(L, -1) != 0);
                     lua_settop(L, base);
                     ++i;
                 }
@@ -92,7 +96,12 @@ namespace wxl::lua::events
 
     void Declare(const char* name, wxl::events::Event ev, PushFn push)
     {
-        g_entries.push_back(Entry{ name, ev, push, {} });
+        g_entries.push_back(Entry{ name, ev, push, nullptr, {} });
+    }
+
+    void Declare(const char* name, wxl::events::Event ev, PushFn push, ReturnFn ret)
+    {
+        g_entries.push_back(Entry{ name, ev, push, ret, {} });
     }
 
     void SubscribeBus()

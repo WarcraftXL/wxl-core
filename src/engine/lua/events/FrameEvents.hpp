@@ -23,15 +23,17 @@
 /// One event context = one header declaring its events (name + bus event + arg marshaller) into the
 /// shared bridge. Adding a context (RenderEvents, UnitEvents…) is a new header plus one Declare()
 /// call in LuaEngine — no existing file grows. Events exposed here at the MVP:
-///   "frame"       -> OnFrame       fn()        every Present; fires very often.
+///   "frame"       -> OnFrame       fn(device)  every Present; device is lightuserdata (ffi.cast).
 ///   "update"      -> OnUpdate      fn(dt)      once per frame, dt = frame delta seconds.
 ///   "world_enter" -> OnWorldEnter  fn(mapId)   world/map finished loading, in-world.
 ///   "world_leave" -> OnWorldLeave  fn(mapId)   world/map is being torn down.
 namespace wxl::lua::events::frame
 {
-    inline int PushNone(lua_State*, const void*)
+    /// OnFrame: push the D3D device pointer as lightuserdata for a signed extension to ffi.cast.
+    inline int PushFrame(lua_State* L, const void* args)
     {
-        return 0;
+        lua_pushlightuserdata(L, static_cast<const wxl::events::FrameArgs*>(args)->device);
+        return 1;
     }
     inline int PushUpdate(lua_State* L, const void* args)
     {
@@ -53,7 +55,7 @@ namespace wxl::lua::events::frame
     inline void Declare()
     {
         using wxl::events::Event;
-        events::Declare("frame",       Event::OnFrame,      &PushNone);
+        events::Declare("frame",       Event::OnFrame,      &PushFrame);
         events::Declare("update",      Event::OnUpdate,     &PushUpdate);
         events::Declare("world_enter", Event::OnWorldEnter, &PushWorldEnter);
         events::Declare("world_leave", Event::OnWorldLeave, &PushWorldLeave);

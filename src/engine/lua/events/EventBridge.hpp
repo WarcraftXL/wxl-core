@@ -36,6 +36,12 @@ namespace wxl::lua::events
     /// the owning context header so event-specific marshalling stays out of the generic bridge.
     using PushFn = int (*)(lua_State* L, const void* args);
 
+    /// Consumes a handler's first return value (coerced to bool) for a swallowable event. Declared
+    /// only for events that act on the return — e.g. "input", where a truthy return sets the args'
+    /// out-param so the core swallows the message. Non-swallowable events omit it and the bridge
+    /// asks the handler for zero results, so their returns are ignored exactly as before.
+    using ReturnFn = void (*)(const void* args, bool ret);
+
     /**
      * @brief Declares an exposable event (install-time, from a context's Declare()).
      * @param name  the name extensions pass to wxl.on.
@@ -43,6 +49,16 @@ namespace wxl::lua::events
      * @param push  argument marshaller invoked before each handler call.
      */
     void Declare(const char* name, wxl::events::Event ev, PushFn push);
+
+    /**
+     * @brief Declares a swallowable event whose handler return value is consumed by `ret`.
+     * @param name  the name extensions pass to wxl.on.
+     * @param ev    the core bus event to bridge.
+     * @param push  argument marshaller invoked before each handler call.
+     * @param ret   invoked after each handler with its first return coerced to bool; a handler that
+     *              returns truthy is expected to act on the args' out-param inside this callback.
+     */
+    void Declare(const char* name, wxl::events::Event ev, PushFn push, ReturnFn ret);
 
     /** @brief Subscribes one dispatch trampoline per declared event to the bus. Idempotent, once. */
     void SubscribeBus();

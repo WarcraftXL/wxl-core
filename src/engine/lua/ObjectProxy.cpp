@@ -22,6 +22,7 @@
 #include "game/gx/Gx.hpp"
 #include "game/unit/Unit.hpp"
 #include "offsets/game/Unit.hpp"
+#include "offsets/game/World.hpp"
 
 #include <windows.h>
 
@@ -205,9 +206,21 @@ namespace wxl::lua
     {
         __try
         {
-            // Live combined view-projection (row-major float[16]) and the live render viewport.
-            const float* m = wxl::game::camera::ViewProj();
+            namespace woff = wxl::offsets::game::world;
 
+            // Native world->screen projection -- the exact call the client uses for its own
+            // 3D-anchored UI (world text, chat bubbles, target indicators), so it is correct
+            // under every camera pitch/yaw/distance. Nonzero return = point is on-screen.
+            void* worldFrame = *reinterpret_cast<void**>(woff::kWorldFrame);
+            if (!worldFrame)
+                return false;
+
+            float projected[3] = {};
+            uint32_t clipFlags = 0;
+            const int onScreen = wxl::game::Native<woff::GetScreenCoordinatesFn>(
+                woff::kGetScreenCoordinates)(worldFrame, nullptr, pos, projected, &clipFlags);
+
+            // Live render viewport for ImGui pixel space.
             wxl::game::gx::Device9 dev = wxl::game::gx::Device();
             if (!dev)
                 return false;
@@ -219,27 +232,19 @@ namespace wxl::lua
             if (w <= 0.0f || h <= 0.0f)
                 return false;
 
-            // Row-vector transform: clip = [x, y, z, 1] * M.
-            const float x = pos[0], y = pos[1], z = pos[2];
-            const float clipX = x * m[0] + y * m[4] + z * m[8]  + m[12];
-            const float clipY = x * m[1] + y * m[5] + z * m[9]  + m[13];
-            const float clipW = x * m[3] + y * m[7] + z * m[11] + m[15];
+            // projected[0..1] are DDC (device) pixel coordinates with a BOTTOM-LEFT origin (verified
+            // in-game: the raw Y tracks perfectly once flipped, for any camera pitch/yaw). Scale DDC
+            // pixels to the live viewport (== 1.0 when DDC matches the viewport) and flip Y to reach
+            // ImGui's top-left origin.
+            const float ddcW = *reinterpret_cast<const float*>(woff::kDdcWidth);
+            const float ddcH = *reinterpret_cast<const float*>(woff::kDdcHeight);
+            if (ddcW <= 0.0f || ddcH <= 0.0f)
+                return false;
 
-            visible = clipW > 0.0f;
+            sx = projected[0] * (w / ddcW);
+            sy = h - projected[1] * (h / ddcH); // bottom-left -> top-left (ImGui)
 
-            // Perspective divide (sign-preserving guard so a point on/behind the plane still maps).
-            float invW = clipW;
-            if (invW > -1e-6f && invW < 1e-6f)
-                invW = (clipW < 0.0f) ? -1e-6f : 1e-6f;
-            const float ndcX = clipX / invW;
-            const float ndcY = clipY / invW;
-
-            // NDC(-1..1) -> pixels, top-left origin (y flipped) for ImGui's draw list.
-            sx = (ndcX * 0.5f + 0.5f) * w;
-            sy = (0.5f - ndcY * 0.5f) * h;
-
-            if (sx < 0.0f || sx > w || sy < 0.0f || sy > h)
-                visible = false;
+            visible = (onScreen != 0) && sx >= 0.0f && sx <= w && sy >= 0.0f && sy <= h;
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)

@@ -19,6 +19,7 @@
 #include <cfloat>
 
 #include "engine/lua/methods/ui/Common.hpp"
+#include "engine/lua/methods/TextureMethods.hpp"
 
 /// Interactive widgets. Action widgets (button family) return their pressed bool; value widgets
 /// (checkbox, color edits) return the new value(s) followed by a trailing `changed` boolean.
@@ -129,6 +130,18 @@ namespace wxl::lua::methods::ui
         return 5;
     }
 
+    /// wxl.ui.image(tex, w[, h]): draws a texture as an image widget in the current window. `tex` is a
+    /// wxl.texture handle (preferred) or a numeric ImTextureID. h defaults to w when omitted (square).
+    inline int L_image(lua_State* L)
+    {
+        if (!InDraw(L, "image")) return 0;
+        const ImTextureID id = texture::CheckTextureId(L, 1);
+        const float w = static_cast<float>(luaL_checknumber(L, 2));
+        const float h = OptFloat(L, 3, w);
+        ImGui::Image(ImTextureRef(id), ImVec2(w, h));
+        return 0;
+    }
+
     /// wxl.ui.color_button(id, r, g, b, a) -> clicked: a color swatch button (color as floats 0..1).
     inline int L_colorButton(lua_State* L)
     {
@@ -152,5 +165,6 @@ namespace wxl::lua::methods::ui
         lua_pushcfunction(L, &L_colorEdit3);      lua_setfield(L, -2, "color_edit3");
         lua_pushcfunction(L, &L_colorEdit4);      lua_setfield(L, -2, "color_edit4");
         lua_pushcfunction(L, &L_colorButton);     lua_setfield(L, -2, "color_button");
+        lua_pushcfunction(L, &L_image);           lua_setfield(L, -2, "image");
     }
 }

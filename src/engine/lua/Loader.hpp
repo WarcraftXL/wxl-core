@@ -35,18 +35,12 @@ namespace wxl::lua::loader
     bool ResolveDir(char* buf, size_t cap);
 
     /**
-     * @brief Pre-load gate for one extension file. The signed-manifest verification branches here.
+     * @brief Loads and runs the extensions directory's *.lua / *.out, gated by the signed manifest.
      *
-     * At the MVP this always returns true (every file is trusted; dev mode loads unsigned .lua).
-     * The Ed25519 manifest check (per-file hash + LuaJIT version, reject out-of-manifest) from
-     * docs/plan-v1.1.md §4 slots in without touching the loader's control flow.
-     * @param path  absolute path of the file about to be loaded.
-     * @return true to proceed with loading.
-     */
-    bool Verify(const char* path);
-
-    /**
-     * @brief Loads and runs every *.lua and *.out in the extensions directory, in order.
+     * Production: `<extDir>/manifest` (+ .sig) must verify against the DLL's embedded Ed25519 key or
+     * NOTHING loads (fail closed, docs/plan-v1.1.md §4). Each candidate is then hash-checked against
+     * its manifest entry; a file that is out-of-manifest, tampered, or (for compiled .out) built for
+     * a different LuaJIT is warned and skipped. Dev mode (WXL_DEV_MODE) bypasses every check.
      * @param L  the engine lua_State.
      * @return the number of files that loaded and ran without error.
      */

@@ -17,6 +17,7 @@
 #pragma once
 
 #include "engine/lua/methods/ui/Common.hpp"
+#include "engine/lua/methods/TextureMethods.hpp"
 
 /// Low-level drawing. window_draw_list()/foreground_draw_list()/background_draw_list() return a handle whose
 /// methods draw primitives in absolute screen space. Colors are packed ImU32 values from wxl.ui.color(...).
@@ -130,13 +131,12 @@ namespace wxl::lua::methods::ui
         return 0;
     }
 
-    /// handle:add_image(texture_id, x1, y1, x2, y2[, u1, v1, u2, v2[, col]]). texture_id is an integer
-    /// ImTextureID. NOTE: no texture loader/source exists in the engine yet, so this only produces visible
-    /// output once a texture object is bound to a backend id; the plumbing is provided ahead of that.
+    /// handle:add_image(texture, x1, y1, x2, y2[, u1, v1, u2, v2[, col]]). `texture` is either a wxl.texture
+    /// handle (preferred) or a raw numeric ImTextureID (e.g. from handle:id()); CheckTextureId resolves both.
     inline int L_dlAddImage(lua_State* L)
     {
         ImDrawList* dl = CheckDrawList(L, 1, "add_image");
-        const ImTextureID tex = static_cast<ImTextureID>(static_cast<ImU64>(luaL_checknumber(L, 2)));
+        const ImTextureID tex = texture::CheckTextureId(L, 2);
         const float x1 = static_cast<float>(luaL_checknumber(L, 3));
         const float y1 = static_cast<float>(luaL_checknumber(L, 4));
         const float x2 = static_cast<float>(luaL_checknumber(L, 5));

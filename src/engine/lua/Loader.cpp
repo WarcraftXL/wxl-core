@@ -17,6 +17,8 @@
 #include "engine/lua/Loader.hpp"
 
 #include "engine/lua/LuaJit.hpp"
+#include "engine/lua/DevReload.hpp"
+#include "engine/security/Manifest.hpp"
 #include "common/Config.hpp"
 #include "common/Log.hpp"
 
@@ -48,12 +50,28 @@ namespace wxl::lua::loader
         return w > 0 && static_cast<size_t>(w) < cap;
     }
 
-    bool Verify(const char* path)
+    namespace
     {
-        (void)path;
-        // Security hook point (see header): trusted-by-default until the signed manifest lands.
-        return true;
-    }
+        // Widens a system-codepage path (as produced by GetModuleFileNameA / FindFirstFileA) to the
+        // wide form the security layer's Win32 file reads expect. Returns an empty string on failure.
+        std::wstring Widen(const char* s)
+        {
+            const int n = MultiByteToWideChar(CP_ACP, 0, s, -1, nullptr, 0);
+            if (n <= 0)
+                return std::wstring();
+            std::wstring w(static_cast<size_t>(n - 1), L'\0');
+            MultiByteToWideChar(CP_ACP, 0, s, -1, w.data(), n);
+            return w;
+        }
+
+        // True for a compiled-bytecode extension (.out): its LuaJIT-version requirement is a hard
+        // rule (ABI-bound), unlike .lua source which this engine recompiles.
+        bool IsCompiled(const std::string& name)
+        {
+            const char* dot = std::strrchr(name.c_str(), '.');
+            return dot && _stricmp(dot, ".out") == 0;
+        }
+    } // namespace
 
     int LoadAll(lua_State* L)
     {
@@ -92,16 +110,50 @@ namespace wxl::lua::loader
         }
         std::sort(files.begin(), files.end());
 
+        // Trust gate. Dev mode loads everything unsigned; production requires a manifest that verifies
+        // against the embedded key or NOTHING loads (fail closed, docs/plan-v1.1.md §4).
+        const bool           dev = dev::Enabled();
+        security::Manifest   manifest;
+        bool                 versionOk = true;
+        if (dev)
+        {
+            WLOG_WARN("[vm] dev mode: extension signature checks bypassed");
+        }
+        else
+        {
+            std::string err;
+            if (!security::LoadAndVerify(Widen(dir), manifest, err))
+            {
+                WLOG_ERROR("[vm] extension manifest rejected, loading nothing: %s", err.c_str());
+                return 0;
+            }
+            versionOk = security::LuaJitVersionMatches(manifest);
+            if (!versionOk)
+                WLOG_WARN("[vm] manifest built for LuaJIT '%s'; this engine differs",
+                          manifest.luajitVersion.c_str());
+        }
+
         int loaded = 0;
         for (const std::string& f : files)
         {
             char path[MAX_PATH];
             std::snprintf(path, sizeof(path), "%s\\%s", dir, f.c_str());
 
-            if (!Verify(path))
+            if (!dev)
             {
-                WLOG_ERROR("[vm] extension rejected by verify: %s", f.c_str());
-                continue;
+                std::string err;
+                if (!security::VerifyFile(manifest, Widen(path), f, err))
+                {
+                    WLOG_WARN("[vm] skipping %s: %s", f.c_str(), err.c_str());
+                    continue;
+                }
+                // A LuaJIT-version mismatch rejects compiled bytecode outright (ABI-bound) but only
+                // warns for .lua source, which this engine recompiles from text.
+                if (!versionOk && IsCompiled(f))
+                {
+                    WLOG_WARN("[vm] skipping %s: compiled for a different LuaJIT", f.c_str());
+                    continue;
+                }
             }
             // luaL_loadfile pushes either the compiled chunk or an error string; a failed pcall
             // pushes the runtime error. Either way the stack is restored before the next file so a
@@ -121,7 +173,8 @@ namespace wxl::lua::loader
             WLOG_DEBUG("[vm] loaded extension %s", f.c_str());
             ++loaded;
         }
-        WLOG_INFO("[vm] %d/%zu extension(s) loaded from %s", loaded, files.size(), dir);
+        WLOG_INFO("[vm] loaded %d/%zu %sextension(s) from %s", loaded, files.size(),
+                  dev ? "" : "verified ", dir);
         return loaded;
     }
 }

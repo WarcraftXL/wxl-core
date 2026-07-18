@@ -10,7 +10,7 @@
 
 #include "Host.hpp"
 #include "common/Config.hpp"
-#include "core/Logger.hpp"
+#include "common/Log.hpp"
 
 #include <windows.h>
 
@@ -250,7 +250,7 @@ namespace wxl::host::profile
         const auto& close = window.ops[OpIndex(RequestOp::FileClose)];
         const auto& exists = window.ops[OpIndex(RequestOp::FileExists)];
 
-        wxl::core::log::Printf(
+        WLOG_INFO(
             "host-prof: window_s=%.1f req=%llu rps=%.1f open=%llu read=%llu close=%llu exists=%llu bad=%llu avg_ms=%.3f max_ms=%.3f slow_ge_%ums=%llu",
             windowSeconds,
             static_cast<unsigned long long>(window.requests),
@@ -264,7 +264,7 @@ namespace wxl::host::profile
             TicksToMs(window.maxTicks), SlowRequestMs(),
             static_cast<unsigned long long>(window.slowRequests));
 
-        wxl::core::log::Printf(
+        WLOG_INFO(
             "host-prof-open: ok=%llu miss=%llu native=%u bytes_mb=%.1f inline_mb=%.1f shm_mb=%.1f provider=%u/%u xcache=%u/%u xcache_store=%u archive=%u/%u transform=%u/%u notify=%u aliases=%u blob_new=%u blob_reuse=%u blob_fail=%u",
             static_cast<unsigned long long>(window.opensOk),
             static_cast<unsigned long long>(window.opensMiss),
@@ -284,21 +284,21 @@ namespace wxl::host::profile
             window.open.archiveTicks + window.open.transformTicks + window.open.servedTicks + window.open.blobTicks;
         const uint64_t knownTicks = measuredOpenTicks + window.postTicks;
         const uint64_t otherTicks = window.totalTicks > knownTicks ? window.totalTicks - knownTicks : 0;
-        wxl::core::log::Printf(
+        WLOG_INFO(
             "host-prof-stage-ms: provider=%.2f xcache=%.2f archive=%.2f transform=%.2f notify=%.2f blob=%.2f post=%.2f other=%.2f",
             TicksToMs(window.open.providerTicks), TicksToMs(window.open.transformCacheTicks),
             TicksToMs(window.open.archiveTicks), TicksToMs(window.open.transformTicks),
             TicksToMs(window.open.servedTicks), TicksToMs(window.open.blobTicks),
             TicksToMs(window.postTicks), TicksToMs(otherTicks));
 
-        wxl::core::log::Printf(
+        WLOG_INFO(
             "host-prof-memory: xcache_entries=%zu xcache_mb=%.1f blobs=%zu blob_mb=%.1f blob_refs=%llu",
             gauges.transformCacheEntries,
             static_cast<double>(gauges.transformCacheBytes) / (1024.0 * 1024.0),
             gauges.blobs, static_cast<double>(gauges.blobBytes) / (1024.0 * 1024.0),
             static_cast<unsigned long long>(gauges.blobRefs));
 
-        wxl::core::log::Printf(
+        WLOG_INFO(
             "host-prof-latency: le1=%llu le5=%llu le10=%llu le25=%llu le50=%llu le100=%llu le250=%llu le1000=%llu gt1000=%llu",
             static_cast<unsigned long long>(window.latency[0]),
             static_cast<unsigned long long>(window.latency[1]),
@@ -313,7 +313,7 @@ namespace wxl::host::profile
         for (size_t i = 0; i < window.slowest.size(); ++i)
         {
             const SlowSample& s = window.slowest[i];
-            wxl::core::log::Printf(
+            WLOG_INFO(
                 "host-prof-slow: rank=%zu total_ms=%.2f provider=%.2f xcache=%.2f archive=%.2f transform=%.2f notify=%.2f blob=%.2f bytes=%llu path='%s'",
                 i + 1, TicksToMs(s.totalTicks), TicksToMs(s.providerTicks),
                 TicksToMs(s.transformCacheTicks), TicksToMs(s.archiveTicks),
@@ -326,7 +326,7 @@ namespace wxl::host::profile
 
     void LogSettings()
     {
-        wxl::core::log::Printf("host-prof: enabled=%u interval_s=%u slow_ms=%u samples=%zu",
+        WLOG_INFO("host-prof: enabled=%u interval_s=%u slow_ms=%u samples=%zu",
             wxl::host::ProfilingEnabled() ? 1u : 0u, IntervalSeconds(), SlowRequestMs(), kSlowSamples);
     }
 }

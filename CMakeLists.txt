@@ -17,8 +17,7 @@ option(WXL_BUILD_HOST "Build WarcraftXLHost.exe (64-bit asset host)" OFF)
 
 # wxl-modern-assets per-format toggles: exclude an entire format pipeline (source down-convert, both its
 # DLL and host halves) at configure time, without touching source. common/ and textures/dds stay in
-# unconditionally (shared infrastructure, not format-specific). ADT gets WXL_MODERN_ADT here once it
-# migrates into wxl-modern-assets.
+# unconditionally (shared infrastructure, not format-specific).
 option(WXL_MODERN_M2  "Build wxl-modern-assets M2 support"          ON)
 option(WXL_MODERN_M3  "Build wxl-modern-assets M3 support"          ON)
 option(WXL_MODERN_WMO "Build wxl-modern-assets WMO support"         ON)
@@ -52,14 +51,61 @@ set(CLIENT_PATH "" CACHE PATH "Client folder the built artifacts are copied into
 # 32-bit family (injected into the client): WarcraftXL.dll + wxl-patcher.exe + d3d9.dll
 # =============================================================================
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    # -------------------------------------------------------------------------
+    # LuaJIT, static (x86, /MT), linked INTO WarcraftXL.dll: no luajit.dll/lua51.dll ships to the
+    # player. LuaJIT bootstraps its own code generator (minilua -> buildvm -> lj_vm.obj), so the
+    # vendored msvcbuild.bat drives the build from a 32-bit VS shell; a patched COPY forces /MT to
+    # match the project-wide static CRT. See deps/luajit/WXL-VENDOR.md.
+    # -------------------------------------------------------------------------
+    set(WXL_VCVARSALL "" CACHE FILEPATH "vcvarsall.bat used to build LuaJIT for x86")
+    if(NOT WXL_VCVARSALL)
+        file(GLOB _wxl_vcvars
+            "C:/Program Files/Microsoft Visual Studio/*/*/VC/Auxiliary/Build/vcvarsall.bat"
+            "C:/Program Files (x86)/Microsoft Visual Studio/*/*/VC/Auxiliary/Build/vcvarsall.bat")
+        if(_wxl_vcvars)
+            list(GET _wxl_vcvars 0 WXL_VCVARSALL)
+        endif()
+    endif()
+    if(NOT WXL_VCVARSALL)
+        message(FATAL_ERROR "vcvarsall.bat not found; pass -DWXL_VCVARSALL=<path> to build LuaJIT.")
+    endif()
+
+    set(WXL_LJ_SRC   "${CMAKE_CURRENT_SOURCE_DIR}/deps/luajit")
+    set(WXL_LJ_BUILD "${CMAKE_BINARY_DIR}/luajit")
+    set(WXL_LJ_LIB   "${WXL_LJ_BUILD}/src/lua51.lib")
+
+    file(TO_NATIVE_PATH "${WXL_VCVARSALL}"      WXL_VCVARSALL_NATIVE)
+    file(TO_NATIVE_PATH "${WXL_LJ_BUILD}/src"   WXL_LJ_BUILD_SRC_NATIVE)
+    # The VS dev environment sets NoDefaultCurrentDirectoryInExePath, which breaks msvcbuild.bat's
+    # bare invocations of its own bootstrap tools (minilua, buildvm) from the working directory.
+    file(WRITE "${CMAKE_BINARY_DIR}/wxl-build-luajit.bat"
+"@echo off\r
+call \"${WXL_VCVARSALL_NATIVE}\" x86\r
+if errorlevel 1 exit /b 1\r
+set NoDefaultCurrentDirectoryInExePath=\r
+cd /d \"${WXL_LJ_BUILD_SRC_NATIVE}\"\r
+if errorlevel 1 exit /b 1\r
+call \"${WXL_LJ_BUILD_SRC_NATIVE}\\msvcbuild.bat\" static\r
+")
+
+    add_custom_command(
+        OUTPUT "${WXL_LJ_LIB}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${WXL_LJ_SRC}" "${WXL_LJ_BUILD}"
+        COMMAND powershell -NoProfile -ExecutionPolicy Bypass -Command
+                "(Get-Content -Raw '${WXL_LJ_BUILD}/src/msvcbuild.bat') -replace '/W3 /D_CRT_SECURE_NO_DEPRECATE','/W3 /MT /D_CRT_SECURE_NO_DEPRECATE' | Set-Content '${WXL_LJ_BUILD}/src/msvcbuild.bat'"
+        COMMAND cmd /c "${CMAKE_BINARY_DIR}/wxl-build-luajit.bat"
+        COMMENT "Building LuaJIT static (x86, /MT)"
+        VERBATIM)
+    add_custom_target(luajit_build DEPENDS "${WXL_LJ_LIB}")
+
     # --- Automatic, recursive source discovery (no hand-written paths) -----------------------------
     # CONFIGURE_DEPENDS re-globs at build time, so dropping a file (or a whole script) needs no edit here.
-    # The DLL excludes the patcher/host/gpu trees; the host (64-bit) takes its own slice in the EQUAL 8 block.
+    # The DLL excludes the patcher/host trees and the proxy (engine/gpu builds its own target below).
     file(GLOB_RECURSE WXL_CORE_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
-    list(FILTER WXL_CORE_SRC EXCLUDE REGEX "/src/(patcher|host|gpu)/")
+    list(FILTER WXL_CORE_SRC EXCLUDE REGEX "/src/(patcher|host)/|/src/engine/gpu/")
 
     # =========================================================================
-    # Target 1: WarcraftXL.dll  (32-bit, injected) = SDK + runtime scripts
+    # Target 1: WarcraftXL.dll  (32-bit, injected) = engine + features + runtime scripts
     #   runtime scripts live in scripts/*/src/*.cpp; the cross-target byte-transform a module shares with
     #   the host lives in scripts/*/shared/*.cpp. Both compile straight into the DLL (self-registering).
     # =========================================================================
@@ -70,35 +116,37 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
         list(FILTER WXL_RUNTIME_SCRIPT EXCLUDE REGEX "${WXL_MODERN_ASSETS_EXCLUDE_REGEX}")
     endif()
 
-    # Vendored ImGui (core + dx9/win32 backends). Compiled in but DORMANT until a script wires it up.
+    # Vendored ImGui (core + dx9/win32 backends). Compiled in but DORMANT until a feature wires it up.
     file(GLOB WXL_IMGUI CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/*.cpp")
 
-    # FlatBuffers runtime (flexbuffers string utils) for the host IPC client (runtime/storage).
+    # FlatBuffers runtime (flexbuffers string utils) for the host IPC client (engine/storage).
     set(WXL_FLATBUFFERS "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/src/util.cpp")
 
     add_library(WarcraftXL SHARED ${WXL_CORE_SRC} ${WXL_RUNTIME_SCRIPT} ${WXL_IMGUI} ${WXL_FLATBUFFERS})
     set_target_properties(WarcraftXL PROPERTIES OUTPUT_NAME "WarcraftXL" PREFIX "")
     target_include_directories(WarcraftXL PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${WXL_LJ_BUILD}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/minhook/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/include")
 
     add_subdirectory(deps/minhook)
-    target_link_libraries(WarcraftXL PRIVATE minhook d3d9 d3dcompiler shell32 delayimp)
-    # D3D12 and the shader compiler are feature-path dependencies (post-fx, grass capture, liquid
-    # shaders), not boot dependencies. Delay-loading keeps the DLL loadable on machines without them;
-    # every call site resolves or guards availability before touching those paths.
-    target_link_options(WarcraftXL PRIVATE "/DELAYLOAD:d3d12.dll" "/DELAYLOAD:d3dcompiler_47.dll")
+    add_dependencies(WarcraftXL luajit_build)
+    target_link_libraries(WarcraftXL PRIVATE minhook "${WXL_LJ_LIB}" d3d9 shell32)
     target_compile_definitions(WarcraftXL PRIVATE ${WXL_DEFS})
 
     source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${WXL_CORE_SRC} ${WXL_RUNTIME_SCRIPT})
 
-    # Deploy: copy the freshly linked DLL into the client folder after every build.
+    # Deploy: copy the freshly linked DLL (and the witness extension) into the client folder.
     if(CLIENT_PATH)
         add_custom_command(TARGET WarcraftXL POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:WarcraftXL>" "${CLIENT_PATH}/WarcraftXL.dll"
-            COMMENT "Deploy WarcraftXL.dll -> ${CLIENT_PATH}")
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CLIENT_PATH}/extensions"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${CMAKE_CURRENT_SOURCE_DIR}/docs/extensions-example/hello.lua"
+                    "${CLIENT_PATH}/extensions/hello.lua"
+            COMMENT "Deploy WarcraftXL.dll + extensions/hello.lua -> ${CLIENT_PATH}")
     endif()
 
     # Per-module CMake hook: a module may ship scripts/<m>/module.cmake to extend the WarcraftXL target
@@ -112,12 +160,12 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     # =========================================================================
     # Target 2: wxl-patcher.exe  = the offline PE patcher + patcher scripts
     # =========================================================================
-    file(GLOB        WXL_PATCHER_CORE   CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/patcher/*.cpp")
+    file(GLOB_RECURSE WXL_PATCHER_CORE   CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/patcher/*.cpp")
     file(GLOB_RECURSE WXL_PATCHER_SCRIPT CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/scripts/*/patcher/*.cpp")
 
-    # src/common/ compiles into every binary (leveled logger, env config, shared helpers): the
-    # patcher and proxy do not link core, and the host is another architecture, so the shared
-    # infrastructure is object-level, not a link dependency.
+    # src/common/ compiles into every binary (leveled logger, config, shared helpers): the patcher and
+    # proxy do not link the engine, and the host is another architecture, so the shared infrastructure
+    # is object-level, not a link dependency.
     file(GLOB WXL_COMMON_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/common/*.cpp")
 
     add_executable(wxl-patcher ${WXL_PATCHER_CORE} ${WXL_PATCHER_SCRIPT} ${WXL_COMMON_SRC})
@@ -126,21 +174,16 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     target_compile_definitions(wxl-patcher PRIVATE ${WXL_DEFS})
 
     # =========================================================================
-    # Target 3: d3d9.dll  = the D3D9On12 proxy
+    # Target 3: d3d9.dll  = the native proxy (system-d3d9 passthrough + runtime loader)
     # =========================================================================
-    file(GLOB WXL_GPU_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/*.cpp")
+    file(GLOB WXL_GPU_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/gpu/*.cpp")
 
     add_library(d3d9 SHARED ${WXL_GPU_SRC} ${WXL_COMMON_SRC})
     set_target_properties(d3d9 PROPERTIES OUTPUT_NAME "d3d9" PREFIX "")
     target_include_directories(d3d9 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    target_link_libraries(d3d9 PRIVATE d3d12 dxgi dcomp d3dcompiler delayimp)
-    # The proxy must load on every machine Wow.exe runs on -- it shadows a static import of the exe, so
-    # a hard dependency of the proxy is a hard dependency of the game (loader failure 0xc0000142 on
-    # machines without D3D12). All On12/D3D12 machinery is delay-loaded; EnsureDevice() checks that
-    # d3d12.dll is actually present before the first delay-loaded call, else the proxy runs as a pure
-    # native pass-through.
-    target_link_options(d3d9 PRIVATE "/DEF:${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/Proxy.def"
-        "/DELAYLOAD:d3d12.dll" "/DELAYLOAD:dxgi.dll" "/DELAYLOAD:dcomp.dll" "/DELAYLOAD:d3dcompiler_47.dll")
+    # The proxy shadows a static import of Wow.exe, so a hard dependency of the proxy is a hard
+    # dependency of the game. It resolves the system d3d9 at runtime and links nothing beyond the CRT.
+    target_link_options(d3d9 PRIVATE "/DEF:${CMAKE_CURRENT_SOURCE_DIR}/src/engine/gpu/Proxy.def")
     target_compile_definitions(d3d9 PRIVATE ${WXL_DEFS})
 
     # Deploy: copy the freshly linked proxy into the client folder after every build.
@@ -171,7 +214,7 @@ if(WXL_BUILD_HOST AND CMAKE_SIZEOF_VOID_P EQUAL 8)
         list(FILTER WXL_HOST_SCRIPT EXCLUDE REGEX "${WXL_MODERN_ASSETS_EXCLUDE_REGEX}")
     endif()
 
-    # The shared infrastructure (leveled logger, env config) compiles straight into the host too.
+    # The shared infrastructure (leveled logger, config) compiles straight into the host too.
     file(GLOB WXL_COMMON_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/common/*.cpp")
 
     add_executable(WarcraftXLHost

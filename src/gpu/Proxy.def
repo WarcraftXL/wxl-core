@@ -1,9 +1,0 @@
-LIBRARY d3d9
-EXPORTS
-    Direct3DCreate9
-    Direct3DCreate9Ex
-    WxlD3D12Device
-    WxlD3D12Queue
-    WxlD3D12DrainDebug
-    WxlSetSsaaFactor
-    WxlGetSsaaFactor

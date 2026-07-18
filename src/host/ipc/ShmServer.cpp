@@ -16,7 +16,7 @@
 
 #include "ipc/ShmServer.hpp"
 
-#include "core/Logger.hpp"
+#include "common/Log.hpp"
 
 #include <windows.h>
 #include <algorithm>
@@ -86,7 +86,7 @@ namespace wxl::host::ipc
             if (!g_reqEv[i] || !g_respEv[i]) return false;
         }
 
-        wxl::core::log::Printf("host: ipc window sized for %u channel(s) (hardware_concurrency=%u)",
+        WLOG_INFO("host: ipc window sized for %u channel(s) (hardware_concurrency=%u)",
             g_channelCount, std::thread::hardware_concurrency());
         return true;
     }
@@ -116,7 +116,7 @@ namespace wxl::host::ipc
         {
             ++failures;
             if (failures == 1 || failures == 100)
-                wxl::core::log::Warnf("host: WaitAnyRequest unexpected rc=%lu win32=%lu (failure %u)",
+                WLOG_WARN("host: WaitAnyRequest unexpected rc=%lu win32=%lu (failure %u)",
                                       rc, GetLastError(), failures);
             if (failures >= 100) return false; // persistent: let the worker retire loudly
             Sleep(10);

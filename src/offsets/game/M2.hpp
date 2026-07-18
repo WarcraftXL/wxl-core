@@ -40,7 +40,7 @@ namespace wxl::offsets::game::m2
     // Switch handles values 0-3 only; values > 3 with bit 0x8000 are an unimplemented case that
     // crashes. Hook (hkBuildBatchMaterial in GameHooks.cpp) returns nullptr to skip those safely.
     constexpr uintptr_t kBuildBatchMaterial = 0x00836C90;
-    using M2_BuildBatchMaterialFn = void* (__thiscall*)(void* model, void* batchPtr);
+    using M2_BuildBatchMaterialFn = void* (__fastcall*)(void* model, void* edx, void* batchPtr);
 
     // Version-gate branches in the loader. The stock loader accepts only one inner version; these are
     // the two compare branches that reject higher inner versions.
@@ -48,8 +48,8 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kVersionGateAnim = 0x0083C745; // anim-parse version branch
 
     constexpr uintptr_t kSceneTriangleHitTest = 0x0081D510;
-    using M2_SceneTriangleHitTestFn = int(__thiscall*)(
-        void* scratch, uint16_t* indexBegin, uint16_t* indexEnd, int vertexBase,
+    using M2_SceneTriangleHitTestFn = int(__fastcall*)(
+        void* scratch, void* edx, uint16_t* indexBegin, uint16_t* indexEnd, int vertexBase,
         float* point, int mode, int candidate, float* bestDepth, int currentHit);
 
     // .skin filename builder (pathStem, profileIndex, outBuf): copies the path, strips the extension,
@@ -446,8 +446,8 @@ namespace wxl::offsets::game::m2
     // override the engine's fill (e.g. CharSweep for collection M2s attached to a character).
     using M2_BuildBonePaletteFn = void (__fastcall*)(void* renderCtx, void* edx,
         void* sa1, void* sa2, void* sa3, uint32_t sa4, uint32_t sa5);
-    using M2_RenderBatchShadowMapFn = void (__thiscall*)(
-        void* instance, uint32_t batchMode, void* skinBatch, void* drawList,
+    using M2_RenderBatchShadowMapFn = void (__fastcall*)(
+        void* instance, void* edx, uint32_t batchMode, void* skinBatch, void* drawList,
         uint32_t drawIndex, void* skinSection, void* previousSection);
     // SlotDispatch(cmo, edx, modelSlot, itemDataPtr, postFlag): equip-slot handler; loads the model.
     using M2_SlotDispatchFn     = void (__fastcall*)(void* cmo, void* edx, uint32_t modelSlot, void* itemDataPtr, uint32_t postFlag);

@@ -16,7 +16,7 @@
 
 #include "runtime/ModuleInstall.hpp"
 
-#include "core/Logger.hpp"
+#include "common/Log.hpp"
 
 #include <windows.h>
 

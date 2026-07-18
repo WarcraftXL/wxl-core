@@ -18,13 +18,15 @@
 
 #include <windows.h>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 
 /**
  * @brief The one audited protect-write-restore implementation.
  *
- * Header-only so the d3d9 proxy (which does not link core) shares it. Replaces the three
- * hand-rolled VirtualProtect dances that used to live in core/Mem, RenderHooks, and Capture —
- * one place to guarantee the restore actually happens and the instruction cache is flushed.
+ * Header-only so every binary (including the d3d9 proxy, which links nothing else) shares the
+ * single audited implementation — one place to guarantee the restore actually happens and the
+ * instruction cache is flushed.
  */
 namespace wxl::mem
 {
@@ -60,5 +62,29 @@ namespace wxl::mem
             if (previous) *previous = *slot;
             *slot = value;
         });
+    }
+
+    /**
+     * @brief Copies len bytes from src into dst through a protect-write-restore window.
+     * @param dst  destination address in the client image.
+     * @param src  source bytes to copy.
+     * @param len  number of bytes to write.
+     * @return true if the write succeeded.
+     */
+    inline bool Patch(void* dst, const void* src, size_t len)
+    {
+        return WithWritable(dst, len, [&] { std::memcpy(dst, src, len); });
+    }
+
+    /**
+     * @brief Writes len copies of value at dst (0x90 fills with NOP).
+     * @param dst    destination address in the client image.
+     * @param value  byte to repeat.
+     * @param len    number of bytes to write.
+     * @return true if the write succeeded.
+     */
+    inline bool Fill(void* dst, uint8_t value, size_t len)
+    {
+        return WithWritable(dst, len, [&] { std::memset(dst, value, len); });
     }
 }

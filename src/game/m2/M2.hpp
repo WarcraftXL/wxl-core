@@ -21,7 +21,7 @@
 
 #include "game/Binding.hpp"
 #include "offsets/game/M2.hpp"
-#include "structure/m2/M2Format.hpp"
+#include "engine/assets/m2/M2Format.hpp"
 
 /**
  * @brief Curated M2 bindings: inline typed wrappers over the client's model functions.

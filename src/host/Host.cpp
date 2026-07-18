@@ -1,4 +1,4 @@
-// Host hook surface: registers hooks and runs them from the serve pipeline.
+// Host hook registry: registers hooks, dispatches the serve pipeline through them, and reports profiling.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,8 +16,9 @@
 
 #include "Host.hpp"
 
+#include "HostHooks.hpp"
 #include "common/Config.hpp"
-#include "core/Logger.hpp"
+#include "common/Log.hpp"
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -29,95 +30,15 @@
 #include <windows.h>
 #else
 #include <chrono>
-#include <thread>
 #endif
 
-#if defined(_MSC_VER) && defined(_WIN32)
-#include <excpt.h>
-#endif
-
-#include <algorithm>
-#include <atomic>
-#include <cctype>
-#include <cstdlib>
-#include <cstring>
-#include <memory>
-#include <mutex>
-#include <string>
-#include <unordered_set>
+#include <cstdint>
 #include <vector>
 
 namespace wxl::host
 {
     namespace
     {
-        /** @brief Coherently updated counters collected for one hook between profile summaries. */
-        struct HookProfile
-        {
-            std::atomic_flag guard = ATOMIC_FLAG_INIT;
-            uint64_t calls = 0;
-            uint64_t claimed = 0;
-            uint64_t totalTicks = 0;
-            uint64_t maxTicks = 0;
-            uint64_t faults = 0;
-            uint64_t skips = 0;
-        };
-
-        /** @brief Holds a hook profile's short update/snapshot critical section. */
-        class HookProfileGuard
-        {
-        public:
-            explicit HookProfileGuard(HookProfile& profile) : profile_(profile)
-            {
-                if (!profile_.guard.test_and_set(std::memory_order_acquire)) return;
-
-                do
-                {
-#if defined(_WIN32)
-                    YieldProcessor();
-#else
-                    std::this_thread::yield();
-#endif
-                    while (profile_.guard.test(std::memory_order_relaxed))
-                    {
-#if defined(_WIN32)
-                        YieldProcessor();
-#else
-                        std::this_thread::yield();
-#endif
-                    }
-                }
-                while (profile_.guard.test_and_set(std::memory_order_acquire));
-            }
-
-            ~HookProfileGuard()
-            {
-                profile_.guard.clear(std::memory_order_release);
-            }
-
-            HookProfileGuard(const HookProfileGuard&) = delete;
-            HookProfileGuard& operator=(const HookProfileGuard&) = delete;
-
-        private:
-            HookProfile& profile_;
-        };
-
-        /** @brief Pairs a hook callback with its display name. */
-        template <class Fn> struct Hook
-        {
-            const char* name;
-            Fn fn;
-            std::unique_ptr<HookProfile> profile;
-
-            Hook(const char* hookName, Fn callback)
-                : name(hookName), fn(callback), profile(std::make_unique<HookProfile>()) {}
-
-            Hook(Hook&&) noexcept = default;
-            Hook& operator=(Hook&&) noexcept = default;
-            Hook(const Hook&) = delete;
-            Hook& operator=(const Hook&) = delete;
-        };
-
         // Function-local statics so a module file-scope registrar can register before main runs without a
         // static-init-order race against these lists.
 
@@ -131,24 +52,6 @@ namespace wxl::host
         std::vector<Hook<ServedFn>>&    Serveds()    { static std::vector<Hook<ServedFn>>    v; return v; }
         /** @brief Returns the FileDataID resolver list. */
         std::vector<Hook<ResolveFn>>&   Resolvers()  { static std::vector<Hook<ResolveFn>>   v; return v; }
-        /** @brief Returns hook/path pairs that faulted once and should be skipped for this host session. */
-        std::unordered_set<std::string>& FaultedHooks() { static std::unordered_set<std::string> v; return v; }
-        /** @brief Protects the faulted-hook set; host requests can arrive concurrently. */
-        std::mutex& FaultedHooksMutex() { static std::mutex m; return m; }
-        /** @brief Number of unique quarantined hook/path pairs; zero enables the lock-free healthy path. */
-        std::atomic<uint64_t>& FaultedHookCount() { static std::atomic<uint64_t> n{ 0 }; return n; }
-
-        /** @brief Returns a high-resolution timestamp in platform performance-counter ticks. */
-        uint64_t PerformanceTicks()
-        {
-#if defined(_WIN32)
-            LARGE_INTEGER ticks{};
-            QueryPerformanceCounter(&ticks);
-            return static_cast<uint64_t>(ticks.QuadPart);
-#else
-            return static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
-#endif
-        }
 
         /** @brief Returns the number of performance-counter ticks per second. */
         uint64_t PerformanceFrequency()
@@ -166,312 +69,6 @@ namespace wxl::host
             return static_cast<uint64_t>(Period::den / Period::num);
 #endif
         }
-
-        /** @brief Adds one safe-wrapper invocation to a hook's current profiling window. */
-        void RecordProfile(HookProfile& profile, uint64_t ticks, bool claimed, bool faulted, bool skipped)
-        {
-            HookProfileGuard lock(profile);
-            ++profile.calls;
-            if (claimed) ++profile.claimed;
-            if (faulted) ++profile.faults;
-            if (skipped) ++profile.skips;
-            profile.totalTicks += ticks;
-            profile.maxTicks = std::max(profile.maxTicks, ticks);
-        }
-
-        /** @brief Finishes a timed safe-wrapper invocation when profiling is enabled. */
-        template <class Fn>
-        void FinishProfile(const Hook<Fn>& hook, bool enabled, uint64_t started,
-                           bool claimed, bool faulted, bool skipped)
-        {
-            if (!enabled) return;
-            RecordProfile(*hook.profile, PerformanceTicks() - started, claimed, faulted, skipped);
-        }
-
-        /** @brief Builds a stable key for a hook handling a path. */
-        std::string FaultKey(const char* phase, const char* hookName, std::string_view name)
-        {
-            std::string key;
-            key.reserve((phase ? strlen(phase) : 0) + (hookName ? strlen(hookName) : 0) + name.size() + 2);
-            if (phase) key.append(phase);
-            key.push_back('|');
-            if (hookName) key.append(hookName);
-            key.push_back('|');
-            key.append(name.data() ? name.data() : "", name.size());
-            return key;
-        }
-
-        /** @brief Reports whether this hook/path pair already crashed. */
-        bool IsHookFaulted(const char* phase, const char* hookName, std::string_view name)
-        {
-            if (FaultedHookCount().load(std::memory_order_acquire) == 0) return false;
-            const std::string key = FaultKey(phase, hookName, name);
-            std::lock_guard<std::mutex> lock(FaultedHooksMutex());
-            return FaultedHooks().find(key) != FaultedHooks().end();
-        }
-
-        /** @brief Remembers a hook/path crash so repeated opens do not re-enter unsafe code. */
-        void MarkHookFaulted(const char* phase, const char* hookName, std::string_view name)
-        {
-            const std::string key = FaultKey(phase, hookName, name);
-            std::lock_guard<std::mutex> lock(FaultedHooksMutex());
-            if (FaultedHooks().insert(key).second)
-                FaultedHookCount().fetch_add(1, std::memory_order_release);
-        }
-
-        /** @brief Emits a concise crash line for a host hook without assuming the path is null-terminated. */
-        void LogHookFault(const char* phase, const char* hookName, std::string_view name)
-        {
-            const size_t n = std::min<size_t>(name.size(), 180);
-            wxl::core::log::Printf("host: %s hook '%s' crashed while handling '%.*s'; skipping",
-                phase ? phase : "unknown",
-                hookName ? hookName : "(unnamed)",
-                static_cast<int>(n),
-                name.data() ? name.data() : "");
-        }
-
-#if defined(_MSC_VER) && defined(_WIN32)
-        bool SafeProvide(const Hook<ProvideFn>& h, std::string_view name, std::vector<uint8_t>& out)
-        {
-            const bool profiling = ProfilingEnabled();
-            const uint64_t started = profiling ? PerformanceTicks() : 0;
-            if (IsHookFaulted("provider", h.name, name))
-            {
-                FinishProfile(h, profiling, started, false, false, true);
-                return false;
-            }
-            bool claimed = false;
-            bool faulted = false;
-            __try
-            {
-                claimed = h.fn(name, out);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                out.clear();
-                LogHookFault("provider", h.name, name);
-                MarkHookFaulted("provider", h.name, name);
-                claimed = false;
-                faulted = true;
-            }
-            FinishProfile(h, profiling, started, claimed, faulted, false);
-            return claimed;
-        }
-
-        bool SafeTransform(const Hook<TransformFn>& h, std::string_view name, std::span<const uint8_t> raw, std::vector<uint8_t>& out)
-        {
-            const bool profiling = ProfilingEnabled();
-            const uint64_t started = profiling ? PerformanceTicks() : 0;
-            if (IsHookFaulted("transform", h.name, name))
-            {
-                FinishProfile(h, profiling, started, false, false, true);
-                return false;
-            }
-            bool claimed = false;
-            bool faulted = false;
-            __try
-            {
-                claimed = h.fn(name, raw, out);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                out.clear();
-                LogHookFault("transform", h.name, name);
-                MarkHookFaulted("transform", h.name, name);
-                claimed = false;
-                faulted = true;
-            }
-            FinishProfile(h, profiling, started, claimed, faulted, false);
-            return claimed;
-        }
-
-        bool SafeExists(const Hook<ExistsFn>& h, std::string_view name)
-        {
-            const bool profiling = ProfilingEnabled();
-            const uint64_t started = profiling ? PerformanceTicks() : 0;
-            if (IsHookFaulted("exists", h.name, name))
-            {
-                FinishProfile(h, profiling, started, false, false, true);
-                return false;
-            }
-            bool exists = false;
-            bool faulted = false;
-            __try
-            {
-                exists = h.fn(name);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                LogHookFault("exists", h.name, name);
-                MarkHookFaulted("exists", h.name, name);
-                exists = false;
-                faulted = true;
-            }
-            FinishProfile(h, profiling, started, exists, faulted, false);
-            return exists;
-        }
-
-        void SafeServed(const Hook<ServedFn>& h, std::string_view name, std::span<const uint8_t> bytes)
-        {
-            const bool profiling = ProfilingEnabled();
-            const uint64_t started = profiling ? PerformanceTicks() : 0;
-            if (IsHookFaulted("served", h.name, name))
-            {
-                FinishProfile(h, profiling, started, false, false, true);
-                return;
-            }
-            bool faulted = false;
-            __try
-            {
-                h.fn(name, bytes);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                LogHookFault("served", h.name, name);
-                MarkHookFaulted("served", h.name, name);
-                faulted = true;
-            }
-            FinishProfile(h, profiling, started, false, faulted, false);
-        }
-
-        bool SafeResolve(const Hook<ResolveFn>& h, uint32_t fileDataId, std::string& outPath)
-        {
-            const bool profiling = ProfilingEnabled();
-            const uint64_t started = profiling ? PerformanceTicks() : 0;
-            bool resolved = false;
-            bool faulted = false;
-            __try
-            {
-                resolved = h.fn(fileDataId, outPath);
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER)
-            {
-                outPath.clear();
-                wxl::core::log::Printf("host: resolver '%s' crashed while handling FileDataID %u; skipping",
-                    h.name ? h.name : "(unnamed)", fileDataId);
-                resolved = false;
-                faulted = true;
-            }
-            FinishProfile(h, profiling, started, resolved, faulted, false);
-            return resolved;
-        }
-#else
-        bool SafeProvide(const Hook<ProvideFn>& h, std::string_view name, std::vector<uint8_t>& out)
-        {
-            const bool profiling = ProfilingEnabled();
-            const uint64_t started = profiling ? PerformanceTicks() : 0;
-            if (IsHookFaulted("provider", h.name, name))
-            {
-                FinishProfile(h, profiling, started, false, false, true);
-                return false;
-            }
-            try
-            {
-                const bool claimed = h.fn(name, out);
-                FinishProfile(h, profiling, started, claimed, false, false);
-                return claimed;
-            }
-            catch (...)
-            {
-                out.clear();
-                LogHookFault("provider", h.name, name);
-                MarkHookFaulted("provider", h.name, name);
-                FinishProfile(h, profiling, started, false, true, false);
-                return false;
-            }
-        }
-
-        bool SafeTransform(const Hook<TransformFn>& h, std::string_view name, std::span<const uint8_t> raw, std::vector<uint8_t>& out)
-        {
-            const bool profiling = ProfilingEnabled();
-            const uint64_t started = profiling ? PerformanceTicks() : 0;
-            if (IsHookFaulted("transform", h.name, name))
-            {
-                FinishProfile(h, profiling, started, false, false, true);
-                return false;
-            }
-            try
-            {
-                const bool claimed = h.fn(name, raw, out);
-                FinishProfile(h, profiling, started, claimed, false, false);
-                return claimed;
-            }
-            catch (...)
-            {
-                out.clear();
-                LogHookFault("transform", h.name, name);
-                MarkHookFaulted("transform", h.name, name);
-                FinishProfile(h, profiling, started, false, true, false);
-                return false;
-            }
-        }
-
-        bool SafeExists(const Hook<ExistsFn>& h, std::string_view name)
-        {
-            const bool profiling = ProfilingEnabled();
-            const uint64_t started = profiling ? PerformanceTicks() : 0;
-            if (IsHookFaulted("exists", h.name, name))
-            {
-                FinishProfile(h, profiling, started, false, false, true);
-                return false;
-            }
-            try
-            {
-                const bool exists = h.fn(name);
-                FinishProfile(h, profiling, started, exists, false, false);
-                return exists;
-            }
-            catch (...)
-            {
-                LogHookFault("exists", h.name, name);
-                MarkHookFaulted("exists", h.name, name);
-                FinishProfile(h, profiling, started, false, true, false);
-                return false;
-            }
-        }
-
-        void SafeServed(const Hook<ServedFn>& h, std::string_view name, std::span<const uint8_t> bytes)
-        {
-            const bool profiling = ProfilingEnabled();
-            const uint64_t started = profiling ? PerformanceTicks() : 0;
-            if (IsHookFaulted("served", h.name, name))
-            {
-                FinishProfile(h, profiling, started, false, false, true);
-                return;
-            }
-            try
-            {
-                h.fn(name, bytes);
-                FinishProfile(h, profiling, started, false, false, false);
-            }
-            catch (...)
-            {
-                LogHookFault("served", h.name, name);
-                MarkHookFaulted("served", h.name, name);
-                FinishProfile(h, profiling, started, false, true, false);
-            }
-        }
-
-        bool SafeResolve(const Hook<ResolveFn>& h, uint32_t fileDataId, std::string& outPath)
-        {
-            const bool profiling = ProfilingEnabled();
-            const uint64_t started = profiling ? PerformanceTicks() : 0;
-            try
-            {
-                const bool resolved = h.fn(fileDataId, outPath);
-                FinishProfile(h, profiling, started, resolved, false, false);
-                return resolved;
-            }
-            catch (...)
-            {
-                outPath.clear();
-                wxl::core::log::Printf("host: resolver '%s' crashed while handling FileDataID %u; skipping",
-                    h.name ? h.name : "(unnamed)", fileDataId);
-                FinishProfile(h, profiling, started, false, true, false);
-                return false;
-            }
-        }
-#endif
 
         /** @brief Takes and logs one coherent snapshot of a hook's completed profiling window. */
         template <class Fn>
@@ -506,7 +103,7 @@ namespace wxl::host
             const double totalMs = static_cast<double>(totalTicks) * ticksToMs;
             const double averageMs = totalMs / static_cast<double>(calls);
             const double maximumMs = static_cast<double>(maxTicks) * ticksToMs;
-            wxl::core::log::Printf(
+            WLOG_INFO(
                 "host-prof-hook: phase=%s name='%s' calls=%llu claimed=%llu total_ms=%.3f avg_ms=%.3f max_ms=%.3f faults=%llu skips=%llu",
                 phase,
                 hook.name ? hook.name : "(unnamed)",
@@ -543,7 +140,7 @@ namespace wxl::host
     {
         if (!fn) return;
         Transforms().emplace_back(name, fn);
-        wxl::core::log::Printf("host: + transform hook '%s'", name ? name : "(unnamed)");
+        WLOG_INFO("host: + transform hook '%s'", name ? name : "(unnamed)");
     }
 
     /**
@@ -555,7 +152,7 @@ namespace wxl::host
     {
         if (!fn) return;
         Providers().emplace_back(name, fn);
-        wxl::core::log::Printf("host: + provider hook '%s'", name ? name : "(unnamed)");
+        WLOG_INFO("host: + provider hook '%s'", name ? name : "(unnamed)");
     }
 
     /**
@@ -567,7 +164,7 @@ namespace wxl::host
     {
         if (!fn) return;
         Existers().emplace_back(name, fn);
-        wxl::core::log::Printf("host: + exists hook '%s'", name ? name : "(unnamed)");
+        WLOG_INFO("host: + exists hook '%s'", name ? name : "(unnamed)");
     }
 
     /**
@@ -579,7 +176,7 @@ namespace wxl::host
     {
         if (!fn) return;
         Serveds().emplace_back(name, fn);
-        wxl::core::log::Printf("host: + served hook '%s'", name ? name : "(unnamed)");
+        WLOG_INFO("host: + served hook '%s'", name ? name : "(unnamed)");
     }
 
     /**
@@ -591,7 +188,7 @@ namespace wxl::host
     {
         if (!fn) return;
         Resolvers().emplace_back(name, fn);
-        wxl::core::log::Printf("host: + resolver '%s'", name ? name : "(unnamed)");
+        WLOG_INFO("host: + resolver '%s'", name ? name : "(unnamed)");
     }
 
     /**
@@ -666,49 +263,6 @@ namespace wxl::host
         }
     }
 
-    /** @brief Returns the storage holding the client data root. */
-    std::string& ClientRootRef() { static std::string s; return s; }
-    /**
-     * @brief Stores the client data root.
-     * @param root  client data root path
-     */
-    void SetClientRoot(std::string_view root) { ClientRootRef().assign(root); }
-    /** @brief Returns the client data root. */
-    std::string ClientRoot() { return ClientRootRef(); }
-
-    namespace
-    {
-        /** @brief Lowercases and swaps '/' for '\\' so two spellings of the same path compare equal. */
-        std::string NormalizeTexturePath(std::string_view path)
-        {
-            std::string s(path);
-            for (char& c : s)
-            {
-                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                if (c == '/') c = '\\';
-            }
-            return s;
-        }
-
-        /** @brief Guards ModernTextureSet(). */
-        std::mutex& ModernTextureMutex() { static std::mutex m; return m; }
-        /** @brief Returns the process-wide set of modern-sourced texture paths. */
-        std::unordered_set<std::string>& ModernTextureSet() { static std::unordered_set<std::string> s; return s; }
-    }
-
-    void MarkModernTexture(std::string_view path)
-    {
-        std::lock_guard<std::mutex> lock(ModernTextureMutex());
-        ModernTextureSet().insert(NormalizeTexturePath(path));
-    }
-
-    bool IsModernTexture(std::string_view path)
-    {
-        std::lock_guard<std::mutex> lock(ModernTextureMutex());
-        const auto& set = ModernTextureSet();
-        return set.find(NormalizeTexturePath(path)) != set.end();
-    }
-
     /**
      * @brief Returns the total number of registered hooks across all hook points.
      * @return registered hook count
@@ -722,14 +276,14 @@ namespace wxl::host
     /** @brief Logs the registered hooks to the host log, grouped by hook point. */
     void LogRegisteredHandlers()
     {
-        wxl::core::log::Printf(
+        WLOG_INFO(
             "host: %u hook(s) registered (transform=%zu provider=%zu exists=%zu served=%zu resolver=%zu)",
             HandlerCount(), Transforms().size(), Providers().size(), Existers().size(), Serveds().size(), Resolvers().size());
-        for (const auto& h : Transforms()) wxl::core::log::Printf("host:   transform <- %s", h.name ? h.name : "(unnamed)");
-        for (const auto& h : Providers())  wxl::core::log::Printf("host:   provider  <- %s", h.name ? h.name : "(unnamed)");
-        for (const auto& h : Existers())   wxl::core::log::Printf("host:   exists    <- %s", h.name ? h.name : "(unnamed)");
-        for (const auto& h : Serveds())    wxl::core::log::Printf("host:   served    <- %s", h.name ? h.name : "(unnamed)");
-        for (const auto& h : Resolvers())  wxl::core::log::Printf("host:   resolver  <- %s", h.name ? h.name : "(unnamed)");
+        for (const auto& h : Transforms()) WLOG_INFO("host:   transform <- %s", h.name ? h.name : "(unnamed)");
+        for (const auto& h : Providers())  WLOG_INFO("host:   provider  <- %s", h.name ? h.name : "(unnamed)");
+        for (const auto& h : Existers())   WLOG_INFO("host:   exists    <- %s", h.name ? h.name : "(unnamed)");
+        for (const auto& h : Serveds())    WLOG_INFO("host:   served    <- %s", h.name ? h.name : "(unnamed)");
+        for (const auto& h : Resolvers())  WLOG_INFO("host:   resolver  <- %s", h.name ? h.name : "(unnamed)");
     }
 
     /** @brief Logs and resets the current per-hook profiling window. */

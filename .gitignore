@@ -68,5 +68,6 @@ vcpkg_installed/
 Testing/
 .cache/
 
-# internal docs
+# internal
 docs/
+tools/

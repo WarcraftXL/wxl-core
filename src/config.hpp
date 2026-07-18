@@ -41,6 +41,13 @@ namespace wxl::features
     inline constexpr bool kPhasing      = true; // terrain-phase per-tile loader redirect
     inline constexpr bool kLuaBindings  = true; // register functions into the client UI VM
     inline constexpr bool kOverlay      = true; // ImGui dev overlay (dormant)
-    inline constexpr bool kModernAssets = true; // client integration of modern (retail) assets
+    inline constexpr bool kModernAssets = true; // master switch for the modern (retail) asset pipelines
+    // Per-format modern-asset toggles (ex CMake WXL_MODERN_* options, now honored in-code). Each pipeline's
+    // registrar (client EventScript / host Transform) checks its flag with `if constexpr` and self-registers
+    // only when true; disabled code is eliminable. The master ANDs in, so kModernAssets=false kills them all.
+    inline constexpr bool kModernM2  = kModernAssets && true; // M2 (MD21) reshape onto client version 264
+    inline constexpr bool kModernM3  = kModernAssets && true; // M3 (MD34) bake to client M2 + skin
+    inline constexpr bool kModernWmo = kModernAssets && true; // WMO root/group down-convert
+    inline constexpr bool kModernBlp = kModernAssets && true; // BLP/texture transcode + mip scratch widen
     inline constexpr bool kDiag         = true; // asset-load and frame-hitch diagnostics
 }

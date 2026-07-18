@@ -96,4 +96,22 @@ namespace wxl::lua
 
     /** @brief Reads self's reaction toward other into *out (false on fault or null operand). */
     bool ReadReaction(void* self, void* other, int* out);
+
+    /**
+     * @brief Projects a world position to ImGui pixel space via the live camera view-projection and
+     *        the live render viewport. Shared by wxl.camera.world_to_screen and unit:GetScreenPosition
+     *        so both use one convention. SEH-guarded (matrix + device viewport reads).
+     *
+     * The transform is the row-vector convention clip = [x,y,z,1] * ViewProj, a perspective divide by
+     * clip.w, then an NDC(-1..1)->pixel map with a top-left origin (y flipped) sized to the viewport.
+     *
+     * @param pos      the world position, pos[0..2].
+     * @param sx       receives the screen x in pixels (still written when offscreen/behind).
+     * @param sy       receives the screen y in pixels (still written when offscreen/behind).
+     * @param visible  receives false when the point is behind the camera (clip.w <= 0) or falls
+     *                 outside [0,viewport]; the cull signal for callers.
+     * @return true when the matrix/viewport were readable (sx/sy/visible valid), false on fault or
+     *         when the graphics device / viewport is unavailable.
+     */
+    bool WorldToScreenPixels(const float pos[3], float& sx, float& sy, bool& visible);
 }

@@ -18,6 +18,8 @@
 
 #include "engine/lua/LuaJit.hpp"
 #include "game/Binding.hpp"
+#include "game/camera/Camera.hpp"
+#include "game/gx/Gx.hpp"
 #include "game/unit/Unit.hpp"
 #include "offsets/game/Unit.hpp"
 
@@ -191,6 +193,53 @@ namespace wxl::lua
         __try
         {
             *out = wxl::game::unit::Reaction(self, other);
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+
+    bool WorldToScreenPixels(const float pos[3], float& sx, float& sy, bool& visible)
+    {
+        __try
+        {
+            // Live combined view-projection (row-major float[16]) and the live render viewport.
+            const float* m = wxl::game::camera::ViewProj();
+
+            wxl::game::gx::Device9 dev = wxl::game::gx::Device();
+            if (!dev)
+                return false;
+            // D3DVIEWPORT9: {X, Y, Width, Height (u32 each), MinZ, MaxZ (f32)} = 24 bytes.
+            uint32_t vp[6] = {};
+            dev.GetViewport(vp);
+            const float w = static_cast<float>(vp[2]);
+            const float h = static_cast<float>(vp[3]);
+            if (w <= 0.0f || h <= 0.0f)
+                return false;
+
+            // Row-vector transform: clip = [x, y, z, 1] * M.
+            const float x = pos[0], y = pos[1], z = pos[2];
+            const float clipX = x * m[0] + y * m[4] + z * m[8]  + m[12];
+            const float clipY = x * m[1] + y * m[5] + z * m[9]  + m[13];
+            const float clipW = x * m[3] + y * m[7] + z * m[11] + m[15];
+
+            visible = clipW > 0.0f;
+
+            // Perspective divide (sign-preserving guard so a point on/behind the plane still maps).
+            float invW = clipW;
+            if (invW > -1e-6f && invW < 1e-6f)
+                invW = (clipW < 0.0f) ? -1e-6f : 1e-6f;
+            const float ndcX = clipX / invW;
+            const float ndcY = clipY / invW;
+
+            // NDC(-1..1) -> pixels, top-left origin (y flipped) for ImGui's draw list.
+            sx = (ndcX * 0.5f + 0.5f) * w;
+            sy = (0.5f - ndcY * 0.5f) * h;
+
+            if (sx < 0.0f || sx > w || sy < 0.0f || sy > h)
+                visible = false;
             return true;
         }
         __except (EXCEPTION_EXECUTE_HANDLER)

@@ -21,6 +21,7 @@
 #include "engine/lua/ObjectProxy.hpp"
 #include "offsets/game/Unit.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 
@@ -90,6 +91,48 @@ namespace wxl::lua::methods::unit
         return 1;
     }
 
+    /// unit:DistanceTo(other) -> number: straight-line distance between the two units, or nil when
+    /// either position is unavailable.
+    inline int L_DistanceTo(lua_State* L)
+    {
+        void* self  = ResolveUnit(CheckGuid(L, 1));
+        void* other = ResolveUnit(CheckGuid(L, 2));
+        float a[3], b[3];
+        if (!ReadPosition(self, a) || !ReadPosition(other, b))
+        {
+            PushNil(L);
+            return 1;
+        }
+        const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+        Push(L, static_cast<double>(std::sqrt(dx * dx + dy * dy + dz * dz)));
+        return 1;
+    }
+
+    /// unit:GetScreenPosition() -> screenX, screenY, visible: the unit's world position projected to
+    /// ImGui pixel space (shared with wxl.camera.world_to_screen). nil when the unit has no position
+    /// or the projection is unavailable.
+    inline int L_GetScreenPosition(lua_State* L)
+    {
+        void* unit = ResolveUnit(CheckGuid(L, 1));
+        float pos[3];
+        if (!ReadPosition(unit, pos))
+        {
+            PushNil(L);
+            return 1;
+        }
+        float sx = 0.0f, sy = 0.0f;
+        bool  visible = false;
+        if (!WorldToScreenPixels(pos, sx, sy, visible))
+        {
+            PushNil(L);
+            return 1;
+        }
+        Push(L, static_cast<double>(sx));
+        Push(L, static_cast<double>(sy));
+        Push(L, visible);
+        return 3;
+    }
+
     // --- global accessors (fields on the wxl table) ---
 
     /// wxl.player() -> Unit for the active player, or nil.
@@ -123,11 +166,13 @@ namespace wxl::lua::methods::unit
         // Instance methods into mt.__index (created by ObjectProxy::RegisterMetatables).
         luaL_getmetatable(L, kUnitMeta);                                     // [wxl, mt]
         lua_getfield(L, -1, "__index");                                      // [wxl, mt, methods]
-        lua_pushcfunction(L, &L_IsValid);     lua_setfield(L, -2, "IsValid");
-        lua_pushcfunction(L, &L_GetGuid);     lua_setfield(L, -2, "GetGuid");
-        lua_pushcfunction(L, &L_GetPosition); lua_setfield(L, -2, "GetPosition");
-        lua_pushcfunction(L, &L_IsPlayer);    lua_setfield(L, -2, "IsPlayer");
-        lua_pushcfunction(L, &L_GetReaction); lua_setfield(L, -2, "GetReaction");
+        lua_pushcfunction(L, &L_IsValid);          lua_setfield(L, -2, "IsValid");
+        lua_pushcfunction(L, &L_GetGuid);          lua_setfield(L, -2, "GetGuid");
+        lua_pushcfunction(L, &L_GetPosition);      lua_setfield(L, -2, "GetPosition");
+        lua_pushcfunction(L, &L_IsPlayer);         lua_setfield(L, -2, "IsPlayer");
+        lua_pushcfunction(L, &L_GetReaction);      lua_setfield(L, -2, "GetReaction");
+        lua_pushcfunction(L, &L_DistanceTo);       lua_setfield(L, -2, "DistanceTo");
+        lua_pushcfunction(L, &L_GetScreenPosition);lua_setfield(L, -2, "GetScreenPosition");
         lua_pop(L, 2);                                                       // [wxl]
 
         // Global accessors onto the wxl table.

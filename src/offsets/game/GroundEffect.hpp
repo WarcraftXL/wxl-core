@@ -29,6 +29,19 @@ namespace wxl::offsets::game::groundeffect
     constexpr uintptr_t kChunkConstantUpload = 0x007B10E0;
     using ChunkConstantUploadFn = void(__cdecl*)(const float* mtx, int group);
 
+    // Per-frame grass shader-constant setup on the shader path (CDetailDoodad::InitializeShaderConstants):
+    // memsets the c0..c22 block at kVsConstantBlock and fills it, once per frame at the top of the
+    // detail-doodad pass (only when the shader path is active). Static void(void). Tail-hook it to publish
+    // the wind constants (c35..c37 — above everything the grass/shadow passes touch) into the free
+    // registers every frame, so a swapped wind vertex shader never samples stale constants.
+    constexpr uintptr_t kInitShaderConstants = 0x007B15D0;
+    using InitShaderConstantsFn = void(__cdecl*)();
+
+    // First free vertex-constant register above the grass block (c0..c22) and the shadow block (c23..c34);
+    // the wind feature uploads c35..c37 here. Verified free on the grass pass (nothing reads >= c35).
+    constexpr unsigned kWindFirstReg = 35;
+    constexpr unsigned kWindRegCount = 3; // c35 = {phase,windTime,amplitude,0}, c36 = {dir.x,dir.y,bias,scale}, c37 = spatial
+
     // --- globals ---
     // Vertex-shader constant block, float4[23] = c0..c22, memset to zero once per grass pass then
     // uploaded per chunk by kChunkConstantUpload. c0..c12 are live (chunk->view matrix, projection,

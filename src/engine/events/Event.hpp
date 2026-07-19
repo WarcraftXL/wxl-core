@@ -61,6 +61,7 @@ namespace wxl::events
         OnWorldLeave,    // the world/map is being torn down           (WorldLeaveArgs)
         OnBeforeHostLaunch, // the DLL is about to launch the asset host (HostLaunchArgs)
         OnUiDraw,        // wxl.ui immediate-mode draw slot, between NewFrame and Render (UiDrawArgs)
+        OnGrassWind,     // grass wind integrator advanced this frame (GrassWindArgs)
         Count
     };
 
@@ -213,6 +214,13 @@ namespace wxl::events
      *        frame. Carries nothing: the drawing target is the implicit ImGui frame.
      */
     struct UiDrawArgs        { };
+    /**
+     * @brief Args for OnGrassWind, emitted once per frame when the grass-wind integrator advances (only
+     *        while grass is drawing — the tick lives on the detail-doodad chunk pass). dirX/dirY is the
+     *        damped current wind vector, strength its magnitude scalar, phase the accumulated sway phase
+     *        in radians. Read-only observation; runtime tuning goes through wxl.wind.* (methods).
+     */
+    struct GrassWindArgs     { float dirX; float dirY; float strength; float phase; };
 
     using Handler = void (*)(void* user, const void* args);
 

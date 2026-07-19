@@ -20,7 +20,6 @@
 
 // INTERNAL to the core. CWorldScene::LocateViewer3/CMap::LocateViewerMapObjs resolve which WMO group(s)
 // the render CAMERA currently sits in, every frame, purely from camera position (never the character's).
-// See _docs/re_comprehension/335/wmo_portal_camera_cull.md.
 namespace wxl::offsets::game::worldscene
 {
     // Primary resolved viewer group (0 = camera outside any WMO group; otherwise the group the camera's
@@ -37,7 +36,7 @@ namespace wxl::offsets::game::worldscene
     // it. The stamp is a crude 2-point (bbox min/max corner) approximation with no object-identity or
     // size-class guard: any group's stamp can occlude any other tested afterward, regardless of relative
     // size -- on a dense cluster of similarly-sized small props this spuriously occludes neighbors that
-    // should both be visible (see _docs/re_comprehension/335/wmo_portal_camera_cull.md section 14).
+    // should both be visible.
     constexpr uintptr_t kGroupClipStamp = 0x007CC880;
     using GroupClipStampFn = void(__fastcall*)(void* groupEntry);
     // The group-entry's own world-space AABB min/max corners sit inline at its head (3 floats each).

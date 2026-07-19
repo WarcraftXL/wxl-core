@@ -31,6 +31,7 @@
 #include "engine/lua/methods/CharModelMethods.hpp"
 #include "engine/lua/methods/WorldPickMethods.hpp"
 #include "engine/lua/methods/SoundMethods.hpp"
+#include "engine/lua/methods/WindMethods.hpp"
 #include "engine/lua/ui/Texture.hpp"
 #include "engine/lua/events/EventBridge.hpp"
 #include "engine/lua/events/FrameEvents.hpp"
@@ -41,6 +42,7 @@
 #include "engine/lua/events/RenderEvents.hpp"
 #include "engine/lua/events/M2Events.hpp"
 #include "engine/lua/events/InputEvents.hpp"
+#include "engine/lua/events/GrassEvents.hpp"
 #include "engine/lua/ffi/FfiBootstrap.hpp"
 #include "engine/lua/ObjectProxy.hpp"
 #include "engine/lua/ui/ImGuiHost.hpp"
@@ -97,6 +99,7 @@ namespace wxl::lua
         events::render::Declare();  // end_scene/device_lost/device_reset/world_render(_end)/liquid_render
         events::m2::Declare();      // m2_skin_finalize/m2_update/bone_palette/m2_batch_draw/m2_setup_alpha/ribbon_draw
         events::input::Declare();   // "input" (return true to swallow)
+        events::grass::Declare();   // "grass_wind" (per-frame wind integrator readout)
         events::SubscribeBus();
 
         // After SubscribeBus so the ImGui host's OnUiDraw emit finds the "draw" dispatch already wired,
@@ -141,6 +144,7 @@ namespace wxl::lua
         methods::m2::Register(L);        // wxl.m2.*        (reads a model/renderCtx lightuserdata)
         methods::charmodel::Register(L); // wxl.charmodel.* (reads an item_slot_* lightuserdata)
         methods::sound::Register(L);     // wxl.sound.*     (volume reads + set_master_volume)
+        methods::wind::Register(L);      // wxl.wind.*      (grass-wind tuning + integrator readout)
         events::Bind(L); // adds wxl.on and binds the bridge to this state
         lua_setglobal(L, "wxl");
 

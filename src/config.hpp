@@ -50,4 +50,5 @@ namespace wxl::features
     inline constexpr bool kModernWmo = kModernAssets && true; // WMO root/group down-convert
     inline constexpr bool kModernBlp = kModernAssets && true; // BLP/texture transcode + mip scratch widen
     inline constexpr bool kDiag         = true; // asset-load and frame-hitch diagnostics
+    inline constexpr bool kGrassWind    = true; // detail-doodad (grass) wind sway: native shear injection
 }

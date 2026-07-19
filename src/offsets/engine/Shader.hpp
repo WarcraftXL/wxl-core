@@ -49,6 +49,22 @@ namespace wxl::offsets::engine::shader
     // container version and fills a collection's fixed 90-vertex / 16-pixel positional slot arrays.
     constexpr uintptr_t kNativeBlsLoad = 0x00684970;
 
+    // --- per-shader D3D create seam (below the effect-collection stack) ---------------------------
+    // CGxDeviceD3d::IShaderCreateVertex: the point where a CGxShader wrapper's bytecode becomes a live
+    // IDirect3DVertexShader9. Reads the wrapper's bytecode pointer (+kCgxShaderBytePtr) and length
+    // (+kCgxShaderByteLen), calls the device CreateVertexShader (D3D vtbl +0x16c), and stores the handle
+    // at +kCgxShaderHandle. Confirmed __thiscall(device /*ecx*/, wrapper /*one stack arg*/), ret 4. Detour
+    // as __fastcall(device, edx, wrapper) — byte-compatible — to substitute a recognised shader's bytecode
+    // (swap the wrapper's +0x50/+0x4c fields around the original call, then restore).
+    constexpr uintptr_t kShaderCreateVertex = 0x006AA0D0;
+    using ShaderCreateVertexFn = void(__fastcall*)(void* device, void* edx, void* wrapper);
+
+    // Global cdecl helper that uploads programmable-shader constants through the live device
+    // (device vtbl +0x118, __thiscall): (target 0=vertex/4=pixel, startReg, const float* data, numVec4).
+    // No-ops when data is null. The grass wind feature uses it to publish c35..c37 each frame.
+    constexpr uintptr_t kShaderConstantsSet = 0x00408210;
+    using ShaderConstantsSetHelperFn = void(__cdecl*)(int target, int startReg, const float* data, int numVec4);
+
     // --- selection-state globals (the live inputs the own stack reads instead of a positional slot) --
     constexpr uintptr_t kShadowTier          = 0x00D43010; // shadow tier, clamped 0..2
     constexpr uintptr_t kShadowGroup         = 0x00D43014; // pixel shadow group

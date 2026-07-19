@@ -62,6 +62,7 @@
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 #include "features/adtsplit/AdtSplit.hpp"
+#include "features/fdid/Fdid.hpp"
 
 #include "common/Log.hpp"
 #include "game/Binding.hpp"
@@ -206,6 +207,14 @@ namespace
         std::vector<uint8_t> mcrfPool;   // concatenated MCRD‖MCRW payloads (chunks alias into it)
         std::vector<uint8_t> synthEmpty; // synthesized empty top-level chunks for absent tables
 
+        // Texture FileDataIDs read from _tex0 MDID (diffuse), indexed by MCLY.textureId. Legion+ tiles
+        // carry no MTEX; these are how the terrain layers name their textures. The tex manager detour
+        // resolves each through TextureFilePath.db2 into texNameBlob (NUL-terminated client paths, in
+        // MDID order) and feeds THAT to the stock CMapArea::LoadTextures -- the slots then point into
+        // this persistent blob for the tile lifetime (freed with the SplitTile).
+        std::vector<uint32_t> mdid;
+        std::vector<char>     texNameBlob;
+
         // parked tile-level foreigners
         uint8_t* mtxp = nullptr; uint32_t mtxpSize = 0;    // into the resident _tex0 buffer
         uint8_t  mampValue = 0;                            // MHDR+0x30 / MAMP byte (zeroed for 3.3.5)
@@ -221,15 +230,27 @@ namespace
         g_statMclvChunks{ 0 }, g_statHoleChunks{ 0 }, g_statFailures{ 0 },
         g_statWdlRead{ 0 };
 
-    adt::TileAreaLoadFn           g_origTileAreaLoad    = nullptr;
-    adt::ChunkProcessIffChunksFn  g_origProcessIff      = nullptr;
-    adt::TileAreaDestroyFn        g_origTileAreaDestroy = nullptr;
-    adt::LoadWdlFn                g_origLoadWdl         = nullptr;
+    adt::TileAreaLoadFn            g_origTileAreaLoad       = nullptr;
+    adt::ChunkProcessIffChunksFn  g_origProcessIff         = nullptr;
+    adt::TileAreaDestroyFn        g_origTileAreaDestroy    = nullptr;
+    adt::LoadWdlFn                g_origLoadWdl            = nullptr;
+    adt::Map_AreaLoadTexturesFn   g_origAreaLoadTextures   = nullptr;
+    adt::Map_LoadTerrainTextureFn g_origLoadTerrainTexture = nullptr;
 
     SplitTile* FindTileLocked(void* area)
     {
         auto it = g_tiles.find(area);
         return it != g_tiles.end() ? it->second.get() : nullptr;
+    }
+
+    // Load-thread lookup that takes g_mutex only for the map access, then releases it: the texture
+    // detours below call the stock originals while NOT holding the lock (the eager path re-enters
+    // CMap::LoadTerrainTexture, which would deadlock a non-recursive mutex). Safe because a tile is
+    // only ever erased on this same load thread (CMapArea destructor), so the pointer cannot dangle.
+    SplitTile* FindTileBrief(void* area)
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        return FindTileLocked(area);
     }
 
     // ---------------------------------------------------------------- split detection
@@ -492,6 +513,12 @@ namespace
                 if (tag == FourCC("MCNK")) { if (nTex < 256) WalkTexMcnk(t.chunks[nTex], hdr + 8, sz); ++nTex; }
                 else if (tag == FourCC("MTEX")) mtex = hdr;
                 else if (tag == FourCC("MTXF")) mtxf = hdr;
+                else if (tag == FourCC("MDID"))                                               // texture FileDataIDs
+                {
+                    const uint32_t n = sz / 4u;
+                    t.mdid.resize(n);
+                    for (uint32_t i = 0; i < n; ++i) t.mdid[i] = Rd32(hdr + 8 + i * 4);
+                }
                 else if (tag == FourCC("MTXP")) { t.mtxp = hdr + 8; t.mtxpSize = sz; }        // parked
                 else if (tag == FourCC("MAMP")) { if (sz) t.mampValue = hdr[8]; }             // parked
             });
@@ -514,6 +541,9 @@ namespace
             });
         }
 
+        const bool skipObjects = wxl::features::kAdtSplitSkipObjects;
+        if (skipObjects) { mddf = nullptr; modf = nullptr; }
+
         // --- MCRF fixup pool: refs must be ONE contiguous u32 array, doodads first then wmos.
         // When only one side exists the split payload is aliased directly (zero copy).
         uint32_t poolBytes = 0;
@@ -527,6 +557,11 @@ namespace
         for (uint32_t i = 0; i < t.chunkCount; ++i)
         {
             ChunkFill& f = t.chunks[i];
+            if (skipObjects)
+            {
+                f.nDoodadRefs = 0; f.nMapObjRefs = 0; f.mcrf = nullptr;
+                continue;
+            }
             f.nDoodadRefs = f.mcrdSize / 4u;
             f.nMapObjRefs = f.mcrwSize / 4u;
             if (f.mcrdSize && f.mcrwSize)
@@ -1220,6 +1255,64 @@ namespace
      * @brief Installs the four split-ADT detours (load seam, per-chunk fill seam, teardown seam,
      *        Cata+ WDL guard).
      */
+    // ---------------------------------------------------------------- split-tile texture manager
+    /**
+     * @brief Detours CMapArea::LoadTextures (0x007D6D20) so a split tile's tex-owner array is built
+     *        from the real MDID FileDataIDs instead of the (absent) MTEX.
+     *
+     * Each MDID id is resolved through TextureFilePath.db2 to a client path; the paths are packed
+     * NUL-terminated into the tile's persistent texNameBlob (MDID order = MCLY.textureId order) and
+     * that blob is handed to the UNCHANGED stock builder. The builder sizes area+0x60 to the name
+     * count and points each slot's name at the blob (resident for the tile lifetime). Nothing here
+     * touches the ADT's MTEX -- we adapt TLK to read the ADT, per the project rule.
+     */
+    void __fastcall hkAreaLoadTextures(void* area, void* edx, const void* mtexData, uint32_t mtexSize)
+    {
+        if (wxl::features::kAdtSplitTextures)
+        {
+            if (SplitTile* t = FindTileBrief(area); t && !t->mdid.empty())
+            {
+                if (t->texNameBlob.empty())
+                {
+                    for (uint32_t fdid : t->mdid)
+                    {
+                        const char* p = wxl::fdid::ResolveTexture(fdid);
+                        const char* s = p ? p : ""; // unresolved -> empty name -> client renders green
+                        t->texNameBlob.insert(t->texNameBlob.end(), s, s + std::strlen(s) + 1);
+                    }
+                }
+                g_origAreaLoadTextures(area, edx, t->texNameBlob.data(),
+                                       static_cast<uint32_t>(t->texNameBlob.size()));
+                return;
+            }
+        }
+        g_origAreaLoadTextures(area, edx, mtexData, mtexSize);
+    }
+
+    /**
+     * @brief Detours CMap::LoadTerrainTexture (0x007D6980) -- the per-slot loader (slot[1]=Load(slot[0])).
+     *
+     * For a split tile the slot name is already a fully-resolved client path (set above), so it is
+     * opened as-is via CMap::LoadTexture, bypassing the stock "_s.blp" suffix rewrite that assumes
+     * the legacy base/diffuse+specular naming. An empty (unresolved) name yields a null handle, which
+     * the client draws as the green missing-texture placeholder -- never fatal.
+     */
+    void __fastcall hkLoadTerrainTexture(void* area, void* edx, void** slot, uint32_t index)
+    {
+        if (wxl::features::kAdtSplitTextures)
+        {
+            if (SplitTile* t = FindTileBrief(area); t && !t->mdid.empty())
+            {
+                const char* name = static_cast<const char*>(slot[0]);
+                slot[1] = (name && name[0])
+                              ? wxl::game::Native<adt::Map_LoadTextureFn>(adt::kMapLoadTexture)(name)
+                              : nullptr;
+                return;
+            }
+        }
+        g_origLoadTerrainTexture(area, edx, slot, index);
+    }
+
     bool InstallAdtSplit()
     {
         wxl::hook::Install("AdtSplit_TileAreaLoad", adt::kTileAreaLoad,
@@ -1230,6 +1323,13 @@ namespace
                            &hkTileAreaDestroy, &g_origTileAreaDestroy);
         wxl::hook::Install("AdtSplit_LoadWdl", adt::kLoadWdl,
                            &hkLoadWdl, &g_origLoadWdl);
+        if constexpr (wxl::features::kAdtSplitTextures)
+        {
+            wxl::hook::Install("AdtSplit_AreaLoadTextures", adt::kAreaLoadTextures,
+                               &hkAreaLoadTextures, &g_origAreaLoadTextures);
+            wxl::hook::Install("AdtSplit_LoadTerrainTexture", adt::kLazyLoadTexSlot,
+                               &hkLoadTerrainTexture, &g_origLoadTerrainTexture);
+        }
         return true;
     }
 }

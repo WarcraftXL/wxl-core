@@ -1268,23 +1268,20 @@ namespace
      */
     void __fastcall hkAreaLoadTextures(void* area, void* edx, const void* mtexData, uint32_t mtexSize)
     {
-        if (wxl::features::kAdtSplitTextures)
+        if (SplitTile* t = FindTileBrief(area); t && !t->mdid.empty())
         {
-            if (SplitTile* t = FindTileBrief(area); t && !t->mdid.empty())
+            if (t->texNameBlob.empty())
             {
-                if (t->texNameBlob.empty())
+                for (uint32_t fdid : t->mdid)
                 {
-                    for (uint32_t fdid : t->mdid)
-                    {
-                        const char* p = wxl::fdid::ResolveTexture(fdid);
-                        const char* s = p ? p : ""; // unresolved -> empty name -> client renders green
-                        t->texNameBlob.insert(t->texNameBlob.end(), s, s + std::strlen(s) + 1);
-                    }
+                    const char* p = wxl::fdid::ResolveTexture(fdid);
+                    const char* s = p ? p : ""; // unresolved -> empty name -> client renders green
+                    t->texNameBlob.insert(t->texNameBlob.end(), s, s + std::strlen(s) + 1);
                 }
-                g_origAreaLoadTextures(area, edx, t->texNameBlob.data(),
-                                       static_cast<uint32_t>(t->texNameBlob.size()));
-                return;
             }
+            g_origAreaLoadTextures(area, edx, t->texNameBlob.data(),
+                                    static_cast<uint32_t>(t->texNameBlob.size()));
+            return;
         }
         g_origAreaLoadTextures(area, edx, mtexData, mtexSize);
     }
@@ -1299,16 +1296,13 @@ namespace
      */
     void __fastcall hkLoadTerrainTexture(void* area, void* edx, void** slot, uint32_t index)
     {
-        if (wxl::features::kAdtSplitTextures)
+        if (SplitTile* t = FindTileBrief(area); t && !t->mdid.empty())
         {
-            if (SplitTile* t = FindTileBrief(area); t && !t->mdid.empty())
-            {
-                const char* name = static_cast<const char*>(slot[0]);
-                slot[1] = (name && name[0])
-                              ? wxl::game::Native<adt::Map_LoadTextureFn>(adt::kMapLoadTexture)(name)
-                              : nullptr;
-                return;
-            }
+            const char* name = static_cast<const char*>(slot[0]);
+            slot[1] = (name && name[0])
+                            ? wxl::game::Native<adt::Map_LoadTextureFn>(adt::kMapLoadTexture)(name)
+                            : nullptr;
+            return;
         }
         g_origLoadTerrainTexture(area, edx, slot, index);
     }
@@ -1323,13 +1317,10 @@ namespace
                            &hkTileAreaDestroy, &g_origTileAreaDestroy);
         wxl::hook::Install("AdtSplit_LoadWdl", adt::kLoadWdl,
                            &hkLoadWdl, &g_origLoadWdl);
-        if constexpr (wxl::features::kAdtSplitTextures)
-        {
-            wxl::hook::Install("AdtSplit_AreaLoadTextures", adt::kAreaLoadTextures,
-                               &hkAreaLoadTextures, &g_origAreaLoadTextures);
-            wxl::hook::Install("AdtSplit_LoadTerrainTexture", adt::kLazyLoadTexSlot,
-                               &hkLoadTerrainTexture, &g_origLoadTerrainTexture);
-        }
+        wxl::hook::Install("AdtSplit_AreaLoadTextures", adt::kAreaLoadTextures,
+                            &hkAreaLoadTextures, &g_origAreaLoadTextures);
+        wxl::hook::Install("AdtSplit_LoadTerrainTexture", adt::kLazyLoadTexSlot,
+                            &hkLoadTerrainTexture, &g_origLoadTerrainTexture);
         return true;
     }
 }

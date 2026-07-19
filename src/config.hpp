@@ -55,4 +55,10 @@ namespace wxl::features
     // Safe default: split-ness is probed once per map and cached; a non-split (stock 3.3.5) map takes
     // the untouched native path -- the detours add only a cached-map lookup per tile load.
     inline constexpr bool kAdtSplit     = true;
+    // INTERIM (until FileDataID model resolution lands): split tiles drop ONLY their placed-object layer
+    // (doodads MDDF + map objects MODF). A Legion+ custom map references those models by FileDataID,
+    // which 3.3.5 cannot resolve -> CMap::SafeOpen fatals (#134). Dropping them lets the terrain (geometry
+    // + texture layers) load and the map be walkable/TP-able. Texture layers are kept -- an unresolved
+    // FDID texture renders green, never fatal. Flip false once models resolve.
+    inline constexpr bool kAdtSplitSkipObjects = true;
 }

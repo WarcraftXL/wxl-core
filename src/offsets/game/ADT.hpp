@@ -201,6 +201,15 @@ namespace wxl::offsets::game::adt
     constexpr uintptr_t kSetSamplerState   = 0x00681450;
     // Lazy texture loader for one tex-owner handle slot: slot[+4] = Load(slot[+0]).
     constexpr uintptr_t kLazyLoadTexSlot   = 0x007D6980;
+    // CMapArea::LoadTextures: builds the tile tex-owner handle array (area+0x60) from the MTEX name
+    // blob -- one {name, CGxTex*} slot per NUL-terminated name, indexed by MCLY.textureId, eager-
+    // loading each through kLazyLoadTexSlot unless SFile streaming mode defers it. Native this-in-ECX
+    // (the CMapArea) + (mtexData, mtexSize) on the stack; declared __fastcall with a dummy EDX.
+    // Detoured for split tiles to source the names from the real MDID (FileDataID) instead of MTEX.
+    constexpr uintptr_t kAreaLoadTextures  = 0x007D6D20;
+    using Map_AreaLoadTexturesFn = void(__fastcall*)(void* area, void* edx, const void* mtexData, uint32_t mtexSize);
+    // kLazyLoadTexSlot signature: __thiscall(area, slot, index); slot = { char* name; CGxTex* tex }.
+    using Map_LoadTerrainTextureFn = void(__fastcall*)(void* area, void* edx, void** slot, uint32_t index);
     // Builds the per-layer alpha texture from a layer record's MCAL into record + 0x0C.
     constexpr uintptr_t kBuildLayerAlpha   = 0x007B9DE0;
     constexpr uint32_t  kSamplerDiffuse    = 0x15;

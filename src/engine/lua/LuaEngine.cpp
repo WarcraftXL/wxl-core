@@ -32,6 +32,7 @@
 #include "engine/lua/methods/WorldPickMethods.hpp"
 #include "engine/lua/methods/SoundMethods.hpp"
 #include "engine/lua/methods/WindMethods.hpp"
+#include "engine/lua/methods/AdtMethods.hpp"
 #include "engine/lua/ui/Texture.hpp"
 #include "engine/lua/events/EventBridge.hpp"
 #include "engine/lua/events/FrameEvents.hpp"
@@ -145,6 +146,7 @@ namespace wxl::lua
         methods::charmodel::Register(L); // wxl.charmodel.* (reads an item_slot_* lightuserdata)
         methods::sound::Register(L);     // wxl.sound.*     (volume reads + set_master_volume)
         methods::wind::Register(L);      // wxl.wind.*      (grass-wind tuning + integrator readout)
+        methods::adt::Register(L);       // wxl.adt.*       (split-ADT reader state + tile status)
         events::Bind(L); // adds wxl.on and binds the bridge to this state
         lua_setglobal(L, "wxl");
 

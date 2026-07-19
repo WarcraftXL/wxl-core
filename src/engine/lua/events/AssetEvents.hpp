@@ -36,6 +36,8 @@
 ///   "wmo_group_load"     -> OnWmoGroupLoad    fn(group)                         a WMO group buffer was read, pre-walk (lightuserdata).
 ///   "adt_chunk"          -> OnAdtChunkBuild   fn(layerCount, chunk)             an ADT map chunk is being built.
 ///                            layerCount is int; chunk is lightuserdata.
+///   "adt_split_tile_load"-> OnAdtSplitTileLoad fn(tileX, tileY, rootSize, texSize, objSize, chunks)
+///                            a split (Cata+) ADT tile finished its root/_tex0/_obj0 load; all ints.
 ///   "doodad_spawn"       -> OnDoodadSpawn     fn(doodad)                        a placed map doodad was built (lightuserdata).
 ///   "item_slot_change"   -> OnItemSlotChange  fn(modelSlot, charModel, itemData) a char-model slot received an item.
 ///                            modelSlot is int; charModel and itemData are lightuserdata.
@@ -98,6 +100,20 @@ namespace wxl::lua::events::asset
         return 2;
     }
 
+    /// OnAdtSplitTileLoad: push the tile indices, the three resident buffer sizes and the indexed
+    /// chunk count as plain integers (no pointers cross into Lua here).
+    inline int PushAdtSplitTileLoad(lua_State* L, const void* args)
+    {
+        const auto* a = static_cast<const wxl::events::AdtSplitTileLoadArgs*>(args);
+        lua_pushinteger(L, a->tileFirst);
+        lua_pushinteger(L, a->tileSecond);
+        lua_pushinteger(L, static_cast<lua_Integer>(a->rootSize));
+        lua_pushinteger(L, static_cast<lua_Integer>(a->texSize));
+        lua_pushinteger(L, static_cast<lua_Integer>(a->objSize));
+        lua_pushinteger(L, static_cast<lua_Integer>(a->chunkCount));
+        return 6;
+    }
+
     /// OnDoodadSpawn: push the doodad pointer as lightuserdata.
     inline int PushDoodadSpawn(lua_State* L, const void* args)
     {
@@ -157,6 +173,7 @@ namespace wxl::lua::events::asset
         events::Declare("wmo_root_load",      Event::OnWmoRootLoad,      &PushWmoRoot);
         events::Declare("wmo_group_load",     Event::OnWmoGroupLoad,     &PushWmoGroup);
         events::Declare("adt_chunk",          Event::OnAdtChunkBuild,    &PushAdtChunk);
+        events::Declare("adt_split_tile_load", Event::OnAdtSplitTileLoad, &PushAdtSplitTileLoad);
         events::Declare("doodad_spawn",       Event::OnDoodadSpawn,      &PushDoodadSpawn);
         events::Declare("item_slot_change",   Event::OnItemSlotChange,   &PushItemSlotChange);
         events::Declare("item_slot_clear",    Event::OnItemSlotClear,    &PushItemSlotClear);

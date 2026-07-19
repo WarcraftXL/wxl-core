@@ -157,10 +157,23 @@ namespace wxl::offsets::game::world
     // must forward them, else the original runs with garbage a/b read off the stack.
     using AsyncServiceQueuesFn = int(__cdecl*)(int a, int b);
 
-    // Cancel + recycle an in-flight async read object: unlinks it from the completed queue so its
-    // completion never runs. Used to retire a chunk's pending read before its buffer is freed.
+    // Cancel + recycle an in-flight async read object (AsyncFileReadDestroyObject): spin-waits an
+    // in-service read, unlinks a queued completion so it never runs, CLOSES the object's file handle
+    // (+0x00), and recycles the node. Used to retire a tile's pending read before its buffer is freed.
     constexpr uintptr_t kAsyncDestroy = 0x004B9DE0;
     using AsyncDestroyFn = void(__cdecl*)(void* asyncObj);
+
+    // Allocate (or recycle) one zero-initialized 0x30-byte CAsyncObject. The caller fills
+    // +0x00 file / +0x04 dest buffer / +0x08 size / +0x0C ctx / +0x10 completion (__cdecl, one arg =
+    // ctx, invoked on the MAIN thread by the completion drain) and enqueues via kAsyncFileReadObject.
+    constexpr uintptr_t kAsyncFileReadAllocObject = 0x004BA170;
+    using AsyncFileReadAllocObjectFn = void*(__cdecl*)();
+    // CAsyncObject field offsets (verified against CMapArea::Load 0x007D7150 and the drain).
+    constexpr size_t kOffAsyncFile     = 0x00;
+    constexpr size_t kOffAsyncBuffer   = 0x04;
+    constexpr size_t kOffAsyncSize     = 0x08;
+    constexpr size_t kOffAsyncCtx      = 0x0C;
+    constexpr size_t kOffAsyncCallback = 0x10;
 
     // --- async disk-queue producer (multithreading) ---
     // Creates the non-streaming "Disk Queue" worker (1 in our context; native code supports up to 3,

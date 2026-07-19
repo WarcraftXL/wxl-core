@@ -51,4 +51,8 @@ namespace wxl::features
     inline constexpr bool kModernBlp = kModernAssets && true; // BLP/texture transcode + mip scratch widen
     inline constexpr bool kDiag         = true; // asset-load and frame-hitch diagnostics
     inline constexpr bool kGrassWind    = true; // detail-doodad (grass) wind sway: native shear injection
+    // Native Cata+ split-ADT tile reader (root + _tex0 + _obj0 -> direct-fill of the stock CMapChunk).
+    // Safe default: split-ness is probed once per map and cached; a non-split (stock 3.3.5) map takes
+    // the untouched native path -- the detours add only a cached-map lookup per tile load.
+    inline constexpr bool kAdtSplit     = true;
 }

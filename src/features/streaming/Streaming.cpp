@@ -42,7 +42,7 @@ namespace
     wld::AsyncFileReadInitializeFn g_origAsyncFileReadInit   = nullptr;
     wld::AsyncFileReadObjectFn     g_origAsyncFileReadObject = nullptr; // captured, never called: hkAsyncFileReadObject fully replaces the original
     adt::Map_ChunkBuildFn          g_origChunkBuild          = nullptr;
-    adt::ChunkDestroyFn            g_origChunkDestroy        = nullptr;
+    adt::TileAreaDestroyFn         g_origTileAreaDestroy     = nullptr;
 
     // Per-thread async-drain recursion depth. A texture build force-waits nested reads, which re-enter the
     // completion drain; a nested pump running unrelated completions frees / rewrites a buffer the outer
@@ -316,25 +316,26 @@ namespace
     }
 
     /**
-     * @brief Detours map-chunk teardown to cancel its in-flight async read before the buffer is freed.
+     * @brief Detours TILE-AREA teardown (CMapArea::destructor -- historically misnamed "ChunkDestroy")
+     *        to cancel the tile's in-flight async read before its file buffer is freed.
      *
-     * The chunk's completed-read callback parses the chunk's IO buffer (+0x80). If a teardown frees that
+     * The tile's completed-read callback parses the tile's IO buffer (+0x80). If a teardown frees that
      * buffer while the read is still queued, the later completion parses freed memory and faults
      * (0x7d6f05). Retiring the async object (+0x70) here unlinks the pending completion first.
-     * @param chunk  CMapChunk being destroyed (ECX).
+     * @param area  CMapArea (tile) being destroyed (ECX).
      */
-    void __fastcall hkChunkDestroy(void* chunk)
+    void __fastcall hkTileAreaDestroy(void* area)
     {
-        if (chunk)
+        if (area)
         {
-            auto* slot = reinterpret_cast<void**>(static_cast<uint8_t*>(chunk) + adt::kOffChunkAsyncObj);
+            auto* slot = reinterpret_cast<void**>(static_cast<uint8_t*>(area) + adt::kOffTileAsyncRead);
             if (*slot)
             {
                 reinterpret_cast<wld::AsyncDestroyFn>(wld::kAsyncDestroy)(*slot);
                 *slot = nullptr;
             }
         }
-        g_origChunkDestroy(chunk);
+        g_origTileAreaDestroy(area);
     }
 
     /**
@@ -365,10 +366,12 @@ namespace
                            &hkAsyncDrain, &g_origAsyncDrain);
         wxl::hook::Install("ChunkBuild", adt::kChunkBuild,
                            &hkChunkBuild, &g_origChunkBuild);
-        // ChunkDestroy (ADT cancel-on-teardown) temporarily disabled: it correlates with a render-path
-        // null-deref (0x7c846c) and the cancel timing relative to a sibling free is unconfirmed. Re-enable
-        // once that ordering is confirmed as teardown rather than a sibling free.
-        (void)&hkChunkDestroy; (void)&g_origChunkDestroy;
+        // TileAreaDestroy (ADT cancel-on-teardown, ex "ChunkDestroy") temporarily disabled: it correlates
+        // with a render-path null-deref (0x7c846c) and the cancel timing relative to a sibling free is
+        // unconfirmed. Re-enable once that ordering is confirmed as teardown rather than a sibling free.
+        // (The adt-split feature installs its own detour on the same address for split-tile side-store
+        // teardown; MinHook chains them if both are ever enabled.)
+        (void)&hkTileAreaDestroy; (void)&g_origTileAreaDestroy;
         return true;
     }
 }

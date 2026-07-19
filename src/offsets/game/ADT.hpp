@@ -38,31 +38,73 @@ namespace wxl::offsets::game::adt
     // taking the default (no water-surface bump) path like the guarded consumers.
     constexpr uintptr_t kLiquidRowFlagTest = 0x007C846C;
 
-    // Map-chunk teardown (__fastcall, ecx=chunk). Frees the chunk's async IO buffer at +0x80 while a
-    // queued async-read completion may still target it; hooked to cancel that read (the async object at
-    // +0x70) before the free so the completion cannot run against freed memory.
-    constexpr uintptr_t kChunkDestroy = 0x007D6E10;
-    using ChunkDestroyFn = void(__fastcall*)(void* chunk);
-    constexpr size_t kOffChunkAsyncObj = 0x70; // CMapChunk -> CAsyncObject* for its in-flight read
+    // TILE-AREA teardown (CMapArea::destructor, __thiscall via ECX=area) -- NOT a chunk destructor.
+    // The historical name "ChunkDestroy" was a misnomer: this is the per-TILE object (CMapArea) whose
+    // raw ADT file buffer at area+0x80 is freed here while a queued async-read completion may still
+    // target it; a cancel hook retires the async object at area+0x70 before the free.
+    constexpr uintptr_t kTileAreaDestroy = 0x007D6E10;
+    using TileAreaDestroyFn = void(__fastcall*)(void* area);
+    // Deprecated aliases (same address/field, kept so no published offset is ever deleted): the old
+    // names wrongly said "chunk"; the object is the CMapArea tile. kOffChunkAsyncObj duplicates
+    // kOffTileAsyncRead below -- it is the SAME +0x70 field of the SAME CMapArea object.
+    constexpr uintptr_t kChunkDestroy = kTileAreaDestroy;    // deprecated: use kTileAreaDestroy
+    using ChunkDestroyFn = TileAreaDestroyFn;                // deprecated: use TileAreaDestroyFn
+    constexpr size_t kOffChunkAsyncObj = 0x70;               // deprecated: use kOffTileAsyncRead
     // Near-tile placed-object counter (chunk, &progress, total) -> count of placed-object children still
     // loading that overlap the chunk box.
     constexpr uintptr_t kNearObjectCount = 0x007B50B0;
 
     // --- tile-slot grid ---
-    // Tile-slot grid base: a 64x64 array of tile-area pointers (stride 4). Slot index is X-major
-    // (tileX * 64 + tileY).
+    // Tile-slot grid base: a 64x64 array of tile-area pointers (stride 4). Slot index is
+    // secondFilenameNumber * 64 + firstFilenameNumber, where the two numbers are the "%d_%d" of the
+    // "<Map>_%d_%d.adt" tile name (area+0x48 = first, area+0x4C = second). NOTE the old comment said
+    // "X-major (tileX*64 + tileY)": that was correct only under a swapped naming where "tileX" meant
+    // the SECOND filename number. Phasing's PhaseHasTile uses the true second*64+first form.
     constexpr uintptr_t kTileSlots   = 0x00CE48D0;
     constexpr uint32_t  kTileGridDim = 64;   // tiles per axis
     constexpr size_t    kTileSlotStride = 0x04;
     // Detailed/streaming-path selector (u32).
     constexpr uintptr_t kStreamingPathSelector = 0x00CE0494;
 
-    // --- tile-area object fields ---
-    constexpr size_t kOffTileAsyncRead = 0x70; // non-zero while the tile root read is in flight
-    constexpr size_t kOffTileFileBuffer = 0x80; // non-zero once the tile file buffer is allocated
+    // --- tile-area (CMapArea) object fields ---
+    constexpr size_t kOffTileAsyncRead  = 0x70; // CAsyncObject*; non-zero while a tile read is in flight
+    constexpr size_t kOffTileFileBuffer = 0x80; // raw ADT byte buffer; freed by kTileAreaDestroy
+    constexpr size_t kOffTileFileHandle = 0x6C; // SFile* of the open tile file (closed by async destroy)
+    constexpr size_t kOffTileFileSize   = 0x84; // byte size of the +0x80 buffer
+    constexpr size_t kOffTileIdxFirst   = 0x48; // first  %d of "<Map>_%d_%d.adt"
+    constexpr size_t kOffTileIdxSecond  = 0x4C; // second %d of "<Map>_%d_%d.adt"
+
+    // --- tile-area load / parse seam (used by the native split-ADT reader) ---
+    // CMapArea::Load (__thiscall: ECX = area, one stack arg = tile filename): opens the tile file,
+    // allocates the raw buffer (+0x80/+0x84) and queues the whole-file async read (+0x70) whose
+    // main-thread completion is CMapArea::AsyncLoadCallback -> CMapArea::Create.
+    constexpr uintptr_t kTileAreaLoad = 0x007D7150;
+    using TileAreaLoadFn = void(__fastcall*)(void* area, void* edx, const char* filename);
+    // CMapArea::Create (__thiscall via ECX, no args): the monolithic top-level parser. Reads ONLY
+    // MVER + the 12 MHDR offsets of the buffer at area+0x80 and stores derived pointers/counts at
+    // area+0x68..+0xB8 (MCIN/MTEX/MMDX/MMID/MWMO/MWID/MDDF/MODF/MFBO/MH2O/MTXF).
+    constexpr uintptr_t kTileAreaCreate = 0x007D6EF0;
+    using TileAreaCreateFn = void(__fastcall*)(void* area, void* edx);
+    // Native async-read completion (__cdecl, ctx = area): Create + async destroy + zero +0x70/+0x6C.
+    constexpr uintptr_t kTileAreaAsyncLoadCallback = 0x007D7020;
+    // CMapChunk::ProcessIffChunks (__thiscall: ECX = chunk, one stack arg = firstBuild): the
+    // SEQUENTIAL sub-chunk walk over the raw MCNK at chunk+0x10C that assigns the sub-chunk data
+    // pointers at chunk+0x11C..+0x13C (3.3.5 never reads the MCNK-internal ofs* fields). Called only
+    // by CMapChunk::Create. firstBuild!=0 patches MCNR/MCAL/MCLQ size fields in place once.
+    constexpr uintptr_t kChunkProcessIffChunks = 0x007C3A10;
+    using ChunkProcessIffChunksFn = void(__fastcall*)(void* chunk, void* edx, int firstBuild);
+    // Raw tile-buffer allocator/free pair (plain SMemAlloc/SMemFree wrappers, MapMem.cpp). The free
+    // takes (ptr, size) but ignores size. The tile destructor frees +0x80 through the free half.
+    constexpr uintptr_t kAllocRawAreaData = 0x007BFE40;
+    using AllocRawAreaDataFn = void*(__cdecl*)(uint32_t size);
+    constexpr uintptr_t kFreeRawAreaData = 0x007BFE60;
+    using FreeRawAreaDataFn = void(__cdecl*)(void* buffer, uint32_t size);
+    // WDT MPHD flags global (first dword of the 0x20-byte MPHD copy): bit1 = MCCV vertex format,
+    // bit2 = big (4096-byte, 8-bit) MCAL. Consulted live at every alpha unpack site.
+    constexpr uintptr_t kMphdFlags = 0x00CF08D0;
 
     // --- runtime chunk object fields ---
-    constexpr size_t kOffChunkNodeLayerCount = 0x09; // draw-node layer count
+    constexpr size_t kOffChunkNodeLayerCount = 0x09; // draw-node (CMapRenderChunk) layer count
     // CMapChunk -> MCNK 128-byte data header (= raw MCNK ptr + 8-byte tag). The authoritative texture-layer
     // count (SMChunk.nLayers, 0..4) lives at header + 0x0C.
     constexpr size_t kOffChunkMcnkHeader = 0x110;
@@ -72,6 +114,17 @@ namespace wxl::offsets::game::adt
     // size, so physical-layer-count = *(mclyBase - 4) / 0x10.
     constexpr size_t kOffChunkMcly       = 0x12C;
     constexpr size_t kOffChunkMcal       = 0x130;
+    // The full CMapChunk sub-chunk pointer block ProcessIffChunks fills (+0x11C..+0x13C). Every
+    // consumer (vertex/bounds/intersect/alpha/shadow/liquid/refs/sound builds) reads these LIVE, so
+    // whatever they point at must stay resident for the whole tile lifetime.
+    constexpr size_t kOffChunkRawMcnk    = 0x10C; // raw MCNK (tag+size header) inside the tile buffer
+    constexpr size_t kOffChunkMcvt       = 0x11C; // 145 floats, relative heights
+    constexpr size_t kOffChunkMccv       = 0x120; // 145 x BGRA vertex colors (vertex format 2 only)
+    constexpr size_t kOffChunkMcnr       = 0x124; // 435 signed normal bytes
+    constexpr size_t kOffChunkMcsh       = 0x128; // 512-byte shadow bitmap (hdr flags bit0 gates use)
+    constexpr size_t kOffChunkMcrf       = 0x134; // u32 refs: doodads first (nDoodadRefs) then wmos
+    constexpr size_t kOffChunkMclq       = 0x138; // legacy liquid layers (hdr sizeLiquid > 8 gates)
+    constexpr size_t kOffChunkMcse       = 0x13C; // sound emitters (hdr nSndEmitters gates)
     // Primitive/draw-batch descriptor (the 145-vertex MCVT grid VB/IB) passed to the device Draw method.
     constexpr size_t kOffChunkDrawBatch  = 0x90;
     // Source of the tile tex-owner object: (*(chunkObj+0x20) & ~1) + 8.
@@ -236,16 +289,27 @@ namespace wxl::offsets::game::adt
     static_assert(offsetof(TileArea, asyncRead)  == kOffTileAsyncRead,  "TileArea.asyncRead");
     static_assert(offsetof(TileArea, fileBuffer) == kOffTileFileBuffer, "TileArea.fileBuffer");
 
-    /** @brief Runtime chunk object (CMapChunk): draw-node layer count and the MCNK data-header pointer. */
+    /**
+     * @brief Runtime chunk object (CMapChunk): the MCNK data-header pointer.
+     *
+     * The old single struct conflated two objects: nodeLayerCount @0x09 is a CMapRenderChunk (draw
+     * node) field, while mcnkHeader @0x110 is a CMapChunk field. They are now two typed views --
+     * MapChunk for the CMapChunk, RenderNode for the CMapRenderChunk reached via chunk+0xA8.
+     */
     struct MapChunk
+    {
+        uint8_t  _pad00[kOffChunkMcnkHeader];
+        void*    mcnkHeader;       // kOffChunkMcnkHeader -> McnkHeader (raw MCNK ptr + 8-byte tag)
+    };
+    static_assert(offsetof(MapChunk, mcnkHeader) == kOffChunkMcnkHeader, "MapChunk.mcnkHeader");
+
+    /** @brief Draw node (CMapRenderChunk, chunk+0xA8): the per-node layer count. */
+    struct RenderNode
     {
         uint8_t  _pad00[kOffChunkNodeLayerCount];
         uint8_t  nodeLayerCount;   // kOffChunkNodeLayerCount (draw-node layer count)
-        uint8_t  _pad0a[kOffChunkMcnkHeader - (kOffChunkNodeLayerCount + sizeof(uint8_t))];
-        void*    mcnkHeader;       // kOffChunkMcnkHeader -> McnkHeader (raw MCNK ptr + 8-byte tag)
     };
-    static_assert(offsetof(MapChunk, nodeLayerCount) == kOffChunkNodeLayerCount, "MapChunk.nodeLayerCount");
-    static_assert(offsetof(MapChunk, mcnkHeader)     == kOffChunkMcnkHeader,     "MapChunk.mcnkHeader");
+    static_assert(offsetof(RenderNode, nodeLayerCount) == kOffChunkNodeLayerCount, "RenderNode.nodeLayerCount");
 
     /** @brief MCNK 128-byte data header (chunk->mcnkHeader): the authoritative texture-layer count. */
     struct McnkHeader

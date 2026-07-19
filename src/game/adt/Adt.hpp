@@ -51,16 +51,21 @@ namespace wxl::game::adt
     }
 
     /**
-     * @brief Reads a tile-slot pointer from the X-major tile grid.
-     * @param tileX  Tile X index.
-     * @param tileY  Tile Y index.
-     * @return The tile-slot pointer, or null when out of range.
+     * @brief Reads a tile-slot pointer from the 64x64 tile grid.
+     *
+     * The true slot index is secondFilenameNumber * 64 + firstFilenameNumber, where the numbers are
+     * the "%d_%d" of the "<Map>_%d_%d.adt" tile name (area+0x48 first, area+0x4C second). The old
+     * parameter names (tileX/tileY) matched that formula only under a swapped naming where "tileX"
+     * meant the second number; the parameters are renamed to the filename semantics, formula unchanged.
+     * @param tileSecond  Second %d of the tile filename (the row of the grid walk).
+     * @param tileFirst   First %d of the tile filename.
+     * @return The tile-area pointer, or null when out of range / not resident.
      */
-    inline void* TileSlot(uint32_t tileX, uint32_t tileY)
+    inline void* TileSlot(uint32_t tileSecond, uint32_t tileFirst)
     {
-        if (tileX >= off::kTileGridDim || tileY >= off::kTileGridDim)
+        if (tileSecond >= off::kTileGridDim || tileFirst >= off::kTileGridDim)
             return nullptr;
-        return *reinterpret_cast<void**>(off::kTileSlots + (tileX * off::kTileGridDim + tileY) * off::kTileSlotStride);
+        return *reinterpret_cast<void**>(off::kTileSlots + (tileSecond * off::kTileGridDim + tileFirst) * off::kTileSlotStride);
     }
 
     /** @brief Adds the ADT bindings to the enumerable catalog. */

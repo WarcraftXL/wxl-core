@@ -66,9 +66,11 @@ namespace wxl::lua::methods::charmodel
      */
     inline void Register(lua_State* L)
     {
-        lua_newtable(L);                                                    // [wxl, charmodel]
-        lua_pushcfunction(L, &L_race);   lua_setfield(L, -2, "race");
-        lua_pushcfunction(L, &L_gender); lua_setfield(L, -2, "gender");
-        lua_setfield(L, -2, "charmodel");                                   // [wxl]
+        static const luaL_Reg fns[] = {
+            { "race",   L_race },
+            { "gender", L_gender },
+            { nullptr, nullptr },
+        };
+        RegisterModule(L, "charmodel", fns);
     }
 }

@@ -151,12 +151,14 @@ namespace wxl::lua::methods::world
      */
     inline void Register(lua_State* L)
     {
-        lua_newtable(L);                                                  // [wxl, world]
-        lua_pushcfunction(L, &L_mapId);     lua_setfield(L, -2, "map_id");
-        lua_pushcfunction(L, &L_isLoaded);  lua_setfield(L, -2, "is_loaded");
-        lua_pushcfunction(L, &L_mapName);   lua_setfield(L, -2, "map_name");
-        lua_pushcfunction(L, &L_mapDir);    lua_setfield(L, -2, "map_dir");
-        lua_pushcfunction(L, &L_viewport);  lua_setfield(L, -2, "viewport");
-        lua_setfield(L, -2, "world");                                     // [wxl]
+        static const luaL_Reg fns[] = {
+            { "map_id",    L_mapId },
+            { "is_loaded", L_isLoaded },
+            { "map_name",  L_mapName },
+            { "map_dir",   L_mapDir },
+            { "viewport",  L_viewport },
+            { nullptr, nullptr },
+        };
+        RegisterModule(L, "world", fns);
     }
 }

@@ -70,6 +70,34 @@ namespace wxl::lua
     }
 
     /**
+     * @brief Sets a null-terminated {name, fn} array into the table on top of the stack. Stack-neutral.
+     *
+     * The one loop that replaces a column of lua_pushcfunction / lua_setfield pairs: a context lists its
+     * functions once, in an array that reads as a table of contents. LuaJIT's luaL_register(L, NULL, ...)
+     * writes each entry into the table already on top (no global pollution).
+     * @param L    the Lua state, with the target table at index -1.
+     * @param fns  null-terminated array of {name, lua_CFunction}.
+     */
+    inline void SetFunctions(lua_State* L, const luaL_Reg* fns)
+    {
+        luaL_register(L, nullptr, fns);
+    }
+
+    /**
+     * @brief Creates a fresh subtable, fills it from fns, and stores it as field `name` of the table on
+     *        top of the stack. Stack-neutral (the parent table stays on top). The `wxl.<ctx>` idiom.
+     * @param L     the Lua state, with the parent table (e.g. `wxl`) at index -1.
+     * @param name  the field name the subtable is stored under (e.g. "sound").
+     * @param fns   null-terminated array of {name, lua_CFunction}.
+     */
+    inline void RegisterModule(lua_State* L, const char* name, const luaL_Reg* fns)
+    {
+        lua_newtable(L);              // [parent, module]
+        luaL_register(L, nullptr, fns);
+        lua_setfield(L, -2, name);    // [parent]
+    }
+
+    /**
      * @brief Creates (or fetches) a named metatable in the registry and populates its metamethods.
      *        The metatable is left popped; look it up later with luaL_getmetatable(L, name).
      * @param L        the Lua state.

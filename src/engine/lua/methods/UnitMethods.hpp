@@ -176,8 +176,12 @@ namespace wxl::lua::methods::unit
         lua_pop(L, 2);                                                       // [wxl]
 
         // Global accessors onto the wxl table.
-        lua_pushcfunction(L, &L_player);    lua_setfield(L, -2, "player");
-        lua_pushcfunction(L, &L_target);    lua_setfield(L, -2, "target");
-        lua_pushcfunction(L, &L_mouseover); lua_setfield(L, -2, "mouseover");
+        static const luaL_Reg accessors[] = {
+            { "player",    L_player },
+            { "target",    L_target },
+            { "mouseover", L_mouseover },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, accessors);
     }
 }

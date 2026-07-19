@@ -192,16 +192,18 @@ namespace wxl::lua::methods::doodad
      */
     inline void Register(lua_State* L)
     {
-        lua_newtable(L);                                                       // [wxl, doodad]
-        lua_pushcfunction(L, &L_isValid);     lua_setfield(L, -2, "is_valid");
-        lua_pushcfunction(L, &L_position);    lua_setfield(L, -2, "position");
-        lua_pushcfunction(L, &L_scale);       lua_setfield(L, -2, "scale");
-        lua_pushcfunction(L, &L_flags);       lua_setfield(L, -2, "flags");
-        lua_pushcfunction(L, &L_modelName);   lua_setfield(L, -2, "model_name");
-        lua_pushcfunction(L, &L_center);      lua_setfield(L, -2, "center");
-        lua_pushcfunction(L, &L_bbox);        lua_setfield(L, -2, "bbox");
-        lua_pushcfunction(L, &L_localBounds); lua_setfield(L, -2, "local_bounds");
-        lua_pushcfunction(L, &L_worldMatrix); lua_setfield(L, -2, "world_matrix");
-        lua_setfield(L, -2, "doodad");                                         // [wxl]
+        static const luaL_Reg fns[] = {
+            { "is_valid",     L_isValid },
+            { "position",     L_position },
+            { "scale",        L_scale },
+            { "flags",        L_flags },
+            { "model_name",   L_modelName },
+            { "center",       L_center },
+            { "bbox",         L_bbox },
+            { "local_bounds", L_localBounds },
+            { "world_matrix", L_worldMatrix },
+            { nullptr, nullptr },
+        };
+        RegisterModule(L, "doodad", fns);
     }
 }

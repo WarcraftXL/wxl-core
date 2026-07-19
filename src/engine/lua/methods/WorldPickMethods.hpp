@@ -85,9 +85,13 @@ namespace wxl::lua::methods::worldpick
      */
     inline void Register(lua_State* L)
     {
-        lua_getfield(L, -1, "world");                                              // [wxl, world]
-        lua_pushcfunction(L, &L_pick);          lua_setfield(L, -2, "pick");
-        lua_pushcfunction(L, &L_focusPosition); lua_setfield(L, -2, "focus_position");
-        lua_pop(L, 1);                                                             // [wxl]
+        static const luaL_Reg fns[] = {
+            { "pick",           L_pick },
+            { "focus_position", L_focusPosition },
+            { nullptr, nullptr },
+        };
+        lua_getfield(L, -1, "world"); // [wxl, world] — extend the subtable WorldMethods created
+        SetFunctions(L, fns);
+        lua_pop(L, 1);                // [wxl]
     }
 }

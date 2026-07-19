@@ -103,36 +103,38 @@ namespace wxl::lua::methods::wind
      */
     inline void Register(lua_State* L)
     {
-        lua_newtable(L);                                                                      // [wxl, wind]
-        lua_pushcfunction(L, &L_installed);        lua_setfield(L, -2, "installed");
-        lua_pushcfunction(L, &L_enabled);          lua_setfield(L, -2, "enabled");
-        lua_pushcfunction(L, &L_setEnabled);       lua_setfield(L, -2, "set_enabled");
-        lua_pushcfunction(L, &L_direction);        lua_setfield(L, -2, "direction");
-        lua_pushcfunction(L, &L_setDirection);     lua_setfield(L, -2, "set_direction");
-        lua_pushcfunction(L, &L_speed);            lua_setfield(L, -2, "speed");
-        lua_pushcfunction(L, &L_setSpeed);         lua_setfield(L, -2, "set_speed");
-        lua_pushcfunction(L, &L_amplitude);        lua_setfield(L, -2, "amplitude");
-        lua_pushcfunction(L, &L_setAmplitude);     lua_setfield(L, -2, "set_amplitude");
-        lua_pushcfunction(L, &L_wavelength);       lua_setfield(L, -2, "wavelength");
-        lua_pushcfunction(L, &L_setWavelength);    lua_setfield(L, -2, "set_wavelength");
-        lua_pushcfunction(L, &L_lean);             lua_setfield(L, -2, "lean");
-        lua_pushcfunction(L, &L_setLean);          lua_setfield(L, -2, "set_lean");
-        lua_pushcfunction(L, &L_variance);         lua_setfield(L, -2, "variance");
-        lua_pushcfunction(L, &L_setVariance);      lua_setfield(L, -2, "set_variance");
-        lua_pushcfunction(L, &L_anchor);           lua_setfield(L, -2, "anchor");
-        lua_pushcfunction(L, &L_setAnchor);        lua_setfield(L, -2, "set_anchor");
-        lua_pushcfunction(L, &L_distanceFade);     lua_setfield(L, -2, "distance_fade");
-        lua_pushcfunction(L, &L_setDistanceFade);  lua_setfield(L, -2, "set_distance_fade");
-        lua_pushcfunction(L, &L_crossAmplitude);   lua_setfield(L, -2, "cross_amplitude");
-        lua_pushcfunction(L, &L_setCrossAmplitude);lua_setfield(L, -2, "set_cross_amplitude");
-        lua_pushcfunction(L, &L_crossAngle);       lua_setfield(L, -2, "cross_angle");
-        lua_pushcfunction(L, &L_setCrossAngle);    lua_setfield(L, -2, "set_cross_angle");
-        lua_pushcfunction(L, &L_repelEnabled);     lua_setfield(L, -2, "repel_enabled");
-        lua_pushcfunction(L, &L_setRepelEnabled);  lua_setfield(L, -2, "set_repel_enabled");
-        lua_pushcfunction(L, &L_repelRadius);      lua_setfield(L, -2, "repel_radius");
-        lua_pushcfunction(L, &L_setRepelRadius);   lua_setfield(L, -2, "set_repel_radius");
-        lua_pushcfunction(L, &L_repelForce);       lua_setfield(L, -2, "repel_force");
-        lua_pushcfunction(L, &L_setRepelForce);    lua_setfield(L, -2, "set_repel_force");
-        lua_setfield(L, -2, "wind");                                                          // [wxl]
+        static const luaL_Reg fns[] = {
+            { "installed",           L_installed },
+            { "enabled",             L_enabled },
+            { "set_enabled",         L_setEnabled },
+            { "direction",           L_direction },
+            { "set_direction",       L_setDirection },
+            { "speed",               L_speed },
+            { "set_speed",           L_setSpeed },
+            { "amplitude",           L_amplitude },
+            { "set_amplitude",       L_setAmplitude },
+            { "wavelength",          L_wavelength },
+            { "set_wavelength",      L_setWavelength },
+            { "lean",                L_lean },
+            { "set_lean",            L_setLean },
+            { "variance",            L_variance },
+            { "set_variance",        L_setVariance },
+            { "anchor",              L_anchor },
+            { "set_anchor",          L_setAnchor },
+            { "distance_fade",       L_distanceFade },
+            { "set_distance_fade",   L_setDistanceFade },
+            { "cross_amplitude",     L_crossAmplitude },
+            { "set_cross_amplitude", L_setCrossAmplitude },
+            { "cross_angle",         L_crossAngle },
+            { "set_cross_angle",     L_setCrossAngle },
+            { "repel_enabled",       L_repelEnabled },
+            { "set_repel_enabled",   L_setRepelEnabled },
+            { "repel_radius",        L_repelRadius },
+            { "set_repel_radius",    L_setRepelRadius },
+            { "repel_force",         L_repelForce },
+            { "set_repel_force",     L_setRepelForce },
+            { nullptr, nullptr },
+        };
+        RegisterModule(L, "wind", fns);
     }
 }

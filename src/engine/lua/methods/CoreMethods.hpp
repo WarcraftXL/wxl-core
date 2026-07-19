@@ -17,6 +17,7 @@
 #pragma once
 
 #include "engine/lua/LuaJit.hpp"
+#include "engine/lua/Marshal.hpp"
 #include "common/Config.hpp"
 #include "common/Log.hpp"
 
@@ -67,10 +68,14 @@ namespace wxl::lua::methods::core
      */
     inline void Register(lua_State* L)
     {
-        lua_pushstring(L, kVersion);         lua_setfield(L, -2, "version");
-        lua_pushcfunction(L, &L_log);        lua_setfield(L, -2, "log");
-        lua_pushcfunction(L, &L_logDebug);   lua_setfield(L, -2, "log_debug");
-        lua_pushcfunction(L, &L_logWarn);    lua_setfield(L, -2, "log_warn");
-        lua_pushcfunction(L, &L_config);     lua_setfield(L, -2, "config");
+        static const luaL_Reg fns[] = {
+            { "log",       L_log },
+            { "log_debug", L_logDebug },
+            { "log_warn",  L_logWarn },
+            { "config",    L_config },
+            { nullptr, nullptr },
+        };
+        lua_pushstring(L, kVersion); lua_setfield(L, -2, "version"); // a value, not a function
+        SetFunctions(L, fns);                                        // log/log_debug/log_warn/config onto `wxl`
     }
 }

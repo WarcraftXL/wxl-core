@@ -101,11 +101,13 @@ namespace wxl::lua::methods::m2
      */
     inline void Register(lua_State* L)
     {
-        lua_newtable(L);                                                             // [wxl, m2]
-        lua_pushcfunction(L, &L_pathStem);      lua_setfield(L, -2, "path_stem");
-        lua_pushcfunction(L, &L_fileSize);      lua_setfield(L, -2, "file_size");
-        lua_pushcfunction(L, &L_flags);         lua_setfield(L, -2, "flags");
-        lua_pushcfunction(L, &L_instanceModel); lua_setfield(L, -2, "instance_model");
-        lua_setfield(L, -2, "m2");                                                   // [wxl]
+        static const luaL_Reg fns[] = {
+            { "path_stem",      L_pathStem },
+            { "file_size",      L_fileSize },
+            { "flags",          L_flags },
+            { "instance_model", L_instanceModel },
+            { nullptr, nullptr },
+        };
+        RegisterModule(L, "m2", fns);
     }
 }

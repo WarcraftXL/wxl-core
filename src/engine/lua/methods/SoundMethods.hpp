@@ -91,10 +91,12 @@ namespace wxl::lua::methods::sound
      */
     inline void Register(lua_State* L)
     {
-        lua_newtable(L);                                                                  // [wxl, sound]
-        lua_pushcfunction(L, &L_available);       lua_setfield(L, -2, "available");
-        lua_pushcfunction(L, &L_masterVolume);    lua_setfield(L, -2, "master_volume");
-        lua_pushcfunction(L, &L_setMasterVolume); lua_setfield(L, -2, "set_master_volume");
-        lua_setfield(L, -2, "sound");                                                     // [wxl]
+        static const luaL_Reg fns[] = {
+            { "available",         L_available },
+            { "master_volume",     L_masterVolume },
+            { "set_master_volume", L_setMasterVolume },
+            { nullptr, nullptr },
+        };
+        RegisterModule(L, "sound", fns);
     }
 }

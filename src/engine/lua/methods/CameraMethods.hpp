@@ -123,12 +123,14 @@ namespace wxl::lua::methods::camera
      */
     inline void Register(lua_State* L)
     {
-        lua_newtable(L);                                                       // [wxl, camera]
-        lua_pushcfunction(L, &L_position);     lua_setfield(L, -2, "position");
-        lua_pushcfunction(L, &L_view);         lua_setfield(L, -2, "view");
-        lua_pushcfunction(L, &L_projection);   lua_setfield(L, -2, "projection");
-        lua_pushcfunction(L, &L_viewProj);     lua_setfield(L, -2, "view_proj");
-        lua_pushcfunction(L, &L_worldToScreen);lua_setfield(L, -2, "world_to_screen");
-        lua_setfield(L, -2, "camera");                                         // [wxl]
+        static const luaL_Reg fns[] = {
+            { "position",        L_position },
+            { "view",            L_view },
+            { "projection",      L_projection },
+            { "view_proj",       L_viewProj },
+            { "world_to_screen", L_worldToScreen },
+            { nullptr, nullptr },
+        };
+        RegisterModule(L, "camera", fns);
     }
 }

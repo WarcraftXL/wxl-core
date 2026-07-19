@@ -142,13 +142,15 @@ namespace wxl::lua::methods::wmo
      */
     inline void Register(lua_State* L)
     {
-        lua_newtable(L);                                                            // [wxl, wmo]
-        lua_pushcfunction(L, &L_name);          lua_setfield(L, -2, "name");
-        lua_pushcfunction(L, &L_rootSize);      lua_setfield(L, -2, "root_size");
-        lua_pushcfunction(L, &L_groupCount);    lua_setfield(L, -2, "group_count");
-        lua_pushcfunction(L, &L_materialCount); lua_setfield(L, -2, "material_count");
-        lua_pushcfunction(L, &L_groupSize);     lua_setfield(L, -2, "group_size");
-        lua_pushcfunction(L, &L_interiorPath);  lua_setfield(L, -2, "interior_path");
-        lua_setfield(L, -2, "wmo");                                                 // [wxl]
+        static const luaL_Reg fns[] = {
+            { "name",           L_name },
+            { "root_size",      L_rootSize },
+            { "group_count",    L_groupCount },
+            { "material_count", L_materialCount },
+            { "group_size",     L_groupSize },
+            { "interior_path",  L_interiorPath },
+            { nullptr, nullptr },
+        };
+        RegisterModule(L, "wmo", fns);
     }
 }

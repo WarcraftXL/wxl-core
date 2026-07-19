@@ -61,7 +61,7 @@ namespace wxl::lua::methods::adt
 
     /// wxl.adt.split_stats() -> table: session counters of the split reader (split_maps,
     /// tiles_loaded, tiles_resident, chunks_filled, mcrf_bytes, parked_mtxp_tiles,
-    /// parked_mclv_chunks, parked_hole_chunks, load_failures).
+    /// parked_mclv_chunks, parked_hole_chunks, load_failures, wdl_read).
     inline int L_splitStats(lua_State* L)
     {
         const split::Stats s = split::GetStats();
@@ -75,6 +75,7 @@ namespace wxl::lua::methods::adt
         lua_pushinteger(L, static_cast<lua_Integer>(s.parkedMclvChunks));  lua_setfield(L, -2, "parked_mclv_chunks");
         lua_pushinteger(L, static_cast<lua_Integer>(s.parkedHoleChunks));  lua_setfield(L, -2, "parked_hole_chunks");
         lua_pushinteger(L, static_cast<lua_Integer>(s.loadFailures));      lua_setfield(L, -2, "load_failures");
+        lua_pushinteger(L, static_cast<lua_Integer>(s.wdlRead));           lua_setfield(L, -2, "wdl_read");
         return 1;
     }
 

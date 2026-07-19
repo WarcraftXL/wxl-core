@@ -103,6 +103,44 @@ namespace wxl::offsets::game::adt
     // bit2 = big (4096-byte, 8-bit) MCAL. Consulted live at every alpha unpack site.
     constexpr uintptr_t kMphdFlags = 0x00CF08D0;
 
+    // --- map low-detail (WDL) seam ---
+    // CMap::LoadWdl (MapLowDetail.cpp): opens "<mapPath>\<mapName>.wdl", SMemAlloc's the whole file
+    // into wdlState[0], then parses MVER -> optional MWMO/MWID/MODF -> MAOF -> per-tile MARE(+MAHO).
+    // Convention BYTE-VERIFIED against the 3.3.5.12340 export: true __thiscall (prologue
+    // 55 8B EC 81 EC 3C 01 00 00 .. 8B F9 = this out of ECX, epilogue C2 08 00 = two stack args),
+    // returns 1 on success / 0 when the .wdl does not open. Single caller: CMap__Load @ 0x007BFDD2
+    // with ECX = kWdlState and args (&CMap__mapPath, &CMap__mapName). Declared __fastcall with a
+    // dummy EDX so the trampoline routes wdlState into the this-register.
+    constexpr uintptr_t kLoadWdl = 0x007CC310;
+    using LoadWdlFn = uint32_t(__fastcall*)(int* wdlState, void* edx,
+                                            const char* mapPath, const char* mapName);
+    // The CMap WDL state block (the ECX of kLoadWdl), an int[0x100A] global:
+    //   [0]           raw .wdl file buffer (SMemAlloc; the unload SMemFree's it)
+    //   [1..3]        MWMO data / MWID data / MODF data pointers (WMO-only maps; else stale-zero)
+    //   [4]           MODF entry count (MODF size >> 6)
+    //   [5]           MAOF offset table = 64*64 u32 file offsets, 0 = no low-detail tile
+    //   [6..0x1005]   the 64x64 CMapAreaLow* tile-slot array (kWdlSlotCount entries)
+    //   [0x1006..0x1009] the low-detail map-obj-def growable-array block
+    // Zeroed whole at startup by the static ctor 0x007CC2C0, and on every map unload by
+    // CMap::UnloadWdl 0x007CC770 (frees+zeroes every slot, zeroes [1..5]/[0x1007], SMemFree's [0]).
+    // CMap__Load runs CMap__Purge (-> 0x007CC770 @ 0x007C3843) BEFORE kLoadWdl, so the block is
+    // always clean when kLoadWdl is entered.
+    constexpr uintptr_t kWdlState     = 0x00CF0900;
+    constexpr uint32_t  kWdlSlotCount = 64 * 64; // dimension of the [6..] slot array (0x1000)
+    // CMap::AllocAreaLow: pool-allocates one CMapAreaLow (the per-tile low-detail object stored in
+    // the kWdlState [6..] slots). BYTE-VERIFIED __cdecl, no args, pointer in EAX (prologue
+    // 55 8B EC 83 EC 08 8B 15 18 54 D2 00 -- pool head at 0xD25418 -- plain C3 ret). Fields the
+    // native kLoadWdl grid loop writes on the returned object: +0x04/+0x08/+0x0C min corner,
+    // +0x10/+0x14/+0x18 max corner, +0x1C/+0x20/+0x24 center, +0x28 radius, +0x2C/+0x30 world
+    // origin, +0x38/+0x3C column/row, +0x40 render-index byte budget (0xC per unholed cell),
+    // +0x44 MARE heightmap data (545 s16: 17x17 outer + 16x16 inner), +0x48 MAHO hole-mask data
+    // (16 u16) or 0.
+    constexpr uintptr_t kAllocAreaLow = 0x007C0A90;
+    using AllocAreaLowFn = void*(__cdecl*)();
+    // CMap::FreeAreaLow (landmark, not called by the core): the unload 0x007CC770 releases every
+    // non-null kWdlState slot through it before zeroing the slot.
+    constexpr uintptr_t kFreeAreaLow = 0x007C0C60;
+
     // --- runtime chunk object fields ---
     constexpr size_t kOffChunkNodeLayerCount = 0x09; // draw-node (CMapRenderChunk) layer count
     // CMapChunk -> MCNK 128-byte data header (= raw MCNK ptr + 8-byte tag). The authoritative texture-layer

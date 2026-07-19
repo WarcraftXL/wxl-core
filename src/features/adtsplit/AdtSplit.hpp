@@ -35,6 +35,7 @@ namespace wxl::runtime::adtsplit
         uint32_t parkedMclvChunks;  ///< chunks whose MCLV (baked light) is parked
         uint32_t parkedHoleChunks;  ///< chunks whose original high-res hole mask is parked
         uint32_t loadFailures;      ///< split loads that fell back / failed to parse
+        uint32_t wdlRead;           ///< Cata+ WDLs read directly into the stock low-detail runtime
     };
 
     /** @brief Returns a snapshot of the session counters. */

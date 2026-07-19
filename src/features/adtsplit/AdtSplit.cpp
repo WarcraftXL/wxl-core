@@ -219,6 +219,25 @@ namespace
         uint8_t* mtxp = nullptr; uint32_t mtxpSize = 0;    // into the resident _tex0 buffer
         uint8_t  mampValue = 0;                            // MHDR+0x30 / MAMP byte (zeroed for 3.3.5)
         uint32_t mclvChunks = 0, hiResHoleChunks = 0;
+
+        // Height-blend inputs. mhid mirrors mdid (index-aligned
+        // height-texture FileDataIDs); mtxfData/mtexData park the _tex0 MTXF flag table and MTEX
+        // name blob (both point into the resident _tex0 buffer) for the MTXP-default flag fallback
+        // and the name-based "_h.blp" derivation on tiles without FileDataIDs.
+        std::vector<uint32_t> mhid;
+        uint8_t* mtxfData = nullptr; uint32_t mtxfSize = 0;
+        uint8_t* mtexData = nullptr; uint32_t mtexSizeParked = 0;
+        /// Per-texture height slot, MTXP/MDID order. tex==null means "solid white" (default params,
+        /// flag 0x1, or an unresolvable file). owned marks handles this record must release. exp is
+        /// the UV-tiling exponent from the record's flags bits 4..7 (applies to the diffuse layer
+        /// whether or not a height texture exists).
+        struct HeightSlot
+        {
+            void* tex = nullptr; bool owned = false;
+            float scale = 0.0f; float offset = 1.0f; uint8_t exp = 0;
+        };
+        std::vector<HeightSlot> heightSlots;
+        bool heightBuilt = false;
     };
 
     std::mutex g_mutex; // guards the two maps below (loads are main-thread; Lua reads snapshot)
@@ -228,7 +247,7 @@ namespace
     std::atomic<uint32_t> g_statSplitMaps{ 0 }, g_statTilesLoaded{ 0 }, g_statTilesResident{ 0 },
         g_statChunksFilled{ 0 }, g_statMcrfBytes{ 0 }, g_statMtxpTiles{ 0 },
         g_statMclvChunks{ 0 }, g_statHoleChunks{ 0 }, g_statFailures{ 0 },
-        g_statWdlRead{ 0 };
+        g_statWdlRead{ 0 }, g_statHeightTex{ 0 };
 
     adt::TileAreaLoadFn            g_origTileAreaLoad       = nullptr;
     adt::ChunkProcessIffChunksFn  g_origProcessIff         = nullptr;
@@ -511,15 +530,21 @@ namespace
             uint32_t nTex = 0;
             WalkTop(t.texBuf, t.texSize, [&](uint32_t tag, uint8_t* hdr, uint32_t sz) {
                 if (tag == FourCC("MCNK")) { if (nTex < 256) WalkTexMcnk(t.chunks[nTex], hdr + 8, sz); ++nTex; }
-                else if (tag == FourCC("MTEX")) mtex = hdr;
-                else if (tag == FourCC("MTXF")) mtxf = hdr;
+                else if (tag == FourCC("MTEX")) { mtex = hdr; t.mtexData = hdr + 8; t.mtexSizeParked = sz; }
+                else if (tag == FourCC("MTXF")) { mtxf = hdr; t.mtxfData = hdr + 8; t.mtxfSize = sz; }
                 else if (tag == FourCC("MDID"))                                               // texture FileDataIDs
                 {
                     const uint32_t n = sz / 4u;
                     t.mdid.resize(n);
                     for (uint32_t i = 0; i < n; ++i) t.mdid[i] = Rd32(hdr + 8 + i * 4);
                 }
-                else if (tag == FourCC("MTXP")) { t.mtxp = hdr + 8; t.mtxpSize = sz; }        // parked
+                else if (tag == FourCC("MHID"))                                               // height FileDataIDs
+                {
+                    const uint32_t n = sz / 4u;
+                    t.mhid.resize(n);
+                    for (uint32_t i = 0; i < n; ++i) t.mhid[i] = Rd32(hdr + 8 + i * 4);
+                }
+                else if (tag == FourCC("MTXP")) { t.mtxp = hdr + 8; t.mtxpSize = sz; }        // height params
                 else if (tag == FourCC("MAMP")) { if (sz) t.mampValue = hdr[8]; }             // parked
             });
         }
@@ -543,6 +568,12 @@ namespace
 
         const bool skipObjects = wxl::features::kAdtSplitSkipObjects;
         if (skipObjects) { mddf = nullptr; modf = nullptr; }
+
+        // Interim: a Legion+ MH2O uses liquid-type ids beyond 3.3.5's LiquidType.dbc, which the stock
+        // liquid-sound query dereferences as a null record (#132 near water). Drop the tile's water by
+        // zeroing its MHDR offset -- CMapArea::Create then builds no liquid, so the query finds none.
+        if constexpr (wxl::features::kAdtSplitSkipLiquid)
+            mh2o = nullptr;
 
         // --- MCRF fixup pool: refs must be ONE contiguous u32 array, doodads first then wmos.
         // When only one side exists the split payload is aliased directly (zero copy).
@@ -1243,6 +1274,11 @@ namespace
 
         if (t)
         {
+            // Height-blend "_h" handles are module-owned (the stock destructor only frees the tile's
+            // own area+0x60 diffuse slots); release each once, after every chunk of the tile purged.
+            for (const SplitTile::HeightSlot& hs : t->heightSlots)
+                if (hs.owned && hs.tex)
+                    wxl::game::Native<adt::TextureReleaseFn>(adt::kTextureRelease)(hs.tex);
             if (t->texOwned && t->texBuf) FreeRaw(t->texBuf, t->texSize);
             if (t->objOwned && t->objBuf) FreeRaw(t->objBuf, t->objSize);
             if (freeRootAfter)            FreeRaw(t->rootBuf, t->rootSize);
@@ -1307,6 +1343,107 @@ namespace
         g_origLoadTerrainTexture(area, edx, slot, index);
     }
 
+    // ---------------------------------------------------------------- height-blend slot build
+    /// i-th NUL-terminated string of a packed name blob, or null when out of range/unterminated.
+    const char* NthName(const char* blob, uint32_t size, uint32_t index)
+    {
+        const char* p   = blob;
+        const char* end = blob + size;
+        for (uint32_t i = 0; p < end; ++i)
+        {
+            const char* s = p;
+            while (p < end && *p) ++p;
+            if (p >= end) return nullptr; // unterminated tail
+            if (i == index) return s;
+            ++p;
+        }
+        return nullptr;
+    }
+
+    /**
+     * @brief Lazily builds a tile's per-texture height slots (MTXP params + "_h" texture handles).
+     *
+     * Legion semantics (FUN_00ca1272 / FUN_00c9c7b8): record i = MTXP[i] when present, else
+     * {MTXF[i] flags, scale 0, offset 1}; flag 0x1 or default {0,1} params degrade to the solid
+     * white height (weight = plain alpha). Otherwise the "_h" texture resolves by MHID FileDataID
+     * (TextureFilePath.db2) or the "<diffuse>_h.blp" name, created through the by-name map texture
+     * loader (content streams in asynchronously, like every terrain texture). Existence is probed
+     * through the storage seam first so a missing file degrades to white instead of a dead handle.
+     * Main thread only (same thread class as tile load/teardown and the terrain draw).
+     */
+    void BuildHeightSlots(SplitTile& t)
+    {
+        t.heightBuilt = true;
+        uint32_t count = t.mtxpSize / 16u;
+        if (t.mdid.size() > count) count = static_cast<uint32_t>(t.mdid.size());
+        if (t.mhid.size() > count) count = static_cast<uint32_t>(t.mhid.size());
+        if (count == 0 || count > 512) return; // sanity cap
+        t.heightSlots.resize(count);
+
+        uint32_t loaded = 0, white = 0;
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            SplitTile::HeightSlot& hs = t.heightSlots[i];
+            uint32_t flags = 0;
+            if (t.mtxp && (i + 1) * 16u <= t.mtxpSize)
+            {
+                flags = Rd32(t.mtxp + i * 16u);
+                std::memcpy(&hs.scale, t.mtxp + i * 16u + 4, 4);
+                std::memcpy(&hs.offset, t.mtxp + i * 16u + 8, 4);
+            }
+            else
+            {
+                if (t.mtxfData && (i + 1) * 4u <= t.mtxfSize) flags = Rd32(t.mtxfData + i * 4u);
+                hs.scale = 0.0f; hs.offset = 1.0f;
+            }
+            hs.exp = static_cast<uint8_t>((flags >> 4) & 0xFu); // UV-tiling exponent (Legion FUN_00c9e1ef)
+            if ((flags & 0x1u) != 0 ||                       // "no _s/_h variants exist"
+                (hs.scale == 0.0f && hs.offset == 1.0f))     // default params -> white (Legion-exact)
+            {
+                ++white;
+                continue;
+            }
+
+            // Resolve the "_h" file: FileDataID first (Legion 8.1+ MHID), then the name convention.
+            char nameBuf[300];
+            const char* path = nullptr;
+            if (i < t.mhid.size() && t.mhid[i])
+                path = wxl::fdid::ResolveTexture(t.mhid[i]);
+            if (!path)
+            {
+                const char* dif = nullptr;
+                if (!t.texNameBlob.empty())
+                    dif = NthName(t.texNameBlob.data(), static_cast<uint32_t>(t.texNameBlob.size()), i);
+                else if (t.mtexData)
+                    dif = NthName(reinterpret_cast<const char*>(t.mtexData), t.mtexSizeParked, i);
+                if (dif && dif[0])
+                {
+                    size_t len = std::strlen(dif);
+                    if (len > 4 && _stricmp(dif + len - 4, ".blp") == 0) len -= 4;
+                    if (len + 7 <= sizeof nameBuf)
+                    {
+                        std::memcpy(nameBuf, dif, len);
+                        std::memcpy(nameBuf + len, "_h.blp", 7);
+                        path = nameBuf;
+                    }
+                }
+            }
+            if (path && path[0])
+            {
+                if (void* probe = OpenFile(path)) // storage seam: host + archives both answer
+                {
+                    CloseFile(probe);
+                    hs.tex   = wxl::game::Native<adt::Map_LoadTextureFn>(adt::kMapLoadTexture)(path);
+                    hs.owned = hs.tex != nullptr;
+                }
+            }
+            if (hs.tex) ++loaded; else ++white;
+        }
+        g_statHeightTex.fetch_add(loaded, std::memory_order_relaxed);
+        WLOG_INFO("adt-split: tile %d_%d height slots built (%u textures, %u _h loaded, %u white)",
+                  t.tileFirst, t.tileSecond, count, loaded, white);
+    }
+
     bool InstallAdtSplit()
     {
         wxl::hook::Install("AdtSplit_TileAreaLoad", adt::kTileAreaLoad,
@@ -1341,7 +1478,33 @@ namespace wxl::runtime::adtsplit
         s.parkedHoleChunks  = g_statHoleChunks.load(std::memory_order_relaxed);
         s.loadFailures      = g_statFailures.load(std::memory_order_relaxed);
         s.wdlRead           = g_statWdlRead.load(std::memory_order_relaxed);
+        s.heightTexLoaded   = g_statHeightTex.load(std::memory_order_relaxed);
         return s;
+    }
+
+    bool GetHeightLayer(void* area, uint32_t textureId, HeightLayer& out)
+    {
+        SplitTile* t = FindTileBrief(area);
+        if (!t || !t->complete || !t->mtxp) return false; // no MTXP = nothing to blend by height
+        if (!t->heightBuilt) BuildHeightSlots(*t);        // main thread, same class as load/teardown
+        if (textureId < t->heightSlots.size())
+        {
+            const SplitTile::HeightSlot& hs = t->heightSlots[textureId];
+            out.texture      = hs.tex;
+            out.heightScale  = hs.scale;
+            out.heightOffset = hs.offset;
+            out.tilingExp    = hs.exp;
+        }
+        else
+        {
+            out.texture = nullptr; out.heightScale = 0.0f; out.heightOffset = 1.0f; out.tilingExp = 0;
+        }
+        return true;
+    }
+
+    uint32_t ResidentTilesRelaxed()
+    {
+        return g_statTilesResident.load(std::memory_order_relaxed);
     }
 
     int IsSplitMap()

@@ -60,5 +60,25 @@ namespace wxl::features
     // which 3.3.5 cannot resolve -> CMap::SafeOpen fatals (#134). Dropping them lets the terrain (geometry
     // + texture layers) load and the map be walkable/TP-able. Texture layers are kept -- an unresolved
     // FDID texture renders green, never fatal. Flip false once models resolve.
-    inline constexpr bool kAdtSplitSkipObjects = true;
+    inline constexpr bool kAdtSplitSkipObjects = false;
+    // Resolve split-tile terrain textures by FileDataID and honor the Cata+ 8-bit (4096) alpha maps.
+    // A Legion+ _tex0 has no MTEX name table (textures are MDID/MHID FileDataIDs) and ships big, often
+    // RLE-compressed alpha. When true, TLK's tile texture manager (CMapArea::LoadTextures /
+    // CMap::LoadTerrainTexture) is patched to source names from the real MDID and resolve each at load
+    // time, and the MPHD big-alpha bit is asserted per split chunk so the stock unpacker reads 4096
+    // maps as 4096. The ADT is never rewritten; we adapt TLK. Off => untextured (green) split tiles.
+    inline constexpr bool kAdtSplitTextures = true;
+    // Legion-style height-based terrain texture blending for split tiles (MTXP/MHID "_h" textures).
+    // The per-chunk terrain draw is detoured: for a chunk of a height-textured (WDT MPHD 0x80) split
+    // tile it binds the 4 layer height textures at s9..s12, uploads heightScale/heightOffset (+ a
+    // runtime sharpness tunable) at c22..c24, and swaps the active terrain pixel shader for a
+    // runtime-patched copy computing the retail weight formula. Non-height maps take the untouched
+    // stock draw (one flag check). Runtime knobs live in WarcraftXL.cfg (WXL_ADT_HEIGHT_*).
+    inline constexpr bool kAdtSplitHeightBlend = true;
+    // INTERIM: drop the tile's MH2O water. A Legion+ MH2O references liquid types by ids beyond the
+    // 3.3.5 LiquidType.dbc range; the stock liquid-sound query looks the id up, clamps an out-of-range
+    // one to a null record, then dereferences it unconditionally (null+8) -> #132 the moment the player
+    // nears water. Dropping MH2O (MHDR liquid offset zeroed) removes the water and the crash so the map
+    // stays explorable. Flip false once native MH2O + liquid-type remap lands.
+    inline constexpr bool kAdtSplitSkipLiquid = true;
 }

@@ -223,6 +223,22 @@ namespace wxl::offsets::game::adt
     // Shader-path per-chunk draw signature: native this-in-ECX, no stack args. Declared __fastcall
     // with a dummy EDX so the trampoline routes the chunk into the this-register.
     using Map_SurfaceChunkDrawShaderFn = void(__fastcall*)(void* chunkObj, void* edx);
+    // ACTIVE terrain pixel-shader table: CGxShader*[4], one slot per layer count 1..4. Rewritten once
+    // per bucket per frame by CMapRenderChunk::SetShaders (0x007D3E10) and bound at GxRs 0x4E by the
+    // bucket loop BEFORE the per-chunk draw leaf runs -- so at kSurfaceChunkDrawShader time,
+    // slot[nLayers-1] is the stock wrapper the pending DIP will use. A detour that swaps GxRs 0x4E to
+    // its own wrapper before the original leaf (and restores after) owns that one chunk's PS.
+    // RE: _docs/re_comprehension/335/terrain_height_blend.md sections 1.2 / 2.2 / 9 (DAT_00d1d080).
+    constexpr uintptr_t kActiveTerrainPs = 0x00D1D080;
+    // CMap::enableTerrainShaderPixel byte gate: non-zero when the pixel-shader terrain path is
+    // active (the only path kSurfaceChunkDrawShader runs under). Same RE doc, section 1.2.
+    constexpr uintptr_t kEnableTerrainShaderPixel = 0x00CE049E;
+    // GxRs state indices for the deferred shader binds (same setter as kSetSamplerTexture): the
+    // bucket loop writes the terrain PS wrapper at 0x4E; the pre-draw GxState flush applies the
+    // wrapper's live handle (+0x20, created flag +0x30) to the device. Mirrors
+    // offsets/engine/Shader.hpp kStateVertexShader/kStatePixelShader.
+    constexpr uint32_t kGxStateVertexShader = 0x4D;
+    constexpr uint32_t kGxStatePixelShader  = 0x4E;
     // By-name map texture loader: builds the wrap/filter flag set and creates the texture handle.
     // Returns the texture handle, 0 on failure. Content streams in asynchronously.
     constexpr uintptr_t kMapLoadTexture = 0x007D9990;

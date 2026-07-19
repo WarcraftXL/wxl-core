@@ -36,6 +36,7 @@ namespace wxl::runtime::adtsplit
         uint32_t parkedHoleChunks;  ///< chunks whose original high-res hole mask is parked
         uint32_t loadFailures;      ///< split loads that fell back / failed to parse
         uint32_t wdlRead;           ///< Cata+ WDLs read directly into the stock low-detail runtime
+        uint32_t heightTexLoaded;   ///< "_h" height texture handles created for height-blend tiles
     };
 
     /** @brief Returns a snapshot of the session counters. */
@@ -78,4 +79,33 @@ namespace wxl::runtime::adtsplit
      * @return true when the tile is resident and out was filled.
      */
     bool FindTile(int tileFirst, int tileSecond, TileStatus& out);
+
+    // --- height-blend data surface (consumed by features/adtsplit/HeightBlend.cpp, draw thread) ---
+
+    /** @brief One terrain layer's height-blend inputs, resolved from MTXP + MHID / "_h.blp". */
+    struct HeightLayer
+    {
+        void*    texture;      ///< CGxTex* "_h" handle; null = use the neutral solid-white texture
+        float    heightScale;  ///< MTXP heightScale (0.0 when the record is default/absent)
+        float    heightOffset; ///< MTXP heightOffset (1.0 when the record is default/absent)
+        uint32_t tilingExp;    ///< MTXP/MTXF flags bits 4..7: layer UV scale divides by (1 << exp)
+    };
+
+    /**
+     * @brief Resolves the height-blend inputs of one layer of a resident split tile.
+     *
+     * area is the CMapArea* the drawn chunk belongs to; textureId is the layer record's
+     * MCLY.textureId (index into the tile texture set = MTXP/MHID order). On first use per tile the
+     * per-texture slot table is built lazily: MTXP record (fallback {MTXF flags, 0, 1}), and -- for
+     * a non-default record without flag 0x1 -- the "_h" texture created via MHID FileDataID
+     * (fdid::ResolveTexture) or the "<diffuse>_h.blp" name, through the by-name map texture loader.
+     * Must be called on the main/draw thread (same thread class as tile load/teardown).
+     *
+     * @return false when the tile is not a completed split tile or carries no MTXP (caller must run
+     *         the untouched stock draw); true with out filled otherwise (texture may be null=white).
+     */
+    bool GetHeightLayer(void* area, uint32_t textureId, HeightLayer& out);
+
+    /** @brief Lock-free resident split-tile count (relaxed) for per-draw fast-path gating. */
+    uint32_t ResidentTilesRelaxed();
 }

@@ -63,6 +63,7 @@ namespace wxl::events
         OnBeforeHostLaunch, // the DLL is about to launch the asset host (HostLaunchArgs)
         OnUiDraw,        // wxl.ui immediate-mode draw slot, between NewFrame and Render (UiDrawArgs)
         OnGrassWind,     // grass wind integrator advanced this frame (GrassWindArgs)
+        OnAdtHeightBlend,// a terrain PS permutation was patched for height blending (AdtHeightBlendArgs)
         Count
     };
 
@@ -238,6 +239,13 @@ namespace wxl::events
      *        in radians. Read-only observation; runtime tuning goes through wxl.wind.* (methods).
      */
     struct GrassWindArgs     { float dirX; float dirY; float strength; float phase; };
+    /**
+     * @brief Args for OnAdtHeightBlend, fired on the draw thread the first time a stock terrain
+     *        pixel-shader permutation is patched with the height-blend formula (once per stock
+     *        permutation per session). layerCount is the permutation's texture layer count (2..4);
+     *        stockBytes/patchedBytes are the bytecode sizes before/after the injection. Read-only.
+     */
+    struct AdtHeightBlendArgs { uint32_t layerCount; uint32_t stockBytes; uint32_t patchedBytes; };
 
     using Handler = void (*)(void* user, const void* args);
 

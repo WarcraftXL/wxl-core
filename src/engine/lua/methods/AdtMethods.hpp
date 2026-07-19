@@ -19,6 +19,7 @@
 #include "engine/lua/LuaJit.hpp"
 #include "engine/lua/Marshal.hpp"
 #include "features/adtsplit/AdtSplit.hpp"
+#include "features/adtsplit/HeightBlend.hpp"
 
 #include <cstdint>
 
@@ -29,6 +30,7 @@
 namespace wxl::lua::methods::adt
 {
     namespace split = wxl::runtime::adtsplit;
+    namespace hb    = wxl::features::heightblend;
 
     /// Pushes one TileStatus as a Lua table (shared by tile_status and tiles).
     inline void PushTileStatus(lua_State* L, const split::TileStatus& ts)
@@ -76,6 +78,7 @@ namespace wxl::lua::methods::adt
         lua_pushinteger(L, static_cast<lua_Integer>(s.parkedHoleChunks));  lua_setfield(L, -2, "parked_hole_chunks");
         lua_pushinteger(L, static_cast<lua_Integer>(s.loadFailures));      lua_setfield(L, -2, "load_failures");
         lua_pushinteger(L, static_cast<lua_Integer>(s.wdlRead));           lua_setfield(L, -2, "wdl_read");
+        lua_pushinteger(L, static_cast<lua_Integer>(s.heightTexLoaded));   lua_setfield(L, -2, "height_tex_loaded");
         return 1;
     }
 
@@ -111,6 +114,58 @@ namespace wxl::lua::methods::adt
         return 1;
     }
 
+    // --- height blend (Legion MTXP "_h" terrain texture blending) ---
+
+    /// wxl.adt.height_blend_installed() -> bool: the terrain draw detour is live.
+    inline int L_hbInstalled(lua_State* L) { Push(L, hb::Installed()); return 1; }
+
+    /// wxl.adt.height_blend_enabled() -> bool / wxl.adt.set_height_blend_enabled(bool): runtime
+    /// master switch; off = every terrain chunk draws through the untouched stock path.
+    inline int L_hbEnabled(lua_State* L) { Push(L, hb::Get().enabled); return 1; }
+    inline int L_hbSetEnabled(lua_State* L) { hb::Get().enabled = CheckBool(L, 1); return 0; }
+
+    /// wxl.adt.height_sharpness() -> number / wxl.adt.set_height_sharpness(number): the sharpen
+    /// strength in w *= 1 - sat((max(w) - w) * sharpness). 0 = pure MAD+normalize blend,
+    /// 1 = the community-disassembled Legion form. Clamped to [0, 16]; applies next frame.
+    inline int L_hbSharpness(lua_State* L) { Push(L, static_cast<double>(hb::Get().sharpness)); return 1; }
+    inline int L_hbSetSharpness(lua_State* L)
+    {
+        double v = CheckNumber(L, 1);
+        if (v < 0.0) v = 0.0;
+        if (v > 16.0) v = 16.0;
+        hb::Get().sharpness = static_cast<float>(v);
+        return 0;
+    }
+
+    /// wxl.adt.height_channel() -> "a"|"r" / wxl.adt.set_height_channel("a"|"r"): which channel of
+    /// the "_h" texture carries the height (alpha is the Legion layout; red is the fallback for
+    /// alpha-less DXT1 repacks). Changing it rebuilds the patched shaders on next draw.
+    inline int L_hbChannel(lua_State* L) { Push(L, hb::Get().channelRed ? "r" : "a"); return 1; }
+    inline int L_hbSetChannel(lua_State* L)
+    {
+        const char* s = CheckString(L, 1);
+        const bool red = s && (s[0] == 'r' || s[0] == 'R');
+        if (red != hb::Get().channelRed)
+        {
+            hb::Get().channelRed = red;
+            hb::InvalidateShaders();
+        }
+        return 0;
+    }
+
+    /// wxl.adt.height_blend_stats() -> table: {patched_shaders, patch_failures, chunks_drawn,
+    /// active} session counters of the height-blend draw.
+    inline int L_hbStats(lua_State* L)
+    {
+        const hb::Stats s = hb::GetStats();
+        lua_newtable(L);
+        lua_pushinteger(L, static_cast<lua_Integer>(s.patchedShaders)); lua_setfield(L, -2, "patched_shaders");
+        lua_pushinteger(L, static_cast<lua_Integer>(s.patchFailures));  lua_setfield(L, -2, "patch_failures");
+        lua_pushinteger(L, static_cast<lua_Integer>(s.chunksDrawn));    lua_setfield(L, -2, "chunks_drawn");
+        lua_pushboolean(L, s.active ? 1 : 0);                           lua_setfield(L, -2, "active");
+        return 1;
+    }
+
     /**
      * @brief Adds the wxl.adt subtable to the table on top of the stack. Stack-neutral.
      * @param L  the engine lua_State, with the target `wxl` table at index -1.
@@ -122,6 +177,14 @@ namespace wxl::lua::methods::adt
             { "split_stats",  L_splitStats },
             { "tile_status",  L_tileStatus },
             { "tiles",        L_tiles },
+            { "height_blend_installed",   L_hbInstalled },
+            { "height_blend_enabled",     L_hbEnabled },
+            { "set_height_blend_enabled", L_hbSetEnabled },
+            { "height_sharpness",         L_hbSharpness },
+            { "set_height_sharpness",     L_hbSetSharpness },
+            { "height_channel",           L_hbChannel },
+            { "set_height_channel",       L_hbSetChannel },
+            { "height_blend_stats",       L_hbStats },
             { nullptr, nullptr },
         };
         RegisterModule(L, "adt", fns);

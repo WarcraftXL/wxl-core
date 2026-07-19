@@ -38,6 +38,8 @@
 ///                            layerCount is int; chunk is lightuserdata.
 ///   "adt_split_tile_load"-> OnAdtSplitTileLoad fn(tileX, tileY, rootSize, texSize, objSize, chunks)
 ///                            a split (Cata+) ADT tile finished its root/_tex0/_obj0 load; all ints.
+///   "adt_height_blend"   -> OnAdtHeightBlend fn(layerCount, stockBytes, patchedBytes)
+///                            a stock terrain PS permutation was patched for height blending; all ints.
 ///   "doodad_spawn"       -> OnDoodadSpawn     fn(doodad)                        a placed map doodad was built (lightuserdata).
 ///   "item_slot_change"   -> OnItemSlotChange  fn(modelSlot, charModel, itemData) a char-model slot received an item.
 ///                            modelSlot is int; charModel and itemData are lightuserdata.
@@ -114,6 +116,16 @@ namespace wxl::lua::events::asset
         return 6;
     }
 
+    /// OnAdtHeightBlend: push the permutation's layer count and the stock/patched bytecode sizes.
+    inline int PushAdtHeightBlend(lua_State* L, const void* args)
+    {
+        const auto* a = static_cast<const wxl::events::AdtHeightBlendArgs*>(args);
+        lua_pushinteger(L, static_cast<lua_Integer>(a->layerCount));
+        lua_pushinteger(L, static_cast<lua_Integer>(a->stockBytes));
+        lua_pushinteger(L, static_cast<lua_Integer>(a->patchedBytes));
+        return 3;
+    }
+
     /// OnDoodadSpawn: push the doodad pointer as lightuserdata.
     inline int PushDoodadSpawn(lua_State* L, const void* args)
     {
@@ -174,6 +186,7 @@ namespace wxl::lua::events::asset
         events::Declare("wmo_group_load",     Event::OnWmoGroupLoad,     &PushWmoGroup);
         events::Declare("adt_chunk",          Event::OnAdtChunkBuild,    &PushAdtChunk);
         events::Declare("adt_split_tile_load", Event::OnAdtSplitTileLoad, &PushAdtSplitTileLoad);
+        events::Declare("adt_height_blend",   Event::OnAdtHeightBlend,   &PushAdtHeightBlend);
         events::Declare("doodad_spawn",       Event::OnDoodadSpawn,      &PushDoodadSpawn);
         events::Declare("item_slot_change",   Event::OnItemSlotChange,   &PushItemSlotChange);
         events::Declare("item_slot_clear",    Event::OnItemSlotClear,    &PushItemSlotClear);

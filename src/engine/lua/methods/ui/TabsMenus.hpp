@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Tab bars and menus. Each begin_* that returns true has a matching end_* that must be called only then,
@@ -122,16 +123,20 @@ namespace wxl::lua::methods::ui
     /// Adds the tab/menu fields to the ui subtable on top of the stack.
     inline void RegisterTabsMenus(lua_State* L)
     {
-        lua_pushcfunction(L, &L_beginTabBar);      lua_setfield(L, -2, "begin_tab_bar");
-        lua_pushcfunction(L, &L_endTabBar);        lua_setfield(L, -2, "end_tab_bar");
-        lua_pushcfunction(L, &L_beginTabItem);     lua_setfield(L, -2, "begin_tab_item");
-        lua_pushcfunction(L, &L_endTabItem);       lua_setfield(L, -2, "end_tab_item");
-        lua_pushcfunction(L, &L_beginMenuBar);     lua_setfield(L, -2, "begin_menu_bar");
-        lua_pushcfunction(L, &L_endMenuBar);       lua_setfield(L, -2, "end_menu_bar");
-        lua_pushcfunction(L, &L_beginMainMenuBar); lua_setfield(L, -2, "begin_main_menu_bar");
-        lua_pushcfunction(L, &L_endMainMenuBar);   lua_setfield(L, -2, "end_main_menu_bar");
-        lua_pushcfunction(L, &L_beginMenu);        lua_setfield(L, -2, "begin_menu");
-        lua_pushcfunction(L, &L_endMenu);          lua_setfield(L, -2, "end_menu");
-        lua_pushcfunction(L, &L_menuItem);         lua_setfield(L, -2, "menu_item");
+        static const luaL_Reg fns[] = {
+            { "begin_tab_bar",       L_beginTabBar },
+            { "end_tab_bar",         L_endTabBar },
+            { "begin_tab_item",      L_beginTabItem },
+            { "end_tab_item",        L_endTabItem },
+            { "begin_menu_bar",      L_beginMenuBar },
+            { "end_menu_bar",        L_endMenuBar },
+            { "begin_main_menu_bar", L_beginMainMenuBar },
+            { "end_main_menu_bar",   L_endMainMenuBar },
+            { "begin_menu",          L_beginMenu },
+            { "end_menu",            L_endMenu },
+            { "menu_item",           L_menuItem },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

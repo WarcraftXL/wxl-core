@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Combo boxes and list selection. The convenience combo()/list_box() take a Lua array of item strings and
@@ -109,10 +110,14 @@ namespace wxl::lua::methods::ui
     /// Adds the combo/selection fields to the ui subtable on top of the stack.
     inline void RegisterCombo(lua_State* L)
     {
-        lua_pushcfunction(L, &L_beginCombo); lua_setfield(L, -2, "begin_combo");
-        lua_pushcfunction(L, &L_endCombo);   lua_setfield(L, -2, "end_combo");
-        lua_pushcfunction(L, &L_selectable); lua_setfield(L, -2, "selectable");
-        lua_pushcfunction(L, &L_combo);      lua_setfield(L, -2, "combo");
-        lua_pushcfunction(L, &L_listBox);    lua_setfield(L, -2, "list_box");
+        static const luaL_Reg fns[] = {
+            { "begin_combo", L_beginCombo },
+            { "end_combo",   L_endCombo },
+            { "selectable",  L_selectable },
+            { "combo",       L_combo },
+            { "list_box",    L_listBox },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Popups and tooltips. A popup is armed with open_popup(id) then shown by a begin_popup*(id) that returns
@@ -103,14 +104,18 @@ namespace wxl::lua::methods::ui
     /// Adds the popup/tooltip fields to the ui subtable on top of the stack.
     inline void RegisterPopups(lua_State* L)
     {
-        lua_pushcfunction(L, &L_openPopup);              lua_setfield(L, -2, "open_popup");
-        lua_pushcfunction(L, &L_beginPopup);             lua_setfield(L, -2, "begin_popup");
-        lua_pushcfunction(L, &L_beginPopupModal);        lua_setfield(L, -2, "begin_popup_modal");
-        lua_pushcfunction(L, &L_beginPopupContextItem);  lua_setfield(L, -2, "begin_popup_context_item");
-        lua_pushcfunction(L, &L_endPopup);               lua_setfield(L, -2, "end_popup");
-        lua_pushcfunction(L, &L_closeCurrentPopup);      lua_setfield(L, -2, "close_current_popup");
-        lua_pushcfunction(L, &L_beginTooltip);           lua_setfield(L, -2, "begin_tooltip");
-        lua_pushcfunction(L, &L_endTooltip);             lua_setfield(L, -2, "end_tooltip");
-        lua_pushcfunction(L, &L_setTooltip);             lua_setfield(L, -2, "set_tooltip");
+        static const luaL_Reg fns[] = {
+            { "open_popup",                L_openPopup },
+            { "begin_popup",               L_beginPopup },
+            { "begin_popup_modal",         L_beginPopupModal },
+            { "begin_popup_context_item",  L_beginPopupContextItem },
+            { "end_popup",                 L_endPopup },
+            { "close_current_popup",       L_closeCurrentPopup },
+            { "begin_tooltip",             L_beginTooltip },
+            { "end_tooltip",               L_endTooltip },
+            { "set_tooltip",               L_setTooltip },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

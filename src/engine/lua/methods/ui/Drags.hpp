@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Drag and slider widgets. Each returns its new value(s) followed by a trailing `changed` boolean.
@@ -185,23 +186,27 @@ namespace wxl::lua::methods::ui
     /// to preserve the original wxl.ui.slider(label, v, min, max) surface.
     inline void RegisterDrags(lua_State* L)
     {
-        lua_pushcfunction(L, &L_dragFloat);    lua_setfield(L, -2, "drag_float");
-        lua_pushcfunction(L, &L_dragFloat2);   lua_setfield(L, -2, "drag_float2");
-        lua_pushcfunction(L, &L_dragFloat3);   lua_setfield(L, -2, "drag_float3");
-        lua_pushcfunction(L, &L_dragFloat4);   lua_setfield(L, -2, "drag_float4");
-        lua_pushcfunction(L, &L_dragInt);      lua_setfield(L, -2, "drag_int");
-        lua_pushcfunction(L, &L_dragInt2);     lua_setfield(L, -2, "drag_int2");
-        lua_pushcfunction(L, &L_dragInt3);     lua_setfield(L, -2, "drag_int3");
-        lua_pushcfunction(L, &L_dragInt4);     lua_setfield(L, -2, "drag_int4");
-        lua_pushcfunction(L, &L_sliderFloat);  lua_setfield(L, -2, "slider_float");
-        lua_pushcfunction(L, &L_sliderFloat);  lua_setfield(L, -2, "slider"); // preserved MVP alias
-        lua_pushcfunction(L, &L_sliderFloat2); lua_setfield(L, -2, "slider_float2");
-        lua_pushcfunction(L, &L_sliderFloat3); lua_setfield(L, -2, "slider_float3");
-        lua_pushcfunction(L, &L_sliderFloat4); lua_setfield(L, -2, "slider_float4");
-        lua_pushcfunction(L, &L_sliderInt);    lua_setfield(L, -2, "slider_int");
-        lua_pushcfunction(L, &L_sliderInt2);   lua_setfield(L, -2, "slider_int2");
-        lua_pushcfunction(L, &L_sliderInt3);   lua_setfield(L, -2, "slider_int3");
-        lua_pushcfunction(L, &L_sliderInt4);   lua_setfield(L, -2, "slider_int4");
-        lua_pushcfunction(L, &L_sliderAngle);  lua_setfield(L, -2, "slider_angle");
+        static const luaL_Reg fns[] = {
+            { "drag_float",   L_dragFloat },
+            { "drag_float2",  L_dragFloat2 },
+            { "drag_float3",  L_dragFloat3 },
+            { "drag_float4",  L_dragFloat4 },
+            { "drag_int",     L_dragInt },
+            { "drag_int2",    L_dragInt2 },
+            { "drag_int3",    L_dragInt3 },
+            { "drag_int4",    L_dragInt4 },
+            { "slider_float", L_sliderFloat },
+            { "slider",       L_sliderFloat }, // preserved MVP alias
+            { "slider_float2",L_sliderFloat2 },
+            { "slider_float3",L_sliderFloat3 },
+            { "slider_float4",L_sliderFloat4 },
+            { "slider_int",   L_sliderInt },
+            { "slider_int2",  L_sliderInt2 },
+            { "slider_int3",  L_sliderInt3 },
+            { "slider_int4",  L_sliderInt4 },
+            { "slider_angle", L_sliderAngle },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

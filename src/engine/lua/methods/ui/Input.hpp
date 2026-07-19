@@ -19,6 +19,7 @@
 #include <cstring>
 #include <vector>
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Text and numeric input. Text widgets round-trip the current value through Lua every frame: a per-call
@@ -143,15 +144,19 @@ namespace wxl::lua::methods::ui
     /// Adds the input fields to the ui subtable on top of the stack.
     inline void RegisterInput(lua_State* L)
     {
-        lua_pushcfunction(L, &L_inputText);          lua_setfield(L, -2, "input_text");
-        lua_pushcfunction(L, &L_inputTextMultiline); lua_setfield(L, -2, "input_text_multiline");
-        lua_pushcfunction(L, &L_inputFloat);         lua_setfield(L, -2, "input_float");
-        lua_pushcfunction(L, &L_inputFloat2);        lua_setfield(L, -2, "input_float2");
-        lua_pushcfunction(L, &L_inputFloat3);        lua_setfield(L, -2, "input_float3");
-        lua_pushcfunction(L, &L_inputFloat4);        lua_setfield(L, -2, "input_float4");
-        lua_pushcfunction(L, &L_inputInt);           lua_setfield(L, -2, "input_int");
-        lua_pushcfunction(L, &L_inputInt2);          lua_setfield(L, -2, "input_int2");
-        lua_pushcfunction(L, &L_inputInt3);          lua_setfield(L, -2, "input_int3");
-        lua_pushcfunction(L, &L_inputInt4);          lua_setfield(L, -2, "input_int4");
+        static const luaL_Reg fns[] = {
+            { "input_text",           L_inputText },
+            { "input_text_multiline", L_inputTextMultiline },
+            { "input_float",          L_inputFloat },
+            { "input_float2",         L_inputFloat2 },
+            { "input_float3",         L_inputFloat3 },
+            { "input_float4",         L_inputFloat4 },
+            { "input_int",            L_inputInt },
+            { "input_int2",           L_inputInt2 },
+            { "input_int3",           L_inputInt3 },
+            { "input_int4",           L_inputInt4 },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Collapsible hierarchy: tree nodes (each open node needs a matching tree_pop) and collapsing headers
@@ -70,10 +71,14 @@ namespace wxl::lua::methods::ui
     /// Adds the tree fields to the ui subtable on top of the stack.
     inline void RegisterTrees(lua_State* L)
     {
-        lua_pushcfunction(L, &L_treeNode);         lua_setfield(L, -2, "tree_node");
-        lua_pushcfunction(L, &L_treePop);          lua_setfield(L, -2, "tree_pop");
-        lua_pushcfunction(L, &L_treePush);         lua_setfield(L, -2, "tree_push");
-        lua_pushcfunction(L, &L_collapsingHeader); lua_setfield(L, -2, "collapsing_header");
-        lua_pushcfunction(L, &L_setNextItemOpen);  lua_setfield(L, -2, "set_next_item_open");
+        static const luaL_Reg fns[] = {
+            { "tree_node",         L_treeNode },
+            { "tree_pop",          L_treePop },
+            { "tree_push",         L_treePush },
+            { "collapsing_header", L_collapsingHeader },
+            { "set_next_item_open",L_setNextItemOpen },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

@@ -17,6 +17,7 @@
 #pragma once
 
 #include "engine/lua/LuaJit.hpp"
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/ui/ImGuiHost.hpp"
 
 #include "imgui.h"
@@ -121,6 +122,10 @@ namespace wxl::lua::methods::ui
     /// Adds the shared wxl.ui.* helpers (currently `color`) to the ui subtable on top of the stack.
     inline void RegisterCommon(lua_State* L)
     {
-        lua_pushcfunction(L, &L_color); lua_setfield(L, -2, "color");
+        static const luaL_Reg fns[] = {
+            { "color", L_color },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

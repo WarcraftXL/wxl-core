@@ -31,6 +31,21 @@
 namespace wxl::mem
 {
     /**
+     * @brief Reads a value of type T from an absolute client address (a plain typed dereference).
+     *
+     * The one typed read that replaces scattered `*reinterpret_cast<const T*>(addr)` at call sites, so
+     * a read of a client global reads as intent (`mem::Read<float>(kDdcWidth)`). Does NOT guard faults:
+     * wrap the call in SEH where the address can be stale (e.g. during world teardown).
+     * @param addr  absolute address in the client image.
+     * @return the value stored there.
+     */
+    template <class T>
+    inline T Read(uintptr_t addr)
+    {
+        return *reinterpret_cast<const T*>(addr);
+    }
+
+    /**
      * @brief Makes [dst, dst+len) writable, runs `write`, restores the previous protection.
      * @param dst    start of the range to unprotect.
      * @param len    byte count.

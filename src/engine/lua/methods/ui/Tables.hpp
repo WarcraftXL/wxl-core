@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Multi-column tables. A table is begin_table(...)/end_table(); rows advance with table_next_row and
@@ -104,13 +105,17 @@ namespace wxl::lua::methods::ui
     /// Adds the table fields to the ui subtable on top of the stack.
     inline void RegisterTables(lua_State* L)
     {
-        lua_pushcfunction(L, &L_beginTable);             lua_setfield(L, -2, "begin_table");
-        lua_pushcfunction(L, &L_endTable);               lua_setfield(L, -2, "end_table");
-        lua_pushcfunction(L, &L_tableNextRow);           lua_setfield(L, -2, "table_next_row");
-        lua_pushcfunction(L, &L_tableNextColumn);        lua_setfield(L, -2, "table_next_column");
-        lua_pushcfunction(L, &L_tableSetColumnIndex);    lua_setfield(L, -2, "table_set_column_index");
-        lua_pushcfunction(L, &L_tableSetupColumn);       lua_setfield(L, -2, "table_setup_column");
-        lua_pushcfunction(L, &L_tableHeadersRow);        lua_setfield(L, -2, "table_headers_row");
-        lua_pushcfunction(L, &L_tableSetupScrollFreeze); lua_setfield(L, -2, "table_setup_scroll_freeze");
+        static const luaL_Reg fns[] = {
+            { "begin_table",               L_beginTable },
+            { "end_table",                 L_endTable },
+            { "table_next_row",            L_tableNextRow },
+            { "table_next_column",         L_tableNextColumn },
+            { "table_set_column_index",    L_tableSetColumnIndex },
+            { "table_setup_column",        L_tableSetupColumn },
+            { "table_headers_row",         L_tableHeadersRow },
+            { "table_setup_scroll_freeze", L_tableSetupScrollFreeze },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

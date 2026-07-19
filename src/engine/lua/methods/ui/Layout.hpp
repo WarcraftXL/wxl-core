@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Layout primitives that place, space and align items within the current window.
@@ -166,22 +167,26 @@ namespace wxl::lua::methods::ui
     /// Adds the layout fields to the ui subtable on top of the stack.
     inline void RegisterLayout(lua_State* L)
     {
-        lua_pushcfunction(L, &L_separator);                lua_setfield(L, -2, "separator");
-        lua_pushcfunction(L, &L_separatorText);            lua_setfield(L, -2, "separator_text");
-        lua_pushcfunction(L, &L_sameLine);                 lua_setfield(L, -2, "same_line");
-        lua_pushcfunction(L, &L_newLine);                  lua_setfield(L, -2, "new_line");
-        lua_pushcfunction(L, &L_spacing);                  lua_setfield(L, -2, "spacing");
-        lua_pushcfunction(L, &L_dummy);                    lua_setfield(L, -2, "dummy");
-        lua_pushcfunction(L, &L_indent);                   lua_setfield(L, -2, "indent");
-        lua_pushcfunction(L, &L_unindent);                 lua_setfield(L, -2, "unindent");
-        lua_pushcfunction(L, &L_beginGroup);               lua_setfield(L, -2, "begin_group");
-        lua_pushcfunction(L, &L_endGroup);                 lua_setfield(L, -2, "end_group");
-        lua_pushcfunction(L, &L_getCursorPos);             lua_setfield(L, -2, "get_cursor_pos");
-        lua_pushcfunction(L, &L_setCursorPos);             lua_setfield(L, -2, "set_cursor_pos");
-        lua_pushcfunction(L, &L_getCursorScreenPos);       lua_setfield(L, -2, "get_cursor_screen_pos");
-        lua_pushcfunction(L, &L_setCursorScreenPos);       lua_setfield(L, -2, "set_cursor_screen_pos");
-        lua_pushcfunction(L, &L_alignTextToFramePadding);  lua_setfield(L, -2, "align_text_to_frame_padding");
-        lua_pushcfunction(L, &L_getFrameHeight);           lua_setfield(L, -2, "get_frame_height");
-        lua_pushcfunction(L, &L_getFrameHeightWithSpacing);lua_setfield(L, -2, "get_frame_height_with_spacing");
+        static const luaL_Reg fns[] = {
+            { "separator",                    L_separator },
+            { "separator_text",               L_separatorText },
+            { "same_line",                    L_sameLine },
+            { "new_line",                     L_newLine },
+            { "spacing",                      L_spacing },
+            { "dummy",                        L_dummy },
+            { "indent",                       L_indent },
+            { "unindent",                     L_unindent },
+            { "begin_group",                  L_beginGroup },
+            { "end_group",                    L_endGroup },
+            { "get_cursor_pos",               L_getCursorPos },
+            { "set_cursor_pos",               L_setCursorPos },
+            { "get_cursor_screen_pos",        L_getCursorScreenPos },
+            { "set_cursor_screen_pos",        L_setCursorScreenPos },
+            { "align_text_to_frame_padding",  L_alignTextToFramePadding },
+            { "get_frame_height",             L_getFrameHeight },
+            { "get_frame_height_with_spacing",L_getFrameHeightWithSpacing },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

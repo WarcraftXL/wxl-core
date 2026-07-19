@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Interaction queries: state of the last submitted item, mouse buttons/position, timing, and text sizing.
@@ -159,22 +160,26 @@ namespace wxl::lua::methods::ui
     /// Adds the query fields to the ui subtable on top of the stack.
     inline void RegisterQuery(lua_State* L)
     {
-        lua_pushcfunction(L, &L_isItemHovered);        lua_setfield(L, -2, "is_item_hovered");
-        lua_pushcfunction(L, &L_isItemActive);         lua_setfield(L, -2, "is_item_active");
-        lua_pushcfunction(L, &L_isItemClicked);        lua_setfield(L, -2, "is_item_clicked");
-        lua_pushcfunction(L, &L_isItemEdited);         lua_setfield(L, -2, "is_item_edited");
-        lua_pushcfunction(L, &L_isItemFocused);        lua_setfield(L, -2, "is_item_focused");
-        lua_pushcfunction(L, &L_isAnyItemHovered);     lua_setfield(L, -2, "is_any_item_hovered");
-        lua_pushcfunction(L, &L_isMouseClicked);       lua_setfield(L, -2, "is_mouse_clicked");
-        lua_pushcfunction(L, &L_isMouseDoubleClicked); lua_setfield(L, -2, "is_mouse_double_clicked");
-        lua_pushcfunction(L, &L_isMouseDown);          lua_setfield(L, -2, "is_mouse_down");
-        lua_pushcfunction(L, &L_isMouseDragging);      lua_setfield(L, -2, "is_mouse_dragging");
-        lua_pushcfunction(L, &L_getMousePos);          lua_setfield(L, -2, "get_mouse_pos");
-        lua_pushcfunction(L, &L_getMouseDragDelta);    lua_setfield(L, -2, "get_mouse_drag_delta");
-        lua_pushcfunction(L, &L_getTime);              lua_setfield(L, -2, "get_time");
-        lua_pushcfunction(L, &L_getFrameCount);        lua_setfield(L, -2, "get_frame_count");
-        lua_pushcfunction(L, &L_calcTextSize);         lua_setfield(L, -2, "calc_text_size");
-        lua_pushcfunction(L, &L_setKeyboardFocusHere); lua_setfield(L, -2, "set_keyboard_focus_here");
-        lua_pushcfunction(L, &L_setItemDefaultFocus);  lua_setfield(L, -2, "set_item_default_focus");
+        static const luaL_Reg fns[] = {
+            { "is_item_hovered",         L_isItemHovered },
+            { "is_item_active",          L_isItemActive },
+            { "is_item_clicked",         L_isItemClicked },
+            { "is_item_edited",          L_isItemEdited },
+            { "is_item_focused",         L_isItemFocused },
+            { "is_any_item_hovered",     L_isAnyItemHovered },
+            { "is_mouse_clicked",        L_isMouseClicked },
+            { "is_mouse_double_clicked", L_isMouseDoubleClicked },
+            { "is_mouse_down",           L_isMouseDown },
+            { "is_mouse_dragging",       L_isMouseDragging },
+            { "get_mouse_pos",           L_getMousePos },
+            { "get_mouse_drag_delta",    L_getMouseDragDelta },
+            { "get_time",                L_getTime },
+            { "get_frame_count",         L_getFrameCount },
+            { "calc_text_size",          L_calcTextSize },
+            { "set_keyboard_focus_here", L_setKeyboardFocusHere },
+            { "set_item_default_focus",  L_setItemDefaultFocus },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

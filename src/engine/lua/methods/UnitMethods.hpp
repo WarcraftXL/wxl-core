@@ -37,26 +37,25 @@ namespace wxl::lua::methods::unit
     // --- instance methods (closures on the Unit metatable) ---
 
     /// unit:IsValid() -> bool: does the GUID still resolve to a live object.
-    inline int L_IsValid(lua_State* L)
+    inline int L_IsValid(lua_State* L, uint64_t self)
     {
-        Push(L, ResolveUnit(CheckGuid(L, 1)) != nullptr);
+        Push(L, ResolveUnit(self) != nullptr);
         return 1;
     }
 
     /// unit:GetGuid() -> string: the GUID as "0x<16 hex>" (a u64 does not fit a Lua number).
-    inline int L_GetGuid(lua_State* L)
+    inline int L_GetGuid(lua_State* L, uint64_t self)
     {
-        const uint64_t guid = CheckGuid(L, 1);
         char buf[19];
-        std::snprintf(buf, sizeof(buf), "0x%016llX", static_cast<unsigned long long>(guid));
+        std::snprintf(buf, sizeof(buf), "0x%016llX", static_cast<unsigned long long>(self));
         Push(L, static_cast<const char*>(buf));
         return 1;
     }
 
     /// unit:GetPosition() -> x, y, z (numbers) or nil when unresolved / faulted.
-    inline int L_GetPosition(lua_State* L)
+    inline int L_GetPosition(lua_State* L, uint64_t self)
     {
-        void* unit = ResolveUnit(CheckGuid(L, 1));
+        void* unit = ResolveUnit(self);
         float pos[3];
         if (!ReadPosition(unit, pos))
         {
@@ -70,19 +69,19 @@ namespace wxl::lua::methods::unit
     }
 
     /// unit:IsPlayer() -> bool: does the GUID resolve under the player type mask.
-    inline int L_IsPlayer(lua_State* L)
+    inline int L_IsPlayer(lua_State* L, uint64_t self)
     {
-        Push(L, ResolveObject(CheckGuid(L, 1), off::kTypeMaskPlayer) != nullptr);
+        Push(L, ResolveObject(self, off::kTypeMaskPlayer) != nullptr);
         return 1;
     }
 
     /// unit:GetReaction(other) -> int (0..1 hostile, 2..3 neutral, 4+ friendly) or nil.
-    inline int L_GetReaction(lua_State* L)
+    inline int L_GetReaction(lua_State* L, uint64_t self)
     {
-        void* self  = ResolveUnit(CheckGuid(L, 1));
+        void* selfU = ResolveUnit(self);
         void* other = ResolveUnit(CheckGuid(L, 2));
         int   reaction;
-        if (!ReadReaction(self, other, &reaction))
+        if (!ReadReaction(selfU, other, &reaction))
         {
             PushNil(L);
             return 1;
@@ -93,12 +92,12 @@ namespace wxl::lua::methods::unit
 
     /// unit:DistanceTo(other) -> number: straight-line distance between the two units, or nil when
     /// either position is unavailable.
-    inline int L_DistanceTo(lua_State* L)
+    inline int L_DistanceTo(lua_State* L, uint64_t self)
     {
-        void* self  = ResolveUnit(CheckGuid(L, 1));
+        void* selfU = ResolveUnit(self);
         void* other = ResolveUnit(CheckGuid(L, 2));
         float a[3], b[3];
-        if (!ReadPosition(self, a) || !ReadPosition(other, b))
+        if (!ReadPosition(selfU, a) || !ReadPosition(other, b))
         {
             PushNil(L);
             return 1;
@@ -111,9 +110,9 @@ namespace wxl::lua::methods::unit
     /// unit:GetScreenPosition() -> screenX, screenY, visible: the unit's world position projected to
     /// ImGui pixel space (shared with wxl.camera.world_to_screen). nil when the unit has no position
     /// or the projection is unavailable.
-    inline int L_GetScreenPosition(lua_State* L)
+    inline int L_GetScreenPosition(lua_State* L, uint64_t self)
     {
-        void* unit = ResolveUnit(CheckGuid(L, 1));
+        void* unit = ResolveUnit(self);
         float pos[3];
         if (!ReadPosition(unit, pos))
         {
@@ -163,17 +162,19 @@ namespace wxl::lua::methods::unit
      */
     inline void Register(lua_State* L)
     {
-        // Instance methods into mt.__index (created by ObjectProxy::RegisterMetatables).
-        luaL_getmetatable(L, kUnitMeta);                                     // [wxl, mt]
-        lua_getfield(L, -1, "__index");                                      // [wxl, mt, methods]
-        lua_pushcfunction(L, &L_IsValid);          lua_setfield(L, -2, "IsValid");
-        lua_pushcfunction(L, &L_GetGuid);          lua_setfield(L, -2, "GetGuid");
-        lua_pushcfunction(L, &L_GetPosition);      lua_setfield(L, -2, "GetPosition");
-        lua_pushcfunction(L, &L_IsPlayer);         lua_setfield(L, -2, "IsPlayer");
-        lua_pushcfunction(L, &L_GetReaction);      lua_setfield(L, -2, "GetReaction");
-        lua_pushcfunction(L, &L_DistanceTo);       lua_setfield(L, -2, "DistanceTo");
-        lua_pushcfunction(L, &L_GetScreenPosition);lua_setfield(L, -2, "GetScreenPosition");
-        lua_pop(L, 2);                                                       // [wxl]
+        // Instance methods onto the Unit metatable's __index, via the shared GUID-dispatch thunk
+        // (each row's closure carries its own identity; the thunk validates self and forwards the GUID).
+        static const UnitMethod methods[] = {
+            { "IsValid",           L_IsValid },
+            { "GetGuid",           L_GetGuid },
+            { "GetPosition",       L_GetPosition },
+            { "IsPlayer",          L_IsPlayer },
+            { "GetReaction",       L_GetReaction },
+            { "DistanceTo",        L_DistanceTo },
+            { "GetScreenPosition", L_GetScreenPosition },
+            { nullptr, nullptr },
+        };
+        RegisterUnitMethods(L, methods);
 
         // Global accessors onto the wxl table.
         static const luaL_Reg accessors[] = {

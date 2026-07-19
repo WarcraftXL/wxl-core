@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Scoped styling. push_* / pop_* must be balanced within the frame. Color indices are wxl.ui.COL.* and
@@ -106,13 +107,17 @@ namespace wxl::lua::methods::ui
     /// Adds the style fields to the ui subtable on top of the stack.
     inline void RegisterStyle(lua_State* L)
     {
-        lua_pushcfunction(L, &L_pushStyleColor);      lua_setfield(L, -2, "push_style_color");
-        lua_pushcfunction(L, &L_popStyleColor);       lua_setfield(L, -2, "pop_style_color");
-        lua_pushcfunction(L, &L_pushStyleVar);        lua_setfield(L, -2, "push_style_var");
-        lua_pushcfunction(L, &L_popStyleVar);         lua_setfield(L, -2, "pop_style_var");
-        lua_pushcfunction(L, &L_pushId);              lua_setfield(L, -2, "push_id");
-        lua_pushcfunction(L, &L_popId);               lua_setfield(L, -2, "pop_id");
-        lua_pushcfunction(L, &L_getColor);            lua_setfield(L, -2, "get_color");
-        lua_pushcfunction(L, &L_getStyleColorPacked); lua_setfield(L, -2, "get_style_color_packed");
+        static const luaL_Reg fns[] = {
+            { "push_style_color",       L_pushStyleColor },
+            { "pop_style_color",        L_popStyleColor },
+            { "push_style_var",         L_pushStyleVar },
+            { "pop_style_var",          L_popStyleVar },
+            { "push_id",                L_pushId },
+            { "pop_id",                 L_popId },
+            { "get_color",              L_getColor },
+            { "get_style_color_packed", L_getStyleColorPacked },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

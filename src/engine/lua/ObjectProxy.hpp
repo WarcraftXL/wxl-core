@@ -55,6 +55,27 @@ namespace wxl::lua
      */
     void RegisterMetatables(lua_State* L);
 
+    /// A Unit instance-method body. The shared thunk validates that arg 1 is a wxl Unit userdata and
+    /// hands its GUID as `self`, so a method drops the `ResolveUnit(CheckGuid(L,1))` preamble and reads
+    /// any further arguments from stack index 2 upward. Returns the number of results pushed.
+    using UnitMethodFn = int (*)(lua_State* L, uint64_t self);
+
+    /// One row of the Unit method table: a Lua name and its body. Terminate the array with {nullptr,…}.
+    struct UnitMethod
+    {
+        const char*  name;
+        UnitMethodFn fn;
+    };
+
+    /**
+     * @brief Installs a null-terminated array of Unit instance methods onto the Unit metatable's
+     *        __index (created by RegisterMetatables). Each row becomes a C closure over itself, all
+     *        sharing one dispatch thunk — no per-method wrapper. Stack-neutral.
+     * @param L        the Lua state (any table may be on top; the metatable is fetched from the registry).
+     * @param methods  null-terminated {name, UnitMethodFn} array.
+     */
+    void RegisterUnitMethods(lua_State* L, const UnitMethod* methods);
+
     /**
      * @brief Pushes the interned Unit userdata for a GUID (nil when guid == 0). Reuses the cached
      *        userdata for a live GUID so proxy identity is stable.

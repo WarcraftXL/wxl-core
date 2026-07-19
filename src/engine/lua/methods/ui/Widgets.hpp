@@ -18,6 +18,7 @@
 
 #include <cfloat>
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 #include "engine/lua/methods/TextureMethods.hpp"
 
@@ -155,16 +156,20 @@ namespace wxl::lua::methods::ui
     /// Adds the widget fields to the ui subtable on top of the stack.
     inline void RegisterWidgets(lua_State* L)
     {
-        lua_pushcfunction(L, &L_button);          lua_setfield(L, -2, "button");
-        lua_pushcfunction(L, &L_smallButton);     lua_setfield(L, -2, "small_button");
-        lua_pushcfunction(L, &L_invisibleButton); lua_setfield(L, -2, "invisible_button");
-        lua_pushcfunction(L, &L_arrowButton);     lua_setfield(L, -2, "arrow_button");
-        lua_pushcfunction(L, &L_checkbox);        lua_setfield(L, -2, "checkbox");
-        lua_pushcfunction(L, &L_radioButton);     lua_setfield(L, -2, "radio_button");
-        lua_pushcfunction(L, &L_progressBar);     lua_setfield(L, -2, "progress_bar");
-        lua_pushcfunction(L, &L_colorEdit3);      lua_setfield(L, -2, "color_edit3");
-        lua_pushcfunction(L, &L_colorEdit4);      lua_setfield(L, -2, "color_edit4");
-        lua_pushcfunction(L, &L_colorButton);     lua_setfield(L, -2, "color_button");
-        lua_pushcfunction(L, &L_image);           lua_setfield(L, -2, "image");
+        static const luaL_Reg fns[] = {
+            { "button",           L_button },
+            { "small_button",     L_smallButton },
+            { "invisible_button", L_invisibleButton },
+            { "arrow_button",     L_arrowButton },
+            { "checkbox",         L_checkbox },
+            { "radio_button",     L_radioButton },
+            { "progress_bar",     L_progressBar },
+            { "color_edit3",      L_colorEdit3 },
+            { "color_edit4",      L_colorEdit4 },
+            { "color_button",     L_colorButton },
+            { "image",            L_image },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

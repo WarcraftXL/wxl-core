@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 #include "engine/lua/methods/TextureMethods.hpp"
 
@@ -172,21 +173,29 @@ namespace wxl::lua::methods::ui
     /// to the kDrawListMeta metatable (which Common's RegisterDrawListMeta must have created first).
     inline void RegisterDrawList(lua_State* L)
     {
-        lua_pushcfunction(L, &L_windowDrawList);     lua_setfield(L, -2, "window_draw_list");
-        lua_pushcfunction(L, &L_foregroundDrawList); lua_setfield(L, -2, "foreground_draw_list");
-        lua_pushcfunction(L, &L_backgroundDrawList); lua_setfield(L, -2, "background_draw_list");
+        static const luaL_Reg fns[] = {
+            { "window_draw_list",     L_windowDrawList },
+            { "foreground_draw_list", L_foregroundDrawList },
+            { "background_draw_list", L_backgroundDrawList },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
 
         luaL_getmetatable(L, kDrawListMeta); // handle methods live on the metatable (== its __index)
-        lua_pushcfunction(L, &L_dlAddLine);           lua_setfield(L, -2, "add_line");
-        lua_pushcfunction(L, &L_dlAddRect);           lua_setfield(L, -2, "add_rect");
-        lua_pushcfunction(L, &L_dlAddRectFilled);     lua_setfield(L, -2, "add_rect_filled");
-        lua_pushcfunction(L, &L_dlAddCircle);         lua_setfield(L, -2, "add_circle");
-        lua_pushcfunction(L, &L_dlAddCircleFilled);   lua_setfield(L, -2, "add_circle_filled");
-        lua_pushcfunction(L, &L_dlAddTriangleFilled); lua_setfield(L, -2, "add_triangle_filled");
-        lua_pushcfunction(L, &L_dlAddText);           lua_setfield(L, -2, "add_text");
-        lua_pushcfunction(L, &L_dlAddImage);          lua_setfield(L, -2, "add_image");
-        lua_pushcfunction(L, &L_dlPushClipRect);      lua_setfield(L, -2, "push_clip_rect");
-        lua_pushcfunction(L, &L_dlPopClipRect);       lua_setfield(L, -2, "pop_clip_rect");
+        static const luaL_Reg fns2[] = {
+            { "add_line",            L_dlAddLine },
+            { "add_rect",            L_dlAddRect },
+            { "add_rect_filled",     L_dlAddRectFilled },
+            { "add_circle",          L_dlAddCircle },
+            { "add_circle_filled",   L_dlAddCircleFilled },
+            { "add_triangle_filled", L_dlAddTriangleFilled },
+            { "add_text",            L_dlAddText },
+            { "add_image",           L_dlAddImage },
+            { "push_clip_rect",      L_dlPushClipRect },
+            { "pop_clip_rect",       L_dlPopClipRect },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns2);
         lua_pop(L, 1); // pop metatable
     }
 }

@@ -17,6 +17,7 @@
 #include "engine/lua/ObjectProxy.hpp"
 
 #include "engine/lua/LuaJit.hpp"
+#include "common/Mem.hpp"
 #include "game/Binding.hpp"
 #include "game/camera/Camera.hpp"
 #include "game/gx/Gx.hpp"
@@ -126,6 +127,31 @@ namespace wxl::lua
         return static_cast<ObjectProxy*>(ud)->guid;
     }
 
+    namespace
+    {
+        // The one lua_CFunction behind every unit:* method. Its upvalue is the UnitMethod row; it
+        // validates self (arg 1 is a wxl Unit — CheckGuid raises otherwise) and forwards the GUID.
+        int UnitMethodThunk(lua_State* L)
+        {
+            const auto* row  = static_cast<const UnitMethod*>(lua_touserdata(L, lua_upvalueindex(1)));
+            const uint64_t self = CheckGuid(L, 1);
+            return row->fn(L, self);
+        }
+    }
+
+    void RegisterUnitMethods(lua_State* L, const UnitMethod* methods)
+    {
+        luaL_getmetatable(L, kUnitMeta);   // [.., mt]
+        lua_getfield(L, -1, "__index");    // [.., mt, __index]
+        for (; methods && methods->name; ++methods)
+        {
+            lua_pushlightuserdata(L, const_cast<UnitMethod*>(methods)); // upvalue: the row (static storage)
+            lua_pushcclosure(L, &UnitMethodThunk, 1);
+            lua_setfield(L, -2, methods->name);
+        }
+        lua_pop(L, 2);                     // [..]
+    }
+
     void* ResolveObject(uint64_t guid, uint32_t typemask)
     {
         if (guid == 0)
@@ -149,7 +175,7 @@ namespace wxl::lua
     {
         __try
         {
-            return *reinterpret_cast<const uint64_t*>(addr);
+            return wxl::mem::Read<uint64_t>(addr);
         }
         __except (EXCEPTION_EXECUTE_HANDLER)
         {
@@ -211,7 +237,7 @@ namespace wxl::lua
             // Native world->screen projection -- the exact call the client uses for its own
             // 3D-anchored UI (world text, chat bubbles, target indicators), so it is correct
             // under every camera pitch/yaw/distance. Nonzero return = point is on-screen.
-            void* worldFrame = *reinterpret_cast<void**>(woff::kWorldFrame);
+            void* worldFrame = wxl::mem::Read<void*>(woff::kWorldFrame);
             if (!worldFrame)
                 return false;
 
@@ -236,8 +262,8 @@ namespace wxl::lua
             // in-game: the raw Y tracks perfectly once flipped, for any camera pitch/yaw). Scale DDC
             // pixels to the live viewport (== 1.0 when DDC matches the viewport) and flip Y to reach
             // ImGui's top-left origin.
-            const float ddcW = *reinterpret_cast<const float*>(woff::kDdcWidth);
-            const float ddcH = *reinterpret_cast<const float*>(woff::kDdcHeight);
+            const float ddcW = wxl::mem::Read<float>(woff::kDdcWidth);
+            const float ddcH = wxl::mem::Read<float>(woff::kDdcHeight);
             if (ddcW <= 0.0f || ddcH <= 0.0f)
                 return false;
 

@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Text output. All strings are passed through "%s" so a literal % never triggers printf formatting.
@@ -82,12 +83,16 @@ namespace wxl::lua::methods::ui
     /// Adds the text fields to the ui subtable on top of the stack.
     inline void RegisterText(lua_State* L)
     {
-        lua_pushcfunction(L, &L_text);         lua_setfield(L, -2, "text");
-        lua_pushcfunction(L, &L_textColored);  lua_setfield(L, -2, "text_colored");
-        lua_pushcfunction(L, &L_textDisabled); lua_setfield(L, -2, "text_disabled");
-        lua_pushcfunction(L, &L_textWrapped);  lua_setfield(L, -2, "text_wrapped");
-        lua_pushcfunction(L, &L_labelText);    lua_setfield(L, -2, "label_text");
-        lua_pushcfunction(L, &L_bulletText);   lua_setfield(L, -2, "bullet_text");
-        lua_pushcfunction(L, &L_bullet);       lua_setfield(L, -2, "bullet");
+        static const luaL_Reg fns[] = {
+            { "text",          L_text },
+            { "text_colored",  L_textColored },
+            { "text_disabled", L_textDisabled },
+            { "text_wrapped",  L_textWrapped },
+            { "label_text",    L_labelText },
+            { "bullet_text",   L_bulletText },
+            { "bullet",        L_bullet },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

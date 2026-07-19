@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/ui/Common.hpp"
 
 /// Window management: opening/closing windows and child regions, positioning the next window, and querying
@@ -157,20 +158,24 @@ namespace wxl::lua::methods::ui
     /// Adds the window-management fields to the ui subtable on top of the stack.
     inline void RegisterWindows(lua_State* L)
     {
-        lua_pushcfunction(L, &L_begin);                    lua_setfield(L, -2, "begin");
-        lua_pushcfunction(L, &L_finish);                   lua_setfield(L, -2, "finish");
-        lua_pushcfunction(L, &L_beginChild);               lua_setfield(L, -2, "begin_child");
-        lua_pushcfunction(L, &L_endChild);                 lua_setfield(L, -2, "end_child");
-        lua_pushcfunction(L, &L_setNextWindowPos);         lua_setfield(L, -2, "set_next_window_pos");
-        lua_pushcfunction(L, &L_setNextWindowSize);        lua_setfield(L, -2, "set_next_window_size");
-        lua_pushcfunction(L, &L_setNextWindowCollapsed);   lua_setfield(L, -2, "set_next_window_collapsed");
-        lua_pushcfunction(L, &L_setNextWindowFocus);       lua_setfield(L, -2, "set_next_window_focus");
-        lua_pushcfunction(L, &L_setNextWindowBgAlpha);     lua_setfield(L, -2, "set_next_window_bg_alpha");
-        lua_pushcfunction(L, &L_getWindowPos);             lua_setfield(L, -2, "get_window_pos");
-        lua_pushcfunction(L, &L_getWindowSize);            lua_setfield(L, -2, "get_window_size");
-        lua_pushcfunction(L, &L_getContentRegionAvail);    lua_setfield(L, -2, "get_content_region_avail");
-        lua_pushcfunction(L, &L_isWindowFocused);          lua_setfield(L, -2, "is_window_focused");
-        lua_pushcfunction(L, &L_isWindowHovered);          lua_setfield(L, -2, "is_window_hovered");
-        lua_pushcfunction(L, &L_setWindowFontScale);       lua_setfield(L, -2, "set_window_font_scale");
+        static const luaL_Reg fns[] = {
+            { "begin",                    L_begin },
+            { "finish",                   L_finish },
+            { "begin_child",              L_beginChild },
+            { "end_child",                L_endChild },
+            { "set_next_window_pos",       L_setNextWindowPos },
+            { "set_next_window_size",      L_setNextWindowSize },
+            { "set_next_window_collapsed", L_setNextWindowCollapsed },
+            { "set_next_window_focus",     L_setNextWindowFocus },
+            { "set_next_window_bg_alpha",  L_setNextWindowBgAlpha },
+            { "get_window_pos",            L_getWindowPos },
+            { "get_window_size",           L_getWindowSize },
+            { "get_content_region_avail",  L_getContentRegionAvail },
+            { "is_window_focused",         L_isWindowFocused },
+            { "is_window_hovered",         L_isWindowHovered },
+            { "set_window_font_scale",     L_setWindowFontScale },
+            { nullptr, nullptr },
+        };
+        SetFunctions(L, fns);
     }
 }

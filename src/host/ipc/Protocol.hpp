@@ -54,10 +54,11 @@ namespace wxl::ipc
     /** @brief Request kind, carried inside the FlexBuffers payload. */
     enum Op : uint32_t
     {
-        OpFileOpen   = 4, // name, flags     -> inline blob (small) OR blob id + size (zero-copy)
-        OpFileRead   = 5, // blobId, off, len -> status, blob (fallback; sectioned files map direct)
-        OpFileClose  = 6, // blobId          -> status (releases the blob section)
-        OpFileExists = 7, // name            -> status (StOk = present)
+        OpFileOpen    = 4, // name, flags      -> inline blob (small) OR blob id + size (zero-copy)
+        OpFileRead    = 5, // blobId, off, len -> status, blob (fallback; sectioned files map direct)
+        OpFileClose   = 6, // blobId           -> status (releases the blob section)
+        OpFileExists  = 7, // name             -> status (StOk = present)
+        OpResolveFdid = 8, // fileDataId       -> status, path string (StOk + path, else StNotFound)
     };
 
     /** @brief Response status carried inside the FlexBuffers payload. */

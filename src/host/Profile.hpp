@@ -21,6 +21,7 @@ namespace wxl::host::profile
         FileRead,
         FileClose,
         FileExists,
+        ResolveFdid,
         Count
     };
 

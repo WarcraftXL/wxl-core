@@ -38,7 +38,7 @@ namespace
     // Profiling is deliberately kept in this translation unit. A request collects timings locally, then
     // merges the complete sample under one small mutex after releasing its mailbox channel. This avoids
     // emulated 64-bit atomic traffic in 32-bit WoW and keeps interval snapshots coherent.
-    enum class ProfileOp : uint32_t { Open, Read, Close, Exists, Count };
+    enum class ProfileOp : uint32_t { Open, Read, Close, Exists, Resolve, Count };
 
     struct ProfileConfig
     {
@@ -782,5 +782,28 @@ namespace wxl::runtime::ipc
             exists = vec[0].AsUInt32() == StOk;
         });
         return exists;
+    }
+
+    /**
+     * @brief Resolves a modern FileDataID to an archive path via the host DB2 path-table authority.
+     * @param fileDataId  the texture/model FileDataID (MDID/MHID, MDDF/MODF).
+     * @param outPath     receives the resolved archive path on success (unchanged on miss/failure).
+     * @return true when the host resolved the id; false on a real miss or a transport failure.
+     */
+    bool ResolveFdid(uint32_t fileDataId, std::string& outPath)
+    {
+        flexbuffers::Builder fbb;
+        fbb.Vector([&]() { fbb.UInt(OpResolveFdid); fbb.UInt(fileDataId); });
+        fbb.Finish();
+
+        bool ok = false;
+        Transact(ProfileOp::Resolve, fbb.GetBuffer(), [&](const flexbuffers::Vector& vec) {
+            if (vec[0].AsUInt32() == StOk)
+            {
+                outPath = vec[1].AsString().str();
+                ok = true;
+            }
+        });
+        return ok;
     }
 }

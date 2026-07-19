@@ -110,4 +110,12 @@ namespace wxl::runtime::ipc
      * @return true if the host reports the file present.
      */
     bool FileExists(const std::string& name);
+
+    /**
+     * @brief Resolves a modern FileDataID to an archive path via the host DB2 path-table authority.
+     * @param fileDataId  the texture/model FileDataID (MDID/MHID, MDDF/MODF).
+     * @param outPath     receives the resolved archive path on success.
+     * @return true when the host resolved it; false on a real miss or a transport failure.
+     */
+    bool ResolveFdid(uint32_t fileDataId, std::string& outPath);
 }

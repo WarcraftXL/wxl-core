@@ -236,6 +236,17 @@ namespace wxl::host::serve
                     fbb.Vector([&]() { fbb.UInt(ok ? StOk : StNotFound); });
                     break;
                 }
+                case OpResolveFdid:
+                {
+                    trace.op = hprof::RequestOp::ResolveFdid;
+                    const uint32_t fileDataId = vec[1].AsUInt32();
+                    std::string path;
+                    const bool ok = wxl::host::ResolveFdid(fileDataId, path);
+                    trace.ok = ok;
+                    if (ok) fbb.Vector([&]() { fbb.UInt(StOk); fbb.String(path); });
+                    else    fbb.Vector([&]() { fbb.UInt(StNotFound); });
+                    break;
+                }
                 default:
                     trace.badRequest = true;
                     fbb.Vector([&]() { fbb.UInt(StBadRequest); });

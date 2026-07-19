@@ -1,4 +1,4 @@
-// FileDataID resolver -- implementation. Lazy-loads the custom DB2s through the client IO layer.
+// FileDataID resolver -- implementation. Asks the 64-bit host (the DB2 authority) over IPC + caches.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,96 +16,48 @@
 
 #include "features/fdid/Fdid.hpp"
 
-#include "engine/db2/Db2Table.hpp"
-#include "engine/db2/schema/TextureFilePath.hpp"
-#include "engine/db2/schema/ModelFilePath.hpp"
-
-#include "common/Log.hpp"
-#include "offsets/engine/Io.hpp"
+#include "engine/storage/ShmClient.hpp"
 
 #include <mutex>
-#include <vector>
+#include <string>
+#include <unordered_map>
 
 namespace wxl::fdid
 {
     namespace
     {
-        namespace io = wxl::offsets::engine::io;
+        namespace ipc = wxl::runtime::ipc;
 
-        // One lazily-loaded typed table plus its "already tried" latch, so a missing/broken DB2 is
-        // probed once and then treated as permanently empty (no per-lookup reopen storms).
-        template <class Schema>
-        struct LazyTable
+        std::mutex                                g_mutex;
+        // fdid -> resolved path; an empty string is a cached, host-confirmed miss (so a texture shared
+        // by hundreds of tiles is only ever asked once). Node pointers are stable across rehash, so
+        // returning c_str() after the lock drops is safe. Never erased -> pointers live for the process.
+        std::unordered_map<uint32_t, std::string> g_cache;
+
+        // Textures and models share one FileDataID space, and the host resolver searches both path
+        // tables, so a single query serves either kind.
+        const char* Resolve(uint32_t fdid)
         {
-            wxl::db2::Db2Table<Schema> table;
-            bool                       tried = false;
-            std::once_flag             once;
-        };
+            if (fdid == 0)
+                return nullptr;
 
-        LazyTable<wxl::db2::schema::TextureFilePath> g_tex;
-        LazyTable<wxl::db2::schema::ModelFilePath>   g_model;
-
-        // Read a whole archive/loose file into memory via the client storage primitives (same
-        // by-address calls AdtSplit uses, so any host-file redirect detours still apply).
-        bool ReadWholeFile(const char* name, std::vector<uint8_t>& out)
-        {
-            void* h = nullptr;
-            if (!reinterpret_cast<io::Storage_FileOpenFn>(io::kFileOpen)(nullptr, name, 0, &h) || !h)
-                return false;
-            const uint32_t size = reinterpret_cast<io::Storage_FileSizeFn>(io::kFileSize)(h, nullptr);
-            bool ok = false;
-            if (size != 0 && size != 0xFFFFFFFFu)
+            std::lock_guard<std::mutex> lock(g_mutex);
+            auto it = g_cache.find(fdid);
+            if (it == g_cache.end())
             {
-                out.resize(size);
-                ok = reinterpret_cast<io::Storage_FileReadFn>(io::kFileRead)(h, out.data(), size, nullptr, nullptr, 0) != 0;
+                std::string path;
+                const bool ok = ipc::ResolveFdid(fdid, path);
+                // Cache a positive answer always; cache a miss only when the host actually answered
+                // (connected) -- a transport failure while disconnected must stay retryable, not poison
+                // the entry into a permanent miss for the session.
+                if (!ok && !ipc::IsConnected())
+                    return nullptr;
+                it = g_cache.emplace(fdid, std::move(path)).first;
             }
-            reinterpret_cast<io::Storage_FileCloseFn>(io::kFileClose)(h);
-            return ok;
-        }
-
-        template <class Schema>
-        void EnsureLoaded(LazyTable<Schema>& lt)
-        {
-            std::call_once(lt.once, [&] {
-                lt.tried = true;
-                std::vector<uint8_t> bytes;
-                if (!ReadWholeFile(Schema::kFile, bytes))
-                {
-                    WLOG_WARN("[fdid] %s not found -- FileDataID resolution disabled for it", Schema::kFile);
-                    return;
-                }
-                if (lt.table.Load(std::move(bytes)))
-                    WLOG_INFO("[fdid] %s loaded (%u records)", Schema::kFile, lt.table.RecordCount());
-                else
-                    WLOG_ERROR("[fdid] %s failed to parse", Schema::kFile);
-            });
+            return it->second.empty() ? nullptr : it->second.c_str();
         }
     } // namespace
 
-    const char* ResolveTexture(uint32_t fileDataId)
-    {
-        EnsureLoaded(g_tex);
-        if (!g_tex.table.Ok() || fileDataId == 0)
-            return nullptr;
-        wxl::db2::schema::TextureFilePath rec;
-        if (!g_tex.table.Find(fileDataId, rec) || !rec.filePath[0])
-            return nullptr;
-        return rec.filePath;
-    }
-
-    const char* ResolveModel(uint32_t fileDataId)
-    {
-        EnsureLoaded(g_model);
-        if (!g_model.table.Ok() || fileDataId == 0)
-            return nullptr;
-        wxl::db2::schema::ModelFilePath rec;
-        if (!g_model.table.Find(fileDataId, rec) || !rec.filePath[0])
-            return nullptr;
-        return rec.filePath;
-    }
-
-    bool     TextureTableReady()   { EnsureLoaded(g_tex);   return g_tex.table.Ok(); }
-    bool     ModelTableReady()     { EnsureLoaded(g_model); return g_model.table.Ok(); }
-    uint32_t TextureRecordCount()  { EnsureLoaded(g_tex);   return g_tex.table.RecordCount(); }
-    uint32_t ModelRecordCount()    { EnsureLoaded(g_model); return g_model.table.RecordCount(); }
+    const char* ResolveTexture(uint32_t fileDataId) { return Resolve(fileDataId); }
+    const char* ResolveModel(uint32_t fileDataId)   { return Resolve(fileDataId); }
 }

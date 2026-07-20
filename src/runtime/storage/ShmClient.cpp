@@ -35,6 +35,9 @@ using namespace wxl::ipc;
 
 namespace
 {
+    /** @brief Client process id used to namespace this host session's OS objects. */
+    uint32_t SessionPid() { return GetCurrentProcessId(); }
+
     // Profiling is deliberately kept in this translation unit. A request collects timings locally, then
     // merges the complete sample under one small mutex after releasing its mailbox channel. This avoids
     // emulated 64-bit atomic traffic in 32-bit WoW and keeps interval snapshots coherent.
@@ -371,7 +374,9 @@ namespace
             return success;
         };
 
-        g_shm = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, kShmName);
+        char shmName[64];
+        ShmName(shmName, sizeof(shmName), SessionPid());
+        g_shm = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, shmName);
         if (!g_shm) return finish(false);
         // dwNumberOfBytesToMap = 0 maps the whole section as the host sized it -- the host picks the
         // channel count (and thus the window size) from its own hardware_concurrency, so the client
@@ -391,11 +396,12 @@ namespace
         }
         g_channelCount = hdr0->channelCount;
 
+        const uint32_t sessionPid = SessionPid();
         for (uint32_t i = 0; i < g_channelCount; ++i)
         {
             char rn[64], sn[64];
-            ReqEventName(rn, sizeof(rn), i);
-            RespEventName(sn, sizeof(sn), i);
+            ReqEventName(rn, sizeof(rn), sessionPid, i);
+            RespEventName(sn, sizeof(sn), sessionPid, i);
             g_reqEvent[i]  = OpenEventA(EVENT_ALL_ACCESS, FALSE, rn);
             g_respEvent[i] = OpenEventA(EVENT_ALL_ACCESS, FALSE, sn);
             if (!g_reqEvent[i] || !g_respEvent[i]) { DisconnectLocked(); return finish(false); }
@@ -586,7 +592,9 @@ namespace wxl::runtime::ipc
      */
     void EnsureHostRunning()
     {
-        HANDLE existing = OpenFileMappingA(FILE_MAP_READ, FALSE, kShmName);
+        char shmName[64];
+        ShmName(shmName, sizeof(shmName), SessionPid());
+        HANDLE existing = OpenFileMappingA(FILE_MAP_READ, FALSE, shmName);
         if (existing) { CloseHandle(existing); return; }
 
         std::string root = ModuleDir();
@@ -603,6 +611,7 @@ namespace wxl::runtime::ipc
         bool console = ConsoleRequested(root);
 
         // --client-pid lets the host exit when this client closes; --console enables its console output.
+        // The same PID namespaces the IPC objects so a second Wow.exe gets its own host session.
         char cmd[160];
         wsprintfA(cmd, "WarcraftXLHost.exe --client-pid %lu%s", GetCurrentProcessId(), console ? " --console" : "");
 
@@ -625,9 +634,11 @@ namespace wxl::runtime::ipc
      */
     bool WaitForHost(uint32_t timeoutMs)
     {
+        char shmName[64];
+        ShmName(shmName, sizeof(shmName), SessionPid());
         for (uint32_t waited = 0; waited < timeoutMs; waited += 50)
         {
-            HANDLE h = OpenFileMappingA(FILE_MAP_READ, FALSE, kShmName);
+            HANDLE h = OpenFileMappingA(FILE_MAP_READ, FALSE, shmName);
             if (h) { CloseHandle(h); return true; }
             Sleep(50);
         }
@@ -706,7 +717,7 @@ namespace wxl::runtime::ipc
         };
 
         char nm[64];
-        BlobName(nm, sizeof(nm), id);
+        BlobName(nm, sizeof(nm), SessionPid(), id);
         HANDLE h = OpenFileMappingA(FILE_MAP_READ, FALSE, nm);
         if (!h) return finish(false);
         void* v = MapViewOfFile(h, FILE_MAP_READ, 0, 0, size);

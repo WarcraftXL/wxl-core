@@ -84,6 +84,9 @@ Output: `WarcraftXL.dll`. Vendored dependencies build with the project.
 1. Place `WarcraftXL.dll` next to `Wow.exe` and load it into the client (import-table entry / loader).
 2. Launch. The framework writes a startup log on bootstrap - check it to confirm modules came up.
 
+Each client process launches its own `WarcraftXLHost.exe` session (IPC named objects are scoped by
+the Wow.exe PID), so multiple concurrent clients do not share a mailbox.
+
 > Modifying a client binary is on you: work on a **copy**, keep an untouched backup, and only point
 > this at a client and server you are permitted to modify and connect to.
 

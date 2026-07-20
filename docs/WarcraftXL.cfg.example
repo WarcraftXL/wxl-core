@@ -61,6 +61,7 @@
 # Modern-assets transform cache: total size and per-entry cap.
 #WXL_TRANSFORM_CACHE_MB=512
 #WXL_TRANSFORM_CACHE_ENTRY_MB=64
+# Each Wow.exe owns its own host process (IPC names include the client PID). No knob required.
 
 # ----------------------------------------------------------------------------- Profilers
 # Client: asset phases + frame-hitch histogram (h25/h50/h100).

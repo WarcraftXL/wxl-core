@@ -33,6 +33,7 @@ namespace
     HANDLE   g_shm = nullptr;
     uint8_t* g_base = nullptr;
     uint32_t g_channelCount = 0;
+    uint32_t g_sessionPid = 0;
     HANDLE   g_reqEv[kMaxChannels]  = {};
     HANDLE   g_respEv[kMaxChannels] = {};
 
@@ -52,14 +53,19 @@ namespace wxl::host::ipc
 {
     /**
      * @brief Creates and maps the shared window, stamps each channel header, and creates the events.
+     * @param sessionPid  client process id that owns this host session
      * @return true on success
      */
-    bool Create()
+    bool Create(uint32_t sessionPid)
     {
+        if (!sessionPid) return false;
+        g_sessionPid = sessionPid;
         g_channelCount = ComputeChannelCount();
         const uint32_t shmSize = ShmSize(g_channelCount);
 
-        g_shm = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, shmSize, kShmName);
+        char shmName[64];
+        ShmName(shmName, sizeof(shmName), g_sessionPid);
+        g_shm = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, shmSize, shmName);
         if (!g_shm) return false;
         g_base = static_cast<uint8_t*>(MapViewOfFile(g_shm, FILE_MAP_ALL_ACCESS, 0, 0, shmSize));
         if (!g_base) { CloseHandle(g_shm); g_shm = nullptr; return false; }
@@ -79,20 +85,24 @@ namespace wxl::host::ipc
         for (uint32_t i = 0; i < g_channelCount; ++i)
         {
             char rn[64], sn[64];
-            ReqEventName(rn, sizeof(rn), i);
-            RespEventName(sn, sizeof(sn), i);
+            ReqEventName(rn, sizeof(rn), g_sessionPid, i);
+            RespEventName(sn, sizeof(sn), g_sessionPid, i);
             g_reqEv[i]  = CreateEventA(nullptr, FALSE, FALSE, rn);
             g_respEv[i] = CreateEventA(nullptr, FALSE, FALSE, sn);
             if (!g_reqEv[i] || !g_respEv[i]) return false;
         }
 
-        wxl::core::log::Printf("host: ipc window sized for %u channel(s) (hardware_concurrency=%u)",
-            g_channelCount, std::thread::hardware_concurrency());
+        wxl::core::log::Printf(
+            "host: ipc window sized for %u channel(s) (sessionPid=%u, hardware_concurrency=%u)",
+            g_channelCount, g_sessionPid, std::thread::hardware_concurrency());
         return true;
     }
 
     /** @brief Returns the channel count chosen by Create() (0 before it succeeds). */
     uint32_t ChannelCount() { return g_channelCount; }
+
+    /** @brief Returns the session PID passed to Create() (0 before it succeeds). */
+    uint32_t SessionPid() { return g_sessionPid; }
 
     /**
      * @brief Blocks until any channel signals a request, then copies that channel's sequence and payload out.

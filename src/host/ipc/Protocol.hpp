@@ -23,17 +23,20 @@
 // independent channels, each with its own control header and payload region. Payloads are FlexBuffers,
 // endian and arch neutral so the 32-bit DLL and 64-bit host agree on bytes. Any wire change bumps
 // kVersion; the DLL rejects a host whose version differs.
+//
+// Named OS objects are scoped per client process id so concurrent Wow.exe instances each get an
+// isolated host session (mailbox, events, blob sections, singleton mutex).
 namespace wxl::ipc
 {
     constexpr uint32_t kMinChannels = 2;
     constexpr uint32_t kMaxChannels = 16;
 
-    constexpr const char* kShmName      = "Local\\WarcraftXLShm";
-    constexpr const char* kReqEventFmt  = "Local\\WarcraftXLReq_%u";
-    constexpr const char* kRespEventFmt = "Local\\WarcraftXLResp_%u";
-    // Per-file zero-copy blob: the host puts a served file's whole bytes in a shared section named with
-    // its blob id; the client maps that section directly (no chunking, no copy through a channel).
-    constexpr const char* kBlobNameFmt  = "Local\\WarcraftXLBlob_%u";
+    // Format strings: first %u is always the session (client) PID.
+    constexpr const char* kShmNameFmt        = "Local\\WarcraftXLShm_%u";
+    constexpr const char* kReqEventFmt       = "Local\\WarcraftXLReq_%u_%u";
+    constexpr const char* kRespEventFmt      = "Local\\WarcraftXLResp_%u_%u";
+    constexpr const char* kBlobNameFmt       = "Local\\WarcraftXLBlob_%u_%u";
+    constexpr const char* kHostSingletonFmt  = "Local\\WarcraftXLHostSingleton_%u";
 
     constexpr uint32_t kMagic   = 0x4C585857; // 'WXXL'
     constexpr uint32_t kVersion = 1;
@@ -108,27 +111,60 @@ namespace wxl::ipc
         return base + ChannelPayloadOffset(i);
     }
 
-    // Format the per-channel request/response/blob names into the caller's buffer (>= 32 bytes).
+    // Format the per-session / per-channel request/response/blob names into the caller's buffer
+    // (>= 64 bytes). sessionPid is the Wow.exe process id that owns this host session.
 
     /**
-     * @brief Formats channel `i`'s request event name into the caller's buffer.
-     * @param out  destination buffer (>= 32 bytes)
-     * @param cap  buffer capacity
-     * @param i    channel index
+     * @brief Formats the shared mailbox name for `sessionPid` into the caller's buffer.
+     * @param out         destination buffer (>= 64 bytes)
+     * @param cap         buffer capacity
+     * @param sessionPid  client process id that owns the session
      */
-    inline void ReqEventName(char* out, size_t cap, uint32_t i)  { _snprintf_s(out, cap, _TRUNCATE, kReqEventFmt, i); }
+    inline void ShmName(char* out, size_t cap, uint32_t sessionPid)
+    {
+        _snprintf_s(out, cap, _TRUNCATE, kShmNameFmt, sessionPid);
+    }
+    /**
+     * @brief Formats the host singleton mutex name for `sessionPid` into the caller's buffer.
+     * @param out         destination buffer (>= 64 bytes)
+     * @param cap         buffer capacity
+     * @param sessionPid  client process id that owns the session
+     */
+    inline void HostSingletonName(char* out, size_t cap, uint32_t sessionPid)
+    {
+        _snprintf_s(out, cap, _TRUNCATE, kHostSingletonFmt, sessionPid);
+    }
+    /**
+     * @brief Formats channel `i`'s request event name into the caller's buffer.
+     * @param out         destination buffer (>= 64 bytes)
+     * @param cap         buffer capacity
+     * @param sessionPid  client process id that owns the session
+     * @param i           channel index
+     */
+    inline void ReqEventName(char* out, size_t cap, uint32_t sessionPid, uint32_t i)
+    {
+        _snprintf_s(out, cap, _TRUNCATE, kReqEventFmt, sessionPid, i);
+    }
     /**
      * @brief Formats channel `i`'s response event name into the caller's buffer.
-     * @param out  destination buffer (>= 32 bytes)
-     * @param cap  buffer capacity
-     * @param i    channel index
+     * @param out         destination buffer (>= 64 bytes)
+     * @param cap         buffer capacity
+     * @param sessionPid  client process id that owns the session
+     * @param i           channel index
      */
-    inline void RespEventName(char* out, size_t cap, uint32_t i) { _snprintf_s(out, cap, _TRUNCATE, kRespEventFmt, i); }
+    inline void RespEventName(char* out, size_t cap, uint32_t sessionPid, uint32_t i)
+    {
+        _snprintf_s(out, cap, _TRUNCATE, kRespEventFmt, sessionPid, i);
+    }
     /**
      * @brief Formats the blob section name for `id` into the caller's buffer.
-     * @param out  destination buffer (>= 32 bytes)
-     * @param cap  buffer capacity
-     * @param id   blob id
+     * @param out         destination buffer (>= 64 bytes)
+     * @param cap         buffer capacity
+     * @param sessionPid  client process id that owns the session
+     * @param id          blob id
      */
-    inline void BlobName(char* out, size_t cap, uint32_t id)     { _snprintf_s(out, cap, _TRUNCATE, kBlobNameFmt, id); }
+    inline void BlobName(char* out, size_t cap, uint32_t sessionPid, uint32_t id)
+    {
+        _snprintf_s(out, cap, _TRUNCATE, kBlobNameFmt, sessionPid, id);
+    }
 }

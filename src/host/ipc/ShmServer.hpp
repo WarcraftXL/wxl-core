@@ -29,12 +29,16 @@ namespace wxl::host::ipc
     /**
      * @brief Creates and maps the shared window and per-channel events, sizing the channel count from
      *        the machine's hardware_concurrency (clamped to [kMinChannels, kMaxChannels]).
+     * @param sessionPid  client process id that owns this host session (names the OS objects)
      * @return true on success
      */
-    bool Create();
+    bool Create(uint32_t sessionPid);
 
     /** @brief Returns the channel count chosen by Create() (0 before it succeeds). */
     uint32_t ChannelCount();
+
+    /** @brief Returns the session PID passed to Create() (0 before it succeeds). */
+    uint32_t SessionPid();
 
     /**
      * @brief Blocks until any channel has a request; a pool of worker threads (fewer than the channel

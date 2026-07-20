@@ -161,7 +161,7 @@ namespace
      * half the inflight opens queued behind the other half while the render thread waited on one of
      * them. channels-1 keeps one logical core of headroom for the game client; most request time is
      * I/O wait anyway, not CPU. WXL_HOST_WORKERS overrides for low-core machines or experiments.
-     * @param channelCount  channel count chosen by wxl::host::ipc::Create()
+     * @param channelCount  channel count chosen by wxl::host::ipc::Create(sessionPid)
      * @return worker thread count, at least 1, at most channelCount
      */
     uint32_t ComputeWorkerCount(uint32_t channelCount)
@@ -243,7 +243,7 @@ namespace
         // The section create/map and the (multi-MB) copy run outside the lock: this is the hottest
         // large-file path and every open/read/close otherwise serializes behind the copy.
         char nm[64];
-        BlobName(nm, sizeof(nm), id);
+        BlobName(nm, sizeof(nm), wxl::host::ipc::SessionPid(), id);
         HANDLE h = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, size ? size : 1, nm);
         if (!h) return 0;
         void* v = MapViewOfFile(h, FILE_MAP_WRITE, 0, 0, size);
@@ -1028,11 +1028,16 @@ namespace
      */
     int Serve()
     {
-        // One host per session.
-        HANDLE singleton = CreateMutexA(nullptr, FALSE, "Local\\WarcraftXLHostSingleton");
+        // One host per client process. Manual launches without --client-pid use the host's own PID
+        // so they still get an isolated namespace instead of colliding with a live session.
+        const uint32_t sessionPid = g_clientPid ? g_clientPid : GetCurrentProcessId();
+
+        char singletonName[64];
+        HostSingletonName(singletonName, sizeof(singletonName), sessionPid);
+        HANDLE singleton = CreateMutexA(nullptr, FALSE, singletonName);
         if (singleton && GetLastError() == ERROR_ALREADY_EXISTS)
         {
-            wlog::Printf("host: another instance is running, exiting");
+            wlog::Printf("host: another instance is running for session %u, exiting", sessionPid);
             return 0;
         }
 
@@ -1062,7 +1067,7 @@ namespace
         if (HANDLE tileWarmer = CreateThread(nullptr, 0, TileWarmer, nullptr, 0, nullptr))
             CloseHandle(tileWarmer);
 
-        if (!wxl::host::ipc::Create())
+        if (!wxl::host::ipc::Create(sessionPid))
         {
             wlog::Printf("host: ShmServer.Create failed (err %lu)", GetLastError());
             return 1;

@@ -57,6 +57,35 @@ namespace wxl::offsets::game::unit
     constexpr size_t kModelParentField  = 0x48;  // model -> parent model (0 = root)
     constexpr size_t kUnitPositionField = 0x798; // unit object -> world position (3 floats x, y, z)
 
+    // --- update-field commit (RE'd via live write-breakpoint tracing) ---
+    // `mov dword ptr [eax+edx*4], ecx` -- the instruction that commits one uint32 update field into an
+    // object's field array. eax = field array base, edx = field index, ecx = new value. This fires for
+    // EVERY field on EVERY object (health, mana, auras, item slots, everything) -- filter on edx before
+    // doing any work. NOT a function boundary: the true entry of the containing function was not located,
+    // this is the raw instruction address. Safe to detour here specifically because it sits immediately
+    // before the function's own epilogue (`pop ebp; ret 8`), so nothing branches into the overwritten
+    // bytes -- this pattern should not be copied to hook other mid-function instructions without the
+    // same check. Hooked via a naked/raw-register stub, not the typed Install<Fn> path (see GameHooks.cpp).
+    constexpr uintptr_t kUnitFieldSetWrite = 0x00743BAC;
+    // Raw instruction hook, not a real function boundary -- see the comment above. __cdecl() with no
+    // params/return: the naked hook stub reads eax/ecx/edx manually rather than through the calling
+    // convention, so this alias exists purely to type g_origUnitFieldSetWrite for the jmp thunk.
+    using UnitFieldSetWriteFn = void(__cdecl*)();
+
+    // Update-field indices for the three weapon-category visible-item entry fields (WotLK 3.3.5a client,
+    // build matching this offsets table). Verified empirically: each fires with ecx == the newly equipped
+    // item's entry ID. Believed to be PLAYER_VISIBLE_ITEM_{1,2,3}_ENTRYID; each is presumably followed by
+    // a paired *_ENCHANTMENT field one index later (unconfirmed -- only the ENTRYID indices were verified).
+    constexpr uint32_t kFieldVisibleItemMainhandEntry = 0x139;
+    constexpr uint32_t kFieldVisibleItemOffhandEntry  = 0x13B;
+    constexpr uint32_t kFieldVisibleItemRangedEntry   = 0x13D;
+
+    // Offset from an object's base pointer to its update-field array, i.e. the `eax` value seen at
+    // kUnitFieldSetWrite equals object_ptr + kUnitFieldArrayOffset. Confirmed via live diff against
+    // the local player's own object pointer (kActivePlayerGuid + kGetObjectByGuid), stable across
+    // multiple separate weapon swaps.
+    constexpr size_t kUnitFieldArrayOffset = 0x1958;
+
     // --- type masks ---
     constexpr uint32_t kTypeMaskUnit   = 0x08;
     constexpr uint32_t kTypeMaskPlayer = 0x10;

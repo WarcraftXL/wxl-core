@@ -91,6 +91,7 @@ namespace
     unit::ObjectMsgHandlerFn   g_origObjUpdate    = nullptr;
     unit::ObjectMsgHandlerFn   g_origObjDestroy   = nullptr;
     unit::TargetSetFn          g_origTargetSet    = nullptr;
+    unit::UnitFieldSetWriteFn  g_origUnitFieldSetWrite = nullptr;
     snd::PlaySoundFn           g_origPlaySound    = nullptr;
     snd::PlaySoundKitFn        g_origPlaySoundKit = nullptr;
     std::atomic<uint32_t>      g_sceneHitTestFaults{ 0 };
@@ -1365,6 +1366,73 @@ namespace
     }
 
     /**
+     * @brief Maps a raw update-field index to a weapon slot (0=mainhand, 1=offhand, 2=ranged).
+     * @param fieldIndex  the edx value seen at kUnitFieldSetWrite.
+     * @param slotOut     receives the mapped slot on a match.
+     * @return false if fieldIndex isn't one of the three weapon-visual entry fields.
+     */
+    bool ResolveWeaponVisualSlot(uint32_t fieldIndex, uint32_t& slotOut)
+    {
+        switch (fieldIndex)
+        {
+            case unit::kFieldVisibleItemMainhandEntry: slotOut = 0; return true;
+            case unit::kFieldVisibleItemOffhandEntry:  slotOut = 1; return true;
+            case unit::kFieldVisibleItemRangedEntry:   slotOut = 2; return true;
+            default: return false;
+        }
+    }
+
+    /**
+     * @brief C++ side of the update-field write capture, called from the naked register-capture stub.
+     *
+     * Fires on EVERY field write for EVERY object (health, mana, auras, everything) -- the early
+     * ResolveWeaponVisualSlot() bail keeps this cheap for the overwhelming majority of calls that
+     * aren't weapon-visual fields.
+     * @param fieldArrayBase  eax at the write instruction: the object's field array base.
+     * @param fieldIndex      edx at the write instruction: which field.
+     * @param value           ecx at the write instruction: the new value being committed.
+     */
+    void __cdecl OnUnitFieldSetCaptured(uint32_t fieldArrayBase, uint32_t fieldIndex, uint32_t value)
+    {
+        uint32_t slot;
+        if (!ResolveWeaponVisualSlot(fieldIndex, slot))
+            return;
+
+        // Resolved: fieldArrayBase = unit_ptr + kUnitFieldArrayOffset (confirmed via live diff
+        // against the local player's own object pointer, see offsets/game/Unit.hpp).
+        void* unitPtr = reinterpret_cast<uint8_t*>(fieldArrayBase) - unit::kUnitFieldArrayOffset;
+
+        ev::WeaponVisualChangeArgs a{ unitPtr, slot, value };
+        ev::Emit(ev::Event::OnWeaponVisualChange, &a);
+    }
+
+    /**
+     * @brief Detours the object update-field commit instruction directly (not a function boundary).
+     *
+     * Captures eax/ecx/edx exactly as they stand at kUnitFieldSetWrite, forwards them to
+     * OnUnitFieldSetCaptured() as plain cdecl arguments, then restores every register and flag and
+     * jumps into the trampoline to run the original instruction (and the function's own return)
+     * untouched. pushad/popad + pushfd/popfd bracket the call so the original write and its caller
+     * never observe that anything intercepted it.
+     */
+    __declspec(naked) void hkUnitFieldSetWrite()
+    {
+        __asm
+        {
+            pushfd
+            pushad
+            push ecx          ; value          (3rd cdecl arg)
+            push edx           ; fieldIndex     (2nd cdecl arg)
+            push eax           ; fieldArrayBase (1st cdecl arg)
+            call OnUnitFieldSetCaptured
+            add esp, 12        ; cdecl: caller cleans the 3 pushed args
+            popad
+            popfd
+            jmp g_origUnitFieldSetWrite
+        }
+    }
+
+    /**
      * @brief Detours the per-render-ctx M2 scene-graph update, emitting OnM2PerFrameUpdate per visible M2.
      *
      * Fires recursively through the scene graph once per visible M2 render context per frame -- this
@@ -1586,6 +1654,13 @@ namespace wxl::runtime::game
         wxl::core::hook::Install("CharModelSlotClear", m2::kCharModelSlotClear,
                                  reinterpret_cast<void*>(&hkSlotClear),
                                  reinterpret_cast<void**>(&g_origSlotClear));
+        // Raw instruction hook, not a function boundary -- see the comment on kUnitFieldSetWrite in
+        // offsets/game/Unit.hpp. Uses the untyped Install() overload deliberately: hkUnitFieldSetWrite
+        // is a naked register-capture stub, not a real C function, so it has no meaningful C++ type to
+        // match against the trampoline the way the typed Install<Fn>() overload expects.
+        wxl::core::hook::Install("UnitFieldSetWrite", unit::kUnitFieldSetWrite,
+                                 reinterpret_cast<void*>(&hkUnitFieldSetWrite),
+                                 reinterpret_cast<void**>(&g_origUnitFieldSetWrite));
         wxl::core::hook::Install("M2PerFrameUpdate", m2::kM2PerFrameUpdate,
                                  reinterpret_cast<void*>(&hkM2PerFrameUpdate),
                                  reinterpret_cast<void**>(&g_origM2PerFrame));

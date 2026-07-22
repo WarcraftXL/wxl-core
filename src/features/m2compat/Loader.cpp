@@ -19,6 +19,8 @@
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 #include "features/diag/AssetProfile.hpp"
+#include "features/diag/DrawStats.hpp"
+#include "features/m2native/M2Native.hpp"
 
 #include "common/Log.hpp"
 #include "game/m2/M2.hpp"
@@ -42,8 +44,13 @@ namespace
 
     /**
      * @brief Detours model init, emitting OnModelLoadPre at entry and OnModelLoad after parsing.
+     *
+     * When the native MD21 reader is compiled in (config.hpp kNativeM2) and the resident buffer is
+     * a modern chunked container, the stock parser is NOT called: features/m2native direct-fills
+     * the CM2Shared runtime from the modern body and returns the parser's own result contract.
+     * A stock MD20 model pays one magic compare and takes the untouched original.
      * @param model  runtime model receiving the parsed file (raw bytes at model+0x150, size at +0x16c).
-     * @return the original model-init result.
+     * @return the original model-init result (or the native fill's, for an MD21 container).
      */
     int __fastcall hkM2Init(void* model)
     {
@@ -53,7 +60,11 @@ namespace
         if (preStarted) aprof::Record(aprof::Phase::M2Pre, aprof::Now() - preStarted);
 
         const uint64_t nativeStarted = aprof::Now();
-        const int r = g_origM2Init(model);
+        int r;
+        if (wxl::features::kNativeM2 && wxl::runtime::m2native::IsModernContainer(model))
+            r = wxl::runtime::m2native::NativeLoad(model);
+        else
+            r = g_origM2Init(model);
         if (nativeStarted) aprof::Record(aprof::Phase::M2Native, aprof::Now() - nativeStarted);
 
         const uint64_t postStarted = aprof::Now();
@@ -97,6 +108,20 @@ namespace
         ev::M2SkinFinalizeArgs a{ model };
         ev::Emit(ev::Event::OnM2SkinFinalize, &a);
         g_origFinalizeSkin(model);
+
+        // Native finalize has just computed "max instances per batched draw" at shared+0x194. Record it:
+        // CM2Model::InitializeLoaded clears the batchable-doodad flag 0x10 when it is < 2, so this is the
+        // one place that can tell us how much of the corpus opts out of instanced doodad batching.
+        if constexpr (wxl::features::kDiag)
+        {
+            __try
+            {
+                wxl::runtime::drawstats::RecordFinalize(
+                    *reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(model) +
+                                                       m2::kOffSharedMaxInstances));
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+        }
 
         // Native finalize stores one optional CShaderEffect pointer per skin batch at model+0x188.
         // Diagnose and clear values that are already invalid here; the sorter guard (Batches.cpp) covers

@@ -232,4 +232,30 @@ namespace wxl::modern::assets::m2
 
     // File-scope instance self-registers its handlers at DLL load via the EventScript ctor.
     ModernM2 g_modernM2;
+
+    /**
+     * @brief Registers a model the native MD21 reader direct-filled into this module's registry
+     *        (kFlagHotReshaped: the packed modern shaderIds are present on the live skin, so the
+     *        finalize-time contract rebuild and the draw fixups must scope to it).
+     * @param model Runtime model pointer.
+     */
+    void RegisterNativeLoaded(void* model)
+    {
+        if constexpr (wxl::features::kModernM2)
+            g_modernM2.registry_.Remember(model, common::AssetRegistry::kFlagHotReshaped);
+        else
+            (void)model;
+    }
+
+    /**
+     * @brief Drops a native-reader registration (failed fill after registration).
+     * @param model Runtime model pointer.
+     */
+    void ForgetNativeLoaded(void* model)
+    {
+        if constexpr (wxl::features::kModernM2)
+            g_modernM2.registry_.Forget(model);
+        else
+            (void)model;
+    }
 }

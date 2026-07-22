@@ -14,9 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// MECHANISM (draw-leaf detour + runtime PS patch; RE ground truth:
-// _docs/re_comprehension/335/terrain_height_blend.md and _docs/re-legion/terrain-height-blend.md):
-//
+// MECHANISM (draw-leaf detour + runtime PS patch;
 //   The 3.3.5 terrain surface binds its pixel shader per (bucket, layerCount) OUTSIDE the per-chunk
 //   draw leaf: CMapRenderChunk::SetShaders refreshes the active-PS table (kActiveTerrainPs[0..3]),
 //   the bucket loop writes slot[n-1] at GxRs 0x4E, then calls the leaf (kSurfaceChunkDrawShader)

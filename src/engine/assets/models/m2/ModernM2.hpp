@@ -71,5 +71,24 @@ namespace wxl::modern::assets::m2
         void OnRibbonDraw(const events::RibbonDrawArgs& a);
 
         common::AssetRegistry registry_;
+
+        friend void RegisterNativeLoaded(void* model);
+        friend void ForgetNativeLoaded(void* model);
     };
+
+    /**
+     * @brief Registers a model the native MD21 reader (features/m2native) direct-filled, so the
+     *        live-engine half owned by this module (bone-budget split + material/texunit contract
+     *        rebuild at skin finalize, alpha-key and ribbon draw fixups) applies to it unchanged.
+     *        No-op when the modern-M2 module is compiled out.
+     * @param model Runtime model pointer.
+     */
+    void RegisterNativeLoaded(void* model);
+
+    /**
+     * @brief Drops a native-reader registration (failed fill after registration). Safe on a model
+     *        that was never registered.
+     * @param model Runtime model pointer.
+     */
+    void ForgetNativeLoaded(void* model);
 }

@@ -16,7 +16,9 @@
 
 #include "features/render/Render.hpp"
 
+#include "config.hpp"
 #include "common/Log.hpp"
+#include "features/diag/DrawStats.hpp"
 #include "engine/hook/Hook.hpp"
 #include "engine/events/Event.hpp"
 #include "engine/assets/m2/M2Format.hpp"
@@ -251,6 +253,10 @@ namespace wxl::features::render::detail
 
         const unsigned drawStartIndex = ExpandM2StartIndex(si);
         long r = g_origDIP(dev, pt, bv, mi, nv, drawStartIndex, pc);
+        // Frame draw-call accounting. Three increments on render-thread-local counters; g_curModel is
+        // already tracked above, so "is this an M2 batch" costs nothing extra. Compiled out with kDiag.
+        if constexpr (wxl::features::kDiag)
+            wxl::runtime::drawstats::CountDraw(g_curModel != nullptr, pc);
         // Building the args and crossing into Emit costs real time at per-batch frequency; skip the
         // whole emission while nothing subscribes.
         if (g_curModel && !g_inM2Emit && ev::Any(ev::Event::OnM2BatchDraw))

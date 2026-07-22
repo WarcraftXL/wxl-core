@@ -228,7 +228,6 @@ namespace wxl::offsets::game::adt
     // bucket loop BEFORE the per-chunk draw leaf runs -- so at kSurfaceChunkDrawShader time,
     // slot[nLayers-1] is the stock wrapper the pending DIP will use. A detour that swaps GxRs 0x4E to
     // its own wrapper before the original leaf (and restores after) owns that one chunk's PS.
-    // RE: _docs/re_comprehension/335/terrain_height_blend.md sections 1.2 / 2.2 / 9 (DAT_00d1d080).
     constexpr uintptr_t kActiveTerrainPs = 0x00D1D080;
     // CMap::enableTerrainShaderPixel byte gate: non-zero when the pixel-shader terrain path is
     // active (the only path kSurfaceChunkDrawShader runs under). Same RE doc, section 1.2.

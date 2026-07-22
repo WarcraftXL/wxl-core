@@ -37,6 +37,10 @@
 ///   "ribbon_draw"      -> OnRibbonDraw         fn(emitter, layerCount) -> boolean  a ribbon emitter is about to draw.
 ///                          emitter is lightuserdata; layerCount is int. RETURN true to request the single-pass
 ///                          multi-texture combine (sets *useMultiTexture) for a ribbon of >= 3 layers.
+///   "m2_native_load"   -> OnM2NativeLoad       fn(model, version, texResolved, texUnresolved, skips)
+///                          the native MD21 reader direct-filled a modern model. model is lightuserdata;
+///                          version is the resident modern inner version (272-274); texResolved/texUnresolved
+///                          count this load's TXID resolutions; skips is the parked-payload bit mask.
 namespace wxl::lua::events::m2
 {
     /// OnM2SkinFinalize: push the model pointer as lightuserdata (M2SkinFinalizeArgs{model}).
@@ -106,6 +110,19 @@ namespace wxl::lua::events::m2
             *a->useMultiTexture = true;
     }
 
+    /// OnM2NativeLoad: push the model (lightuserdata) then version, texResolved, texUnresolved and
+    /// the parked-payload skip mask as ints.
+    inline int PushNativeLoad(lua_State* L, const void* args)
+    {
+        const auto* a = static_cast<const wxl::events::M2NativeLoadArgs*>(args);
+        lua_pushlightuserdata(L, a->model);
+        lua_pushinteger(L, static_cast<lua_Integer>(a->version));
+        lua_pushinteger(L, static_cast<lua_Integer>(a->texturesResolved));
+        lua_pushinteger(L, static_cast<lua_Integer>(a->texturesUnresolved));
+        lua_pushinteger(L, static_cast<lua_Integer>(a->skipMask));
+        return 5;
+    }
+
     /// Registers this context's events with the bridge. Called once at install, before SubscribeBus.
     inline void Declare()
     {
@@ -116,5 +133,6 @@ namespace wxl::lua::events::m2
         events::Declare("m2_batch_draw",    Event::OnM2BatchDraw,       &PushBatchDraw);
         events::Declare("m2_setup_alpha",   Event::OnM2SetupBatchAlpha, &PushSetupAlpha);
         events::Declare("ribbon_draw",      Event::OnRibbonDraw,        &PushRibbonDraw, &ConsumeRibbon);
+        events::Declare("m2_native_load",   Event::OnM2NativeLoad,      &PushNativeLoad);
     }
 }

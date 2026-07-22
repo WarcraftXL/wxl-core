@@ -376,12 +376,21 @@ namespace wxl::modern::assets::m2::skin
             WLOG_INFO("modern-assets: '%s' synthesized %u texture-transform lookup entries", name, needed);
         }
 
+        /// Material render-flag bits this client understands and that must survive the mask.
+        ///   0x00-0x1F : the classic 3.3.5 render flags (unlit, no-fog, two-sided, ...).
+        ///   0x40      : SHADOW-EXCLUDE. The stock caster collector (0x00834660) tests it and drops the
+        ///               batch outright -- this is how a modern tree's canopy or a glow plane is kept out
+        ///               of the shadow pass, exactly as Legion does via its skin shadow_batches list.
+        ///   0x80      : SHADOW-FORCE. Same collector: casts even when the blend mode would not qualify.
+        /// Masking 0x40/0x80 away (this used to be `& 0x1F`) silently re-admitted geometry the file
+        /// explicitly opts out of, and destroyed the only shadow-exclusion channel 3.3.5 natively reads.
+        constexpr uint16_t kMaterialFlagMask = 0x1Fu | 0x40u | 0x80u;
+
         /**
-         * @brief Clamps source material blend modes the client blend table cannot index to Add and strips
-         *        flags above bit 5.
+         * @brief Clamps source material blend modes the client blend table cannot index to Add, and drops
+         *        only the render-flag bits this client has no meaning for.
          *
-         * A blend mode above 6 is set to Add (4); render flags are masked to the low 5 bits. materials.offset
-         * is a raw pointer here.
+         * A blend mode above 6 is set to Add (4). materials.offset is a raw pointer here.
          * @param md Parsed model header whose material array is adjusted in place.
          */
         void FixRenderFlags(fmt::M2Header* md)
@@ -393,7 +402,7 @@ namespace wxl::modern::assets::m2::skin
                 uint16_t& flag  = mats[i * 2 + 0];
                 uint16_t& blend = mats[i * 2 + 1];
                 if (blend > 6) { blend = 4; flag |= 0x5; }
-                flag &= 0x1F;
+                flag &= kMaterialFlagMask;
             }
         }
     }

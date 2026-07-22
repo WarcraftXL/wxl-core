@@ -18,6 +18,7 @@
 #include "engine/hook/Hook.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
+#include "features/m2compat/ShadowSpace.hpp"
 
 #include "common/Log.hpp"
 #include "offsets/game/M2.hpp"
@@ -116,6 +117,12 @@ namespace
             return;
         }
 
+        // This detour is the ONLY one the client's real M2 ground-shadow draw can carry (MinHook
+        // rejects a second on the same target), so the shadow bone probe rides it from here rather
+        // than installing its own. Observe-only: it never alters the draw.
+        if constexpr (wxl::features::kM2ShadowSpaceFix)
+            wxl::runtime::m2shadow::OnShadowBatch(instance, skinSection);
+
         g_origRenderBatchShadowMap(instance, nullptr, batchMode, skinBatch, drawList,
                                    drawIndex, skinSection, previousSection);
     }
@@ -124,8 +131,10 @@ namespace
     {
         wxl::hook::Install("M2BuildBonePalette", m2::kBuildBonePalette,
                            &hkBuildBonePalette, &g_origBuildBonePalette);
-        wxl::hook::Install("M2RenderBatchShadowMap", m2::kRenderBatchShadowMap,
-                           &hkRenderBatchShadowMap, &g_origRenderBatchShadowMap);
+        const bool shadowHooked = wxl::hook::Install("M2RenderBatchShadowMap", m2::kRenderBatchShadowMap,
+                                                     &hkRenderBatchShadowMap, &g_origRenderBatchShadowMap);
+        if constexpr (wxl::features::kM2ShadowSpaceFix)
+            wxl::runtime::m2shadow::Arm(shadowHooked);
         return true;
     }
 }

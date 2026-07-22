@@ -19,6 +19,7 @@
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 #include "features/diag/AssetProfile.hpp"
+#include "features/diag/DrawStats.hpp"
 #include "features/luabindings/LuaBindings.hpp"
 
 #include "common/Log.hpp"
@@ -70,6 +71,10 @@ namespace
                           *reinterpret_cast<uint32_t*>(frame::kFrameTimeMs) };
         ev::Emit(ev::Event::OnUpdate, &a);
         aprof::RecordFrame(a.dt);
+        // Frame boundary for the draw-call counters: the master pump is the one place that runs exactly
+        // once per rendered frame regardless of which present path the device took.
+        if constexpr (wxl::features::kDiag)
+            wxl::runtime::drawstats::EndFrame();
     }
 
     bool InstallWorld()

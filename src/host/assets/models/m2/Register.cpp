@@ -26,6 +26,7 @@
 #include "engine/assets/shared/models/m2/Skel.hpp"
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <span>
 #include <string>
@@ -87,8 +88,27 @@ namespace
      * @return true if the asset was reshaped; false (pass) for anything that is not a source image, so the
      *         host serves it raw.
      */
+    /**
+     * @brief Runtime kill-switch: the host-side modern-M2 byte-transform now defaults OFF -- the
+     *        in-client native MD21 reader (wxl-core features/m2native, config.hpp kNativeM2) reads
+     *        the raw container directly and the host's remaining role is file serving + the
+     *        DB2/FDID authority. Set WXL_MODERN_M2_HOST=1 (env; inherited from the client process
+     *        that launches the host) to re-enable the legacy transform for A/B during bring-up.
+     *        The transform code stays compiled either way.
+     */
+    bool HostTransformEnabled()
+    {
+        static const bool enabled = [] {
+            const char* env = std::getenv("WXL_MODERN_M2_HOST");
+            return env && (env[0] == '1' || env[0] == 'y' || env[0] == 'Y');
+        }();
+        return enabled;
+    }
+
     bool Transform(std::string_view name, std::span<const uint8_t> raw, std::vector<uint8_t>& out)
     {
+        if (!HostTransformEnabled()) return false; // serve raw; the client's native reader takes it
+
         const uint32_t size = static_cast<uint32_t>(raw.size());
 
         if (m21::IsMd21(raw))

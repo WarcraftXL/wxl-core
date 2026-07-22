@@ -64,6 +64,7 @@ namespace wxl::events
         OnUiDraw,        // wxl.ui immediate-mode draw slot, between NewFrame and Render (UiDrawArgs)
         OnGrassWind,     // grass wind integrator advanced this frame (GrassWindArgs)
         OnAdtHeightBlend,// a terrain PS permutation was patched for height blending (AdtHeightBlendArgs)
+        OnM2NativeLoad,  // a modern MD21 model was direct-filled by the native reader (M2NativeLoadArgs)
         Count
     };
 
@@ -77,6 +78,21 @@ namespace wxl::events
      *        header and skin via wxl::game::m2::Header / Skin). The header arrays are raw pointers here.
      */
     struct M2SkinFinalizeArgs { void* model; };
+    /**
+     * @brief Args for OnM2NativeLoad, fired after the native MD21 reader (features/m2native)
+     *        direct-filled a modern model through the stock runtime. version is the model's modern
+     *        inner version (272-274, kept resident); texturesResolved/-Unresolved count the TXID
+     *        FileDataID resolutions of this load; skipMask flags the parked modern payloads
+     *        (see features/m2native/M2Native.cpp kSkip* bits).
+     */
+    struct M2NativeLoadArgs
+    {
+        void*    model;
+        uint32_t version;
+        uint32_t texturesResolved;
+        uint32_t texturesUnresolved;
+        uint32_t skipMask;
+    };
     /** @brief Args for OnFrame. */
     struct FrameArgs          { void* device; };
     /** @brief Args for OnUpdate, fired once per frame with the frame delta and timestamp. */

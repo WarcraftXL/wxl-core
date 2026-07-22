@@ -206,6 +206,11 @@ namespace
         std::vector<uint8_t> mcin;       // synthesized MCIN chunk (8-byte header + 256 x 16 B)
         std::vector<uint8_t> mcrfPool;   // concatenated MCRD‖MCRW payloads (chunks alias into it)
         std::vector<uint8_t> synthEmpty; // synthesized empty top-level chunks for absent tables
+        // Real MMDX/MMID name-table chunks synthesized from the doodads' MDDF FileDataID nameIds
+        // (resolved via ModelFilePath). Each is a full {tag,size,data} chunk; MHDR points at them and
+        // the (in-place rewritten) MDDF entries index MMID. Owned for the tile lifetime.
+        std::vector<uint8_t> mmdxChunk;  // "MMDX" + NUL-terminated model paths
+        std::vector<uint8_t> mmidChunk;  // "MMID" + u32 offsets into the MMDX payload
 
         // Texture FileDataIDs read from _tex0 MDID (diffuse), indexed by MCLY.textureId. Legion+ tiles
         // carry no MTEX; these are how the terrain layers name their textures. The tex manager detour
@@ -247,7 +252,7 @@ namespace
     std::atomic<uint32_t> g_statSplitMaps{ 0 }, g_statTilesLoaded{ 0 }, g_statTilesResident{ 0 },
         g_statChunksFilled{ 0 }, g_statMcrfBytes{ 0 }, g_statMtxpTiles{ 0 },
         g_statMclvChunks{ 0 }, g_statHoleChunks{ 0 }, g_statFailures{ 0 },
-        g_statWdlRead{ 0 }, g_statHeightTex{ 0 };
+        g_statWdlRead{ 0 }, g_statHeightTex{ 0 }, g_statDoodadModels{ 0 };
 
     adt::TileAreaLoadFn            g_origTileAreaLoad       = nullptr;
     adt::ChunkProcessIffChunksFn  g_origProcessIff         = nullptr;
@@ -566,8 +571,66 @@ namespace
             });
         }
 
-        const bool skipObjects = wxl::features::kAdtSplitSkipObjects;
-        if (skipObjects) { mddf = nullptr; modf = nullptr; }
+        const bool skipWmo     = wxl::features::kAdtSplitSkipWmo;
+        const bool skipDoodads = wxl::features::kAdtSplitSkipDoodads;
+        if (skipWmo)     { mwmo = nullptr; mwid = nullptr; modf = nullptr; }
+        if (skipDoodads) { mmdx = nullptr; mmid = nullptr; mddf = nullptr; }
+
+        // --- doodad FileDataID resolution. A Legion+ _obj0 places doodads by FileDataID: the MDDF entry
+        // flag 0x40 means nameId IS the model's FileDataID and there is no MMDX/MMID name table. Resolve
+        // each via ModelFilePath into a synthesized MMDX (paths) + MMID (offsets), rewrite every such
+        // entry's nameId to its MMID index and clear the 0x40 flag -- so the stock placement path hands
+        // the native M2 reader a valid name. Entry COUNT/order is preserved (per-chunk MCRD refs index
+        // it); only nameId/flags change. Unresolved ids share one empty-name slot (stock -> ErrorCube).
+        if (!skipDoodads && mddf)
+        {
+            const uint32_t nDood = Rd32(mddf + 4) / 0x24u;
+            std::vector<uint8_t>  paths;   // MMDX payload
+            std::vector<uint32_t> offs;    // MMID payload (byte offset into paths, one per name slot)
+            std::unordered_map<uint32_t, uint32_t> fidToIdx;
+            uint32_t unresolvedIdx = 0xFFFFFFFFu, resolved = 0;
+            auto intern = [&](const char* p) -> uint32_t {
+                const uint32_t idx = static_cast<uint32_t>(offs.size());
+                offs.push_back(static_cast<uint32_t>(paths.size()));
+                const size_t len = p ? std::strlen(p) : 0;
+                paths.insert(paths.end(), p, p + len);
+                paths.push_back('\0');
+                return idx;
+            };
+            for (uint32_t i = 0; i < nDood; ++i)
+            {
+                uint8_t*  e = mddf + 8 + i * 0x24u;
+                uint16_t  flags; std::memcpy(&flags, e + 0x22, 2);
+                if ((flags & 0x40u) == 0) continue;                 // already a name-table index
+                const uint32_t fid = Rd32(e);
+                uint32_t idx;
+                auto it = fidToIdx.find(fid);
+                if (it != fidToIdx.end()) idx = it->second;
+                else
+                {
+                    const char* path = wxl::fdid::ResolveModel(fid);
+                    if (path && path[0]) { idx = intern(path); ++resolved; }
+                    else { if (unresolvedIdx == 0xFFFFFFFFu) unresolvedIdx = intern(""); idx = unresolvedIdx; }
+                    fidToIdx.emplace(fid, idx);
+                }
+                Wr32(e, idx);                                       // nameId -> MMID index
+                flags &= ~0x40u; std::memcpy(e + 0x22, &flags, 2);  // clear the filedata-id flag
+            }
+            if (!offs.empty())
+            {
+                t.mmdxChunk.assign(8, 0);
+                Wr32(t.mmdxChunk.data(), FourCC("MMDX"));
+                Wr32(t.mmdxChunk.data() + 4, static_cast<uint32_t>(paths.size()));
+                t.mmdxChunk.insert(t.mmdxChunk.end(), paths.begin(), paths.end());
+                t.mmidChunk.assign(8, 0);
+                Wr32(t.mmidChunk.data(), FourCC("MMID"));
+                Wr32(t.mmidChunk.data() + 4, static_cast<uint32_t>(offs.size() * 4u));
+                for (uint32_t o : offs) { uint8_t b[4]; Wr32(b, o); t.mmidChunk.insert(t.mmidChunk.end(), b, b + 4); }
+                mmdx = t.mmdxChunk.data();
+                mmid = t.mmidChunk.data();
+            }
+            g_statDoodadModels.fetch_add(resolved, std::memory_order_relaxed);
+        }
 
         // Interim: a Legion+ MH2O uses liquid-type ids beyond 3.3.5's LiquidType.dbc, which the stock
         // liquid-sound query dereferences as a null record (#132 near water). Drop the tile's water by
@@ -576,35 +639,38 @@ namespace
             mh2o = nullptr;
 
         // --- MCRF fixup pool: refs must be ONE contiguous u32 array, doodads first then wmos.
-        // When only one side exists the split payload is aliased directly (zero copy).
+        // When only one side exists the split payload is aliased directly (zero copy). Doodad refs
+        // (MCRD) are kept and their MDDF list stays index-aligned (count preserved above); WMO refs
+        // (MCRW) are zeroed while WMOs are dropped (kAdtSplitSkipWmo), so the pool concat is normally
+        // never needed on a split map (drop-WMO leaves the doodad side aliased directly).
         uint32_t poolBytes = 0;
         for (uint32_t i = 0; i < t.chunkCount; ++i)
         {
             ChunkFill& f = t.chunks[i];
-            if (f.mcrdSize && f.mcrwSize) poolBytes += f.mcrdSize + f.mcrwSize;
+            const uint32_t dr = skipDoodads ? 0u : f.mcrdSize;
+            const uint32_t wr = skipWmo     ? 0u : f.mcrwSize;
+            if (dr && wr) poolBytes += dr + wr;
         }
         t.mcrfPool.resize(poolBytes);
         uint32_t poolOff = 0;
         for (uint32_t i = 0; i < t.chunkCount; ++i)
         {
             ChunkFill& f = t.chunks[i];
-            if (skipObjects)
-            {
-                f.nDoodadRefs = 0; f.nMapObjRefs = 0; f.mcrf = nullptr;
-                continue;
-            }
-            f.nDoodadRefs = f.mcrdSize / 4u;
-            f.nMapObjRefs = f.mcrwSize / 4u;
-            if (f.mcrdSize && f.mcrwSize)
+            const uint32_t dr = skipDoodads ? 0u : f.mcrdSize;
+            const uint32_t wr = skipWmo     ? 0u : f.mcrwSize;
+            f.nDoodadRefs = dr / 4u;
+            f.nMapObjRefs = wr / 4u;
+            if (dr && wr)
             {
                 uint8_t* dst = t.mcrfPool.data() + poolOff;
-                std::memcpy(dst, f.mcrd, f.mcrdSize);
-                std::memcpy(dst + f.mcrdSize, f.mcrw, f.mcrwSize);
+                std::memcpy(dst, f.mcrd, dr);
+                std::memcpy(dst + dr, f.mcrw, wr);
                 f.mcrf = dst;
-                poolOff += f.mcrdSize + f.mcrwSize;
+                poolOff += dr + wr;
             }
-            else if (f.mcrdSize) f.mcrf = f.mcrd;
-            else if (f.mcrwSize) f.mcrf = f.mcrw;
+            else if (dr) f.mcrf = f.mcrd;
+            else if (wr) f.mcrf = f.mcrw;
+            else         f.mcrf = nullptr;
         }
         g_statMcrfBytes.fetch_add(poolBytes, std::memory_order_relaxed);
 

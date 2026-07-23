@@ -20,37 +20,14 @@
 #include <cstring>
 
 /**
- * @brief Holds what every m2 theme shares: the accepted source inner-version range and
+ * @brief What the m2 themes share: the modern inner-version range the native reader accepts, and
  *        unaligned byte access into the pre-parse model buffer.
- *
- * Teaches the client to read a modern M2 (the additive superset of the native model) by
- * reshaping it in memory at load time, never by pre-porting files. The work is split by M2
- * sub-system (cameras / particles / ribbons / animations / textures / skin / bones), each theme
- * owning its own deltas for every source version it supports.
  */
 namespace wxl::modern::assets::m2
 {
-    // Source inner-version range this reshapes onto the client contract. A model in this
-    // range is a modern superset image; the gate is the range (plus per-theme field/flag presence).
+    // Modern MD21 inner-version window the native reader (features/m2native) reads directly.
     constexpr uint32_t kSourceVersionMin = 272;
     constexpr uint32_t kSourceVersionMax = 274;
-
-    // Staging marker carried in the inner VERSION field, not in globalFlags (which holds live model
-    // data). ProcessInPlace compacts the records and sets version = kClientVersion | this bit: the
-    // image is on the client contract but not yet finalized. The DLL clears the bit at load to hand
-    // the native parser a clean kClientVersion. A staged image (bit set) means "compacted, just
-    // finalize the version and register for the live-engine half"; a source-version image (272-274)
-    // means "raw, run the full downport". The client accepts only the exact native version, so a
-    // still-staged image is rejected (fail-safe) rather than misparsed if the DLL is absent. No
-    // native or modern M2 sets this high bit on its version.
-    constexpr uint32_t kStagedVersionBit = 0x40000000;
-
-    /**
-     * @brief Reports whether an inner version is staged (compacted, not yet finalized).
-     * @param v  Inner version field value.
-     * @return True if the staging bit is set.
-     */
-    inline bool IsStagedVersion(uint32_t v) { return (v & kStagedVersionBit) != 0; }
 
     // Unaligned little-endian access. Pre-parse, the model buffer's array offsets are model-relative,
     // so the themes read/write through these into md->base() + offset.

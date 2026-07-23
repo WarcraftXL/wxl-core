@@ -103,12 +103,20 @@ namespace
      * @brief Detours the WMO instance spawn, applying the per-instance MODF scale the Client ignores.
      *
      * The Client builds the instance at scale 1.0 (MODF+0x3E is padding to it). After the native spawn,
-     * the modern scale is folded into the render matrix (+0x70). The collision/portal copy (+0xB0) is a
-     * transposed read-back the portal-visibility test reads as an inverse rotation; scaling it breaks that
-     * test and culls interior groups (the WMO goes invisible), so it is left at 1.0 (collision stays at
-     * native size). A dedup hit returns an already-scaled instance, so the scale is applied only to a
-     * freshly built instance, recognised by its still-orthonormal basis (|row0| == 1); this is reload-safe
-     * and needs no per-instance bookkeeping.
+     * the modern scale is folded into the render matrix (+0x70).
+     *
+     * The collision/portal copy (+0xB0) is the TRANSPOSED basis, which the portal-visibility test reads
+     * as an inverse rotation. Leaving it at 1.0 means the geometry is drawn at scale s while every
+     * culling volume, portal plane and bound still describes the WMO at its native size -- on a map
+     * where 113 distinct scale factors are in use, down to 0.5x, that mismatch IS the "portal / frustum"
+     * symptom. Scaling it by s (tried before) makes it worse and hides interiors, and the reason is
+     * arithmetic: for an orthonormal R, transpose(R) == inverse(R), and inverse(R * s) == inverse(R) / s.
+     * The transposed copy must therefore be scaled by 1/s, not s. Kept behind a switch because the
+     * earlier attempt in the wrong direction was found empirically to make WMOs vanish.
+     *
+     * A dedup hit returns an already-scaled instance, so the scale is applied only to a freshly built
+     * instance, recognised by its still-orthonormal basis (|row0| == 1); this is reload-safe and needs
+     * no per-instance bookkeeping.
      * @param ctx         world context.
      * @param modf        MODF placement record.
      * @param tileOrigin  tile world origin.
@@ -134,6 +142,13 @@ namespace
             return inst; // already scaled (a dedup hit returned an existing instance)
 
         ScaleMatrixRows3x3(render, s);
+
+        // The transposed collision/portal basis is an INVERSE rotation, so it takes 1/s (see above).
+        if constexpr (wxl::features::kWmoScaleCollision)
+        {
+            float* collision = reinterpret_cast<float*>(static_cast<uint8_t*>(inst) + wmo::kOffInstanceCollisionMatrix);
+            ScaleMatrixRows3x3(collision, 1.0f / s);
+        }
         return inst;
     }
 

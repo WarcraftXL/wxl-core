@@ -324,4 +324,4 @@ namespace wxl::runtime::m2particles
     }
 }
 
-WXL_REGISTER_FEATURE("m2native-particles", wxl::features::kNativeM2Particles, InstallParticleStride)
+WXL_REGISTER_FEATURE("m2native-particles", wxl::features::kNativeM2, InstallParticleStride)

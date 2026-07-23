@@ -22,18 +22,17 @@
 #include "../../common/AssetRegistry.hpp"
 
 /**
- * @brief Teaches the client to read a modern M2 (the additive superset of the native model) by reshaping it
- *        in memory at load time, never by pre-processing files.
+ * @brief The live-engine half of modern-M2 support: what the client must be taught to DO with a model the
+ *        native MD21 reader (features/m2native) filled, once the bytes are already in the runtime.
  *
- * Owns the set of models it reshaped (via the shared AssetRegistry) and binds the core events to the M2
- * themes: downport at load, the universal bone-budget split plus (for reshaped models) the material rebuild
- * at skin finalize, and alpha-key / multi-texture ribbon fixups at draw. The per-sub-system work lives in the
- * theme units; the version deltas live with their theme.
+ * Owns the set of those models (via the shared AssetRegistry) and binds the core events to the M2 themes:
+ * the universal bone-budget split plus, for registered models, the material/texunit contract rebuild at skin
+ * finalize, and the alpha-key / multi-texture ribbon fixups at draw. No bytes are reshaped anywhere here.
  */
 namespace wxl::modern::assets::m2
 {
     /**
-     * @brief Event script owning the modern-M2 reshape set and the bindings to the M2 themes.
+     * @brief Event script owning the native-reader model set and the bindings to the M2 themes.
      */
     class ModernM2 final : public events::EventScript
     {
@@ -42,19 +41,14 @@ namespace wxl::modern::assets::m2
 
     private:
         /**
-         * @brief Reshapes the raw .m2 bytes onto the client contract before the parser runs.
-         * @param a Model load arguments carrying the model pointer and load buffer.
+         * @brief Drops a stale registration before a new model takes this pointer.
+         * @param a Model load arguments carrying the model pointer.
          */
         void OnModelLoadPre(const events::ModelLoadArgs& a);
-        /**
-         * @brief Parsed-model load hook.
-         * @param a Model load arguments.
-         */
-        void OnModelLoad(const events::ModelLoadArgs& a);
 
         /**
-         * @brief Splits any over-budget submesh unconditionally, then rebuilds the material / texunit
-         *        contract for models this module reshaped.
+         * @brief Splits any over-budget submesh, then rebuilds the material / texunit contract for the
+         *        models the native reader filled.
          * @param a Skin finalize arguments carrying the model pointer.
          */
         void OnSkinFinalize(const events::M2SkinFinalizeArgs& a);

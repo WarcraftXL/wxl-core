@@ -19,6 +19,8 @@
 #include "engine/lua/LuaJit.hpp"
 #include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/PointerArg.hpp"
+#include "features/wmonative/OutdoorGate.hpp"
+#include "features/wmonative/WmoNative.hpp"
 #include "game/wmo/Wmo.hpp"
 #include "offsets/game/WMO.hpp"
 
@@ -136,6 +138,87 @@ namespace wxl::lua::methods::wmo
         return 1;
     }
 
+    // --- native modern-WMO reader (features/wmonative) ---
+
+    /// wxl.wmo.native_installed() -> bool: true when every walker detour is live.
+    inline int L_nativeInstalled(lua_State* L)
+    {
+        Push(L, wxl::runtime::wmonative::Installed());
+        return 1;
+    }
+
+    /// wxl.wmo.native_stats() -> table of the native reader's session counters.
+    inline int L_nativeStats(lua_State* L)
+    {
+        const auto s = wxl::runtime::wmonative::GetStats();
+        lua_newtable(L);
+        Push(L, static_cast<lua_Integer>(s.rootsModern));        lua_setfield(L, -2, "roots_modern");
+        Push(L, static_cast<lua_Integer>(s.rootsStock));          lua_setfield(L, -2, "roots_stock");
+        Push(L, static_cast<lua_Integer>(s.groupsModern));        lua_setfield(L, -2, "groups_modern");
+        Push(L, static_cast<lua_Integer>(s.groupsFailed));        lua_setfield(L, -2, "groups_failed");
+        Push(L, static_cast<lua_Integer>(s.texturesResolved));    lua_setfield(L, -2, "textures_resolved");
+        Push(L, static_cast<lua_Integer>(s.texturesUnresolved));  lua_setfield(L, -2, "textures_unresolved");
+        Push(L, static_cast<lua_Integer>(s.parkedDoodadDefs));    lua_setfield(L, -2, "parked_doodad_defs");
+        Push(L, static_cast<lua_Integer>(s.parkedLiquids));       lua_setfield(L, -2, "parked_liquids");
+        Push(L, static_cast<lua_Integer>(s.parkedIndex32));       lua_setfield(L, -2, "parked_index32");
+        Push(L, static_cast<lua_Integer>(s.parkedNoUvGroups));    lua_setfield(L, -2, "parked_no_uv_groups");
+        Push(L, static_cast<lua_Integer>(s.unknownChunks));       lua_setfield(L, -2, "unknown_chunks");
+        Push(L, static_cast<lua_Integer>(s.shaderRemapped));      lua_setfield(L, -2, "shader_remapped");
+        Push(L, static_cast<lua_Integer>(s.shaderToTwoLayer));    lua_setfield(L, -2, "shader_to_two_layer");
+        Push(L, static_cast<lua_Integer>(s.shaderToEnv));         lua_setfield(L, -2, "shader_to_env");
+        Push(L, static_cast<lua_Integer>(s.shaderToSingle));      lua_setfield(L, -2, "shader_to_single");
+        Push(L, static_cast<lua_Integer>(s.materialIdsMoved));    lua_setfield(L, -2, "material_ids_moved");
+        Push(L, static_cast<lua_Integer>(s.materialIdsOutOfRange)); lua_setfield(L, -2, "material_ids_out_of_range");
+        Push(L, static_cast<lua_Integer>(s.batchCullBypassed));   lua_setfield(L, -2, "batch_cull_bypassed");
+        return 1;
+    }
+
+    // --- indoor/outdoor gate (features/wmonative/OutdoorGate) ---
+
+    /// wxl.wmo.outdoor_stats() -> table: how often the added exterior rule actually fires.
+    inline int L_outdoorStats(lua_State* L)
+    {
+        const auto s = wxl::runtime::wmooutdoor::GetStats();
+        lua_newtable(L);
+        Push(L, static_cast<lua_Integer>(s.framesIndoor));      lua_setfield(L, -2, "frames_indoor");
+        Push(L, static_cast<lua_Integer>(s.framesReopened));    lua_setfield(L, -2, "frames_reopened");
+        Push(L, static_cast<lua_Integer>(s.framesPortalOpen));  lua_setfield(L, -2, "frames_portal_open");
+        Push(L, static_cast<lua_Integer>(s.groupResolveFails)); lua_setfield(L, -2, "group_resolve_fails");
+        Push(L, wxl::runtime::wmooutdoor::Installed());         lua_setfield(L, -2, "installed");
+        Push(L, wxl::runtime::wmooutdoor::RuleEnabled());       lua_setfield(L, -2, "rule_enabled");
+        Push(L, static_cast<lua_Integer>(s.occludersSkipped));  lua_setfield(L, -2, "occluders_skipped");
+        Push(L, static_cast<lua_Integer>(s.occludersBuilt));    lua_setfield(L, -2, "occluders_built");
+        Push(L, wxl::runtime::wmooutdoor::OccludersSkipped());  lua_setfield(L, -2, "occluders_disabled");
+        Push(L, static_cast<lua_Integer>(s.undersideEdges));    lua_setfield(L, -2, "underside_edges");
+        Push(L, static_cast<lua_Integer>(s.boxesUnculled));     lua_setfield(L, -2, "boxes_unculled");
+        Push(L, wxl::runtime::wmooutdoor::UndersideRuleEnabled()); lua_setfield(L, -2, "underside_rule");
+        return 1;
+    }
+
+    /// wxl.wmo.set_occluder_underside_rule(bool): live A/B of the lower bound added to the occlusion
+    /// skyline. False restores the stock skyline, so a bridge deck hides the ground under it again.
+    inline int L_setUndersideRule(lua_State* L)
+    {
+        wxl::runtime::wmooutdoor::SetUndersideRuleEnabled(CheckBool(L, 1));
+        return 0;
+    }
+
+    /// wxl.wmo.set_modern_occluders_disabled(bool): live A/B of the antiportal occluders a modern WMO
+    /// contributes. True (default) builds none; false restores the stock angular occluders.
+    inline int L_setModernOccludersDisabled(lua_State* L)
+    {
+        wxl::runtime::wmooutdoor::SetOccludersSkipped(CheckBool(L, 1));
+        return 0;
+    }
+
+    /// wxl.wmo.set_outdoor_rule_enabled(bool): live A/B of Legion's exterior re-enable rule. False
+    /// restores the stock "portal only" behaviour, so the terrain-blanking can be seen come back.
+    inline int L_setOutdoorRuleEnabled(lua_State* L)
+    {
+        wxl::runtime::wmooutdoor::SetRuleEnabled(CheckBool(L, 1));
+        return 0;
+    }
+
     /**
      * @brief Adds the wxl.wmo subtable to the table on top of the stack. Stack-neutral.
      * @param L  the engine lua_State, with the target `wxl` table at index -1.
@@ -149,6 +232,12 @@ namespace wxl::lua::methods::wmo
             { "material_count", L_materialCount },
             { "group_size",     L_groupSize },
             { "interior_path",  L_interiorPath },
+            { "native_installed", L_nativeInstalled },
+            { "native_stats",     L_nativeStats },
+            { "outdoor_stats",    L_outdoorStats },
+            { "set_outdoor_rule_enabled", L_setOutdoorRuleEnabled },
+            { "set_modern_occluders_disabled", L_setModernOccludersDisabled },
+            { "set_occluder_underside_rule", L_setUndersideRule },
             { nullptr, nullptr },
         };
         RegisterModule(L, "wmo", fns);

@@ -211,6 +211,15 @@ namespace
         // the (in-place rewritten) MDDF entries index MMID. Owned for the tile lifetime.
         std::vector<uint8_t> mmdxChunk;  // "MMDX" + NUL-terminated model paths
         std::vector<uint8_t> mmidChunk;  // "MMID" + u32 offsets into the MMDX payload
+        // Same treatment for placed map objects: MODF nameIds carry a FileDataID under entry flag 0x8
+        // and a Legion+ _obj0 ships no MWMO/MWID at all. Unlike a doodad, a map object that fails to
+        // resolve is FATAL (the client hashes the name straight away, and CMap::SafeOpen has no
+        // ErrorCube equivalent), so an unresolved entry is instead struck from every MCRW ref list --
+        // see modfDead below. Nothing is removed from MODF itself: the entry stays, simply unreferenced.
+        std::vector<uint8_t> mwmoChunk;  // "MWMO" + NUL-terminated map-object paths
+        std::vector<uint8_t> mwidChunk;  // "MWID" + u32 offsets into the MWMO payload
+        std::vector<uint8_t> modfDead;   // one flag per MODF entry: 1 = unresolved, never reference it
+        std::vector<uint8_t> mcrwFiltered; // rebuilt MCRW payloads when modfDead removed anything
 
         // Texture FileDataIDs read from _tex0 MDID (diffuse), indexed by MCLY.textureId. Legion+ tiles
         // carry no MTEX; these are how the terrain layers name their textures. The tex manager detour
@@ -252,7 +261,8 @@ namespace
     std::atomic<uint32_t> g_statSplitMaps{ 0 }, g_statTilesLoaded{ 0 }, g_statTilesResident{ 0 },
         g_statChunksFilled{ 0 }, g_statMcrfBytes{ 0 }, g_statMtxpTiles{ 0 },
         g_statMclvChunks{ 0 }, g_statHoleChunks{ 0 }, g_statFailures{ 0 },
-        g_statWdlRead{ 0 }, g_statHeightTex{ 0 }, g_statDoodadModels{ 0 };
+        g_statWdlRead{ 0 }, g_statHeightTex{ 0 }, g_statDoodadModels{ 0 },
+        g_statMapObjects{ 0 }, g_statMapObjectsDropped{ 0 };
 
     adt::TileAreaLoadFn            g_origTileAreaLoad       = nullptr;
     adt::ChunkProcessIffChunksFn  g_origProcessIff         = nullptr;
@@ -571,18 +581,13 @@ namespace
             });
         }
 
-        const bool skipWmo     = wxl::features::kAdtSplitSkipWmo;
-        const bool skipDoodads = wxl::features::kAdtSplitSkipDoodads;
-        if (skipWmo)     { mwmo = nullptr; mwid = nullptr; modf = nullptr; }
-        if (skipDoodads) { mmdx = nullptr; mmid = nullptr; mddf = nullptr; }
-
         // --- doodad FileDataID resolution. A Legion+ _obj0 places doodads by FileDataID: the MDDF entry
         // flag 0x40 means nameId IS the model's FileDataID and there is no MMDX/MMID name table. Resolve
         // each via ModelFilePath into a synthesized MMDX (paths) + MMID (offsets), rewrite every such
         // entry's nameId to its MMID index and clear the 0x40 flag -- so the stock placement path hands
         // the native M2 reader a valid name. Entry COUNT/order is preserved (per-chunk MCRD refs index
         // it); only nameId/flags change. Unresolved ids share one empty-name slot (stock -> ErrorCube).
-        if (!skipDoodads && mddf)
+        if (mddf)
         {
             const uint32_t nDood = Rd32(mddf + 4) / 0x24u;
             std::vector<uint8_t>  paths;   // MMDX payload
@@ -632,32 +637,139 @@ namespace
             g_statDoodadModels.fetch_add(resolved, std::memory_order_relaxed);
         }
 
+        // --- map-object FileDataID resolution. Same shape as the doodads above, with one hard
+        // difference: a doodad whose name does not resolve degrades to the ErrorCube, a MAP OBJECT
+        // kills the client. CMapChunk::CreateRefs hands the ref straight to CMap::CreateMapObjDef ->
+        // CMapObj::Create, which hashes the path immediately -- an absent name faults in SStrHash
+        // before any "file not found" path can run. So a resolved entry is rewritten to an MWID index
+        // exactly like a doodad, and an UNRESOLVED entry is left untouched in MODF but struck from
+        // every MCRW ref list, which is the only thing that would have spawned it.
+        if (modf)
+        {
+            const uint32_t nWmo = Rd32(modf + 4) / 0x40u;
+            std::vector<uint8_t>  paths;   // MWMO payload
+            std::vector<uint32_t> offs;    // MWID payload (byte offset into paths, one per name slot)
+            std::unordered_map<uint32_t, uint32_t> fidToIdx;
+            uint32_t resolved = 0, dropped = 0;
+            t.modfDead.assign(nWmo, 0);
+            auto intern = [&](const char* p) -> uint32_t {
+                const uint32_t idx = static_cast<uint32_t>(offs.size());
+                offs.push_back(static_cast<uint32_t>(paths.size()));
+                const size_t len = p ? std::strlen(p) : 0;
+                paths.insert(paths.end(), p, p + len);
+                paths.push_back('\0');
+                return idx;
+            };
+            for (uint32_t i = 0; i < nWmo; ++i)
+            {
+                uint8_t*  e = modf + 8 + i * 0x40u;
+                uint16_t  flags; std::memcpy(&flags, e + 0x38, 2);
+                if ((flags & 0x8u) == 0) continue;                  // already a name-table index
+                const uint32_t fid = Rd32(e);
+                auto it = fidToIdx.find(fid);
+                if (it != fidToIdx.end())
+                {
+                    if (it->second == 0xFFFFFFFFu) { t.modfDead[i] = 1; ++dropped; continue; }
+                    Wr32(e, it->second);
+                    flags &= ~0x8u; std::memcpy(e + 0x38, &flags, 2);
+                    continue;
+                }
+                const char* path = wxl::fdid::ResolveModel(fid);
+                if (path && path[0])
+                {
+                    const uint32_t idx = intern(path);
+                    fidToIdx.emplace(fid, idx);
+                    Wr32(e, idx);
+                    flags &= ~0x8u; std::memcpy(e + 0x38, &flags, 2);
+                    ++resolved;
+                }
+                else
+                {
+                    fidToIdx.emplace(fid, 0xFFFFFFFFu);
+                    t.modfDead[i] = 1;
+                    ++dropped;
+                }
+            }
+            if (!offs.empty())
+            {
+                t.mwmoChunk.assign(8, 0);
+                Wr32(t.mwmoChunk.data(), FourCC("MWMO"));
+                Wr32(t.mwmoChunk.data() + 4, static_cast<uint32_t>(paths.size()));
+                t.mwmoChunk.insert(t.mwmoChunk.end(), paths.begin(), paths.end());
+                t.mwidChunk.assign(8, 0);
+                Wr32(t.mwidChunk.data(), FourCC("MWID"));
+                Wr32(t.mwidChunk.data() + 4, static_cast<uint32_t>(offs.size() * 4u));
+                for (uint32_t o : offs) { uint8_t b[4]; Wr32(b, o); t.mwidChunk.insert(t.mwidChunk.end(), b, b + 4); }
+                mwmo = t.mwmoChunk.data();
+                mwid = t.mwidChunk.data();
+            }
+            g_statMapObjects.fetch_add(resolved, std::memory_order_relaxed);
+            g_statMapObjectsDropped.fetch_add(dropped, std::memory_order_relaxed);
+            if (dropped)
+                WLOG_WARN("adt-split: tile %d_%d dropped %u unresolved map object(s) of %u "
+                          "(no ModelFilePath entry; refs struck from MCRW)",
+                          t.tileFirst, t.tileSecond, dropped, nWmo);
+        }
+
         // Interim: a Legion+ MH2O uses liquid-type ids beyond 3.3.5's LiquidType.dbc, which the stock
         // liquid-sound query dereferences as a null record (#132 near water). Drop the tile's water by
         // zeroing its MHDR offset -- CMapArea::Create then builds no liquid, so the query finds none.
         if constexpr (wxl::features::kAdtSplitSkipLiquid)
             mh2o = nullptr;
 
+        // --- strike unresolved map objects from the per-chunk MCRW ref lists. Runs before the MCRF
+        // pool so the concat below already sees the final sizes. The payload is rebuilt into a
+        // tile-owned buffer sized to the worst case UP FRONT, so the per-chunk pointers taken here can
+        // never be invalidated by a regrow. MODF itself is left intact -- entry indices stay valid.
+        if (!t.modfDead.empty())
+        {
+            uint32_t deadCount = 0;
+            for (uint8_t d : t.modfDead) deadCount += d;
+            if (deadCount)
+            {
+                uint32_t total = 0;
+                for (uint32_t i = 0; i < t.chunkCount; ++i) total += t.chunks[i].mcrwSize;
+                t.mcrwFiltered.resize(total);
+                const uint32_t nWmo = static_cast<uint32_t>(t.modfDead.size());
+                uint32_t poolAt = 0;
+                for (uint32_t i = 0; i < t.chunkCount; ++i)
+                {
+                    ChunkFill& f = t.chunks[i];
+                    if (!f.mcrw || !f.mcrwSize) continue;
+                    uint8_t* dst = t.mcrwFiltered.data() + poolAt;
+                    uint32_t kept = 0;
+                    for (uint32_t r = 0; r < f.mcrwSize / 4u; ++r)
+                    {
+                        const uint32_t idx = Rd32(f.mcrw + r * 4u);
+                        if (idx >= nWmo || t.modfDead[idx]) continue;
+                        Wr32(dst + kept * 4u, idx);
+                        ++kept;
+                    }
+                    f.mcrw     = dst;
+                    f.mcrwSize = kept * 4u;
+                    poolAt    += kept * 4u;
+                }
+            }
+        }
+
         // --- MCRF fixup pool: refs must be ONE contiguous u32 array, doodads first then wmos.
-        // When only one side exists the split payload is aliased directly (zero copy). Doodad refs
-        // (MCRD) are kept and their MDDF list stays index-aligned (count preserved above); WMO refs
-        // (MCRW) are zeroed while WMOs are dropped (kAdtSplitSkipWmo), so the pool concat is normally
-        // never needed on a split map (drop-WMO leaves the doodad side aliased directly).
+        // When only one side exists the split payload is aliased directly (zero copy). Both lists stay
+        // index-aligned with their own table: MDDF keeps its entry count (only nameId/flags were
+        // rewritten), and MODF keeps every entry too -- an unresolved map object was removed from the
+        // ref lists just above, never from the table, so no index shifts.
         uint32_t poolBytes = 0;
         for (uint32_t i = 0; i < t.chunkCount; ++i)
         {
             ChunkFill& f = t.chunks[i];
-            const uint32_t dr = skipDoodads ? 0u : f.mcrdSize;
-            const uint32_t wr = skipWmo     ? 0u : f.mcrwSize;
-            if (dr && wr) poolBytes += dr + wr;
+            if (f.mcrdSize && f.mcrwSize) poolBytes += f.mcrdSize + f.mcrwSize;
         }
         t.mcrfPool.resize(poolBytes);
         uint32_t poolOff = 0;
         for (uint32_t i = 0; i < t.chunkCount; ++i)
         {
             ChunkFill& f = t.chunks[i];
-            const uint32_t dr = skipDoodads ? 0u : f.mcrdSize;
-            const uint32_t wr = skipWmo     ? 0u : f.mcrwSize;
+            const uint32_t dr = f.mcrdSize;
+            const uint32_t wr = f.mcrwSize;
             f.nDoodadRefs = dr / 4u;
             f.nMapObjRefs = wr / 4u;
             if (dr && wr)
@@ -1545,6 +1657,9 @@ namespace wxl::runtime::adtsplit
         s.loadFailures      = g_statFailures.load(std::memory_order_relaxed);
         s.wdlRead           = g_statWdlRead.load(std::memory_order_relaxed);
         s.heightTexLoaded   = g_statHeightTex.load(std::memory_order_relaxed);
+        s.doodadModels      = g_statDoodadModels.load(std::memory_order_relaxed);
+        s.mapObjects        = g_statMapObjects.load(std::memory_order_relaxed);
+        s.mapObjectsDropped = g_statMapObjectsDropped.load(std::memory_order_relaxed);
         return s;
     }
 

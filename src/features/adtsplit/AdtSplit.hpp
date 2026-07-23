@@ -37,6 +37,12 @@ namespace wxl::runtime::adtsplit
         uint32_t loadFailures;      ///< split loads that fell back / failed to parse
         uint32_t wdlRead;           ///< Cata+ WDLs read directly into the stock low-detail runtime
         uint32_t heightTexLoaded;   ///< "_h" height texture handles created for height-blend tiles
+        uint32_t doodadModels;      ///< MDDF FileDataIDs resolved into the synthesized MMDX/MMID table
+        uint32_t mapObjects;        ///< MODF FileDataIDs resolved into the synthesized MWMO/MWID table
+        /// MODF entries whose FileDataID has no ModelFilePath row. Their refs are struck from MCRW
+        /// rather than spawned: unlike a doodad (which degrades to the ErrorCube), a map object with an
+        /// unresolvable name faults in SStrHash the moment CMapObj::Create hashes it.
+        uint32_t mapObjectsDropped;
     };
 
     /** @brief Returns a snapshot of the session counters. */

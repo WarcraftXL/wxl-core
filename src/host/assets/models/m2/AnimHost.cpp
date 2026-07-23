@@ -63,8 +63,7 @@ namespace
     {
         Registrar()
         {
-            // Install the host anim-unwrap transform only when the modern-M2 format is compiled in; disabled, the registrar is inert.
-            if constexpr (wxl::features::kModernM2)
+            if constexpr (wxl::features::kModernAnim)
                 wxl::host::RegisterTransform("modern-anim", &TransformAnim);
         }
     } g_registrar;

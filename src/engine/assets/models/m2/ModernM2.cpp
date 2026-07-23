@@ -21,18 +21,14 @@
 #include "game/m2/M2.hpp"
 #include "engine/assets/m2/M2Format.hpp"
 
-#include "engine/assets/shared/common/WxlTag.hpp"
 #include "engine/assets/shared/models/m2/Contract.hpp"
-#include "engine/assets/shared/models/m2/Downport.hpp"
 #include "engine/assets/shared/models/m2/Particles.hpp"
 #include "engine/assets/shared/models/m2/Ribbons.hpp"
-#include "engine/assets/shared/models/m2/Textures.hpp"
 #include "../../common/BoneBudget.hpp"
 #include "Skin.hpp"
 
 #include <windows.h>
 
-#include <cstring>
 #include <string_view>
 
 namespace wxl::modern::assets::m2
@@ -41,145 +37,45 @@ namespace wxl::modern::assets::m2
     namespace m2  = wxl::game::m2;
     namespace fmt = wxl::structure::m2;
     namespace bn  = wxl::modern::assets::common::bones;
-    namespace tex = wxl::modern::assets::m2::textures;
-
-    namespace
-    {
-        bool SkinRebuildEnabled()
-        {
-            static const bool enabled = [] {
-                char env[16]{};
-                const DWORD n = GetEnvironmentVariableA("WXL_MODERN_M2_SKIN_REBUILD", env, sizeof env);
-                if (n > 0 && (env[0] == '0' || env[0] == 'n' || env[0] == 'N')) return false;
-                return GetFileAttributesA("WarcraftXL_modern_m2_skin_rebuild.disable") ==
-                       INVALID_FILE_ATTRIBUTES;
-            }();
-            return enabled;
-        }
-
-        void RemapWeaponBladeTextures(void* model, fmt::M2Header* header, uint32_t size)
-        {
-            const char* path = model ? m2::PathStem(model) : nullptr;
-            if (!header || !path || !tex::AllowsWeaponBladeRemap(path)) return;
-            const auto patched = tex::FixWeaponBladeTextureTypes(header, size);
-            if (patched.Total())
-                WLOG_INFO("modern-assets: %s fixed WEAPON_BLADE textures objectSkin=%u hardcoded=%u",
-                          path, patched.toObjectSkin, patched.toHardcoded);
-        }
-    }
 
     /**
      * @brief Binds the module's handlers to the core M2 events.
      */
     ModernM2::ModernM2()
     {
-        // Bind the M2 handlers only when the modern-M2 format is compiled in; disabled, the instance is inert.
-        if constexpr (wxl::features::kModernM2)
+        if constexpr (wxl::features::kNativeM2)
         {
             on<&ModernM2::OnModelLoadPre>(ev::Event::OnModelLoadPre);
-            on<&ModernM2::OnModelLoad>(ev::Event::OnModelLoad);
             on<&ModernM2::OnSkinFinalize>(ev::Event::OnM2SkinFinalize);
             on<&ModernM2::OnSetupBatchAlpha>(ev::Event::OnM2SetupBatchAlpha);
             on<&ModernM2::OnRibbonDraw>(ev::Event::OnRibbonDraw);
 
-            WLOG_INFO("modern-assets: m2 loaded (in-memory modern M2 asset support)");
+            WLOG_INFO("modern-assets: m2 live-engine half loaded");
         }
     }
 
     /**
-     * @brief Reshapes the .m2 bytes in the model's load buffer onto the native version before the parser runs,
-     *        and registers the model for the live-engine half.
+     * @brief Drops any registration left on this model pointer before the native reader fills it.
      *
-     * The byte-transform may have already run on the host (the image arrives compacted with its inner version
-     * staged) or it runs here in process. Either way the model is finalized to the native version and
-     * registered for the skin rebuild at finalize and the draw-time fixups.
-     * @param a Model load arguments carrying the model pointer and load buffer.
+     * The engine reuses model addresses: a pointer freed by one model can be handed straight back for the
+     * next. Clearing here means the registry only ever holds live models, and the native reader
+     * (RegisterNativeLoaded) is the one place that puts one back in.
+     * @param a Model load arguments carrying the model pointer.
      */
     void ModernM2::OnModelLoadPre(const ev::ModelLoadArgs& a)
     {
-        // A fresh model now occupies this pointer; drop any registration left from a prior model freed at
-        // the same address (only a successful path below re-registers it).
         registry_.Forget(a.model);
-
-        void* buf = m2::FileBuffer(a.model);
-        const uint32_t size = m2::FileSize(a.model);
-        if (!buf || size < sizeof(fmt::M2Header)) return;
-        auto* md = static_cast<fmt::M2Header*>(buf);
-        if (md->magic != fmt::kMagicMD20) return;
-
-        // Host already compacted it: the records are on the client contract and the version is staged. Clear
-        // the staging bit to hand the parser the clean native version, then register it.
-        if (IsStagedVersion(md->version))
-        {
-            RemapWeaponBladeTextures(a.model, md, size);
-            md->version &= ~kStagedVersionBit;
-            registry_.Remember(a.model, common::AssetRegistry::kFlagHotReshaped);
-            return;
-        }
-
-        // Pre-converted file (cold converter output): already on the client contract, discriminated from
-        // truly native content only by its WXLC trailer. Register it with the tag's flags so the draw-time
-        // fixups the converter cannot bake (device state like the alpha-key ref) still scope to it -- the
-        // skin rebuild does NOT run for these (the converter already resolved the material contract).
-        uint32_t tagFlags = 0;
-        if (wxl::modern::assets::common::tag::Read(static_cast<const uint8_t*>(buf), size, tagFlags) &&
-            tagFlags != 0)
-        {
-            registry_.Remember(a.model, tagFlags & ~common::AssetRegistry::kFlagHotReshaped);
-            return;
-        }
-
-        // Host off (or a file the host did not serve): reshape in process. Downport never allocates; the
-        // caller owns the buffer. Reshape within the load buffer when the image does not grow; otherwise
-        // allocate a replacement with the model allocator (so the destructor frees it), copy, reshape, swap.
-        if (!downport::IsConvertible(buf, size)) return;
-        downport::Inspect(buf, size);
-
-        const char* pathStem = m2::PathStem(a.model);
-        const std::string_view path = pathStem ? pathStem : "";
-        const uint32_t workSize = downport::WorkSize(buf, size, path);
-        void* image = buf;
-        if (workSize == size)
-        {
-            if (!downport::ProcessInPlace(buf, size, size, path)) return;
-        }
-        else
-        {
-            void* out = m2::AllocBuffer(workSize, ".\\wxl-modern-assets");
-            if (!out) return;
-            std::memcpy(out, buf, size);
-            if (!downport::ProcessInPlace(out, size, workSize, path)) { m2::FreeBuffer(out); return; }
-            m2::ReplaceBuffer(a.model, out, workSize); // parser now reads the grown image
-            m2::FreeBuffer(buf);                        // release the original source bytes
-            image = out;
-        }
-
-        // ProcessInPlace staged the version; finalize it to the native value so the parser accepts it, then
-        // register the model (no longer distinguishable by version at draw time) for the live-engine half.
-        auto* imageHeader = static_cast<fmt::M2Header*>(image);
-        RemapWeaponBladeTextures(a.model, imageHeader, workSize);
-        imageHeader->version &= ~kStagedVersionBit;
-        registry_.Remember(a.model, common::AssetRegistry::kFlagHotReshaped);
-        WLOG_INFO("modern-m2: reshaped M2 to 264 (%u -> %u bytes)", size, workSize);
     }
 
     /**
-     * @brief Parsed-model load hook.
-     * @param a Model load arguments.
-     */
-    void ModernM2::OnModelLoad(const ev::ModelLoadArgs& a)
-    {
-        (void)a; // parsed-model hook for fixups that need the parsed object
-    }
-
-    /**
-     * @brief Splits any over-budget submesh unconditionally, then rebuilds the material / texunit
-     *        contract for models this module reshaped.
+     * @brief Splits any over-budget submesh, then rebuilds the material / texunit contract for the models
+     *        the native MD21 reader filled.
      *
-     * The bone-budget split (BoneBudget.hpp) is a hard client-engine constraint, not a modern-M2-source
-     * concern, so it runs for every model regardless of origin (native, downported, or a client M2 another
-     * format baked). Only the shaderId decode + textureUnitLookup synth after it is scoped to models this
-     * module reshaped, since that step assumes the source's packed shaderId encoding.
+     * The bone-budget split (BoneBudget.hpp) is a hard client-engine constraint, not a format concern, so it
+     * runs for every model whatever its origin. The shaderId decode + textureUnitLookup synth after it is
+     * scoped to registered models only, because it assumes the modern packed shaderId encoding that the
+     * native reader leaves on the live skin -- a stock v264 model already carries a resolved contract and
+     * only needs the structural repoint when a split happened.
      * @param a Skin finalize arguments carrying the model pointer.
      */
     void ModernM2::OnSkinFinalize(const ev::M2SkinFinalizeArgs& a)
@@ -197,15 +93,10 @@ namespace wxl::modern::assets::m2
         if (split)
             WLOG_INFO("modern-assets: bone-splitter produced %u extra sub-draw(s)", splitCount);
 
-        // The rebuild assumes the source's packed shaderId encoding, which only an in-memory reshape leaves
-        // behind -- a cold-converted (tagged) model already carries the resolved contract and must not be
-        // rebuilt, only structurally repointed like native content when a split occurred.
-        const bool hotReshaped =
-            (registry_.Flags(a.model) & common::AssetRegistry::kFlagHotReshaped) != 0;
-        if (hotReshaped && SkinRebuildEnabled())
-            skin::Rebuild(md, sk, splitMap, pathStem ? pathStem : ""); // full modern-M2 contract rebuild
+        if (registry_.Contains(a.model))
+            skin::Rebuild(md, sk, splitMap, pathStem ? pathStem : "");
         else if (split)
-            bn::RepointBatchesAfterSplit(sk, splitMap); // native / other-origin content: structural repoint only
+            bn::RepointBatchesAfterSplit(sk, splitMap);
     }
 
     /**
@@ -241,7 +132,7 @@ namespace wxl::modern::assets::m2
      */
     void RegisterNativeLoaded(void* model)
     {
-        if constexpr (wxl::features::kModernM2)
+        if constexpr (wxl::features::kNativeM2)
             g_modernM2.registry_.Remember(model, common::AssetRegistry::kFlagHotReshaped);
         else
             (void)model;
@@ -253,7 +144,7 @@ namespace wxl::modern::assets::m2
      */
     void ForgetNativeLoaded(void* model)
     {
-        if constexpr (wxl::features::kModernM2)
+        if constexpr (wxl::features::kNativeM2)
             g_modernM2.registry_.Forget(model);
         else
             (void)model;

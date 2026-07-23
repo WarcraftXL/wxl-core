@@ -19,6 +19,7 @@
 #include "engine/lua/LuaJit.hpp"
 #include "engine/lua/Marshal.hpp"
 #include "engine/lua/methods/PointerArg.hpp"
+#include "features/wmonative/CompositeShader.hpp"
 #include "features/wmonative/OutdoorGate.hpp"
 #include "features/wmonative/WmoNative.hpp"
 #include "game/wmo/Wmo.hpp"
@@ -170,7 +171,88 @@ namespace wxl::lua::methods::wmo
         Push(L, static_cast<lua_Integer>(s.materialIdsMoved));    lua_setfield(L, -2, "material_ids_moved");
         Push(L, static_cast<lua_Integer>(s.materialIdsOutOfRange)); lua_setfield(L, -2, "material_ids_out_of_range");
         Push(L, static_cast<lua_Integer>(s.batchCullBypassed));   lua_setfield(L, -2, "batch_cull_bypassed");
+        Push(L, static_cast<lua_Integer>(s.vertexColorFixed));    lua_setfield(L, -2, "vertex_color_fixed");
+        Push(L, static_cast<lua_Integer>(s.mocvNeutralized));     lua_setfield(L, -2, "mocv_neutralized");
+        Push(L, wxl::runtime::wmonative::ShaderRemapEnabled());   lua_setfield(L, -2, "shader_remap_enabled");
+        Push(L, wxl::runtime::wmonative::VertexColorFixEnabled()); lua_setfield(L, -2, "vertex_color_fix_enabled");
+        Push(L, wxl::runtime::wmonative::NearWhiteNeutralizeEnabled()); lua_setfield(L, -2, "near_white_neutralize_enabled");
+        // Second-layer alpha-composite fix (features/wmonative/CompositeShader).
+        const auto cs = wxl::runtime::wmocomposite::GetStats();
+        Push(L, static_cast<lua_Integer>(cs.patchedShaders));    lua_setfield(L, -2, "composite_patched");
+        Push(L, static_cast<lua_Integer>(cs.patchFailures));     lua_setfield(L, -2, "composite_patch_failures");
+        Push(L, static_cast<lua_Integer>(cs.batchesSwapped));    lua_setfield(L, -2, "composite_batches");
+        Push(L, static_cast<lua_Integer>(cs.vsPatched));         lua_setfield(L, -2, "vs_patched");
+        Push(L, static_cast<lua_Integer>(cs.vsSwapped));         lua_setfield(L, -2, "vs_swapped");
+        Push(L, wxl::runtime::wmocomposite::VsRouteEnabled());   lua_setfield(L, -2, "vs_route_enabled");
+        Push(L, wxl::runtime::wmocomposite::Installed());        lua_setfield(L, -2, "composite_installed");
+        Push(L, wxl::runtime::wmocomposite::FixEnabled());       lua_setfield(L, -2, "composite_fix_enabled");
+        Push(L, static_cast<lua_Integer>(wxl::runtime::wmocomposite::BaseUvSet())); lua_setfield(L, -2, "composite_base_uv");
+        Push(L, static_cast<lua_Integer>(wxl::runtime::wmonative::UvMode())); lua_setfield(L, -2, "uv_mode");
+        Push(L, static_cast<lua_Integer>(s.uvTransformed));      lua_setfield(L, -2, "uv_transformed");
+        Push(L, static_cast<lua_Integer>(s.baseSetReoriented));  lua_setfield(L, -2, "base_set_reoriented");
         return 1;
+    }
+
+    /// wxl.wmo.set_composite_alpha_fix(bool): live A/B of the second-layer fix. True (default) composites
+    /// the detail overlay by the texture's own alpha; false restores the stock secondary-vertex-alpha
+    /// blend, so the dark overlay stripes can be seen come back.
+    inline int L_setCompositeAlphaFix(lua_State* L)
+    {
+        wxl::runtime::wmocomposite::SetFixEnabled(CheckBool(L, 1));
+        return 0;
+    }
+
+    /// wxl.wmo.set_composite_base_uv(int 0|1): EXPERIMENTAL. Which vertex UV set the base texture samples
+    /// in the patched Composite shader. 0 = set 0 (stock), 1 = set 1 (re-sourced from the 2nd texcoord).
+    /// Live (takes effect on the next batch). Tests the "base wants set 1" hypothesis for rotated textures.
+    inline int L_setCompositeBaseUv(lua_State* L)
+    {
+        wxl::runtime::wmocomposite::SetBaseUvSet(static_cast<int>(CheckInt(L, 1)));
+        return 0;
+    }
+
+    /// wxl.wmo.set_vs_route(bool): live A/B of the single-layer set1 vertex-shader route. True (default)
+    /// binds a VS copy that samples UV set 1 for single-layer batches of modern two-UV groups (so the base
+    /// lands on the group's last UV set); false restores the stock VS (single-layer base on set 0).
+    inline int L_setVsRoute(lua_State* L)
+    {
+        wxl::runtime::wmocomposite::SetVsRouteEnabled(CheckBool(L, 1));
+        return 0;
+    }
+
+    /// wxl.wmo.set_uv_mode(int): EXPERIMENTAL UV-orientation probe. 0 untouched, 1 swap u/v, 2 rot+90,
+    /// 3 rot-90, 4 flip v, 5 flip u, 6 use the 2nd UV set for the base. Takes effect on the next WMO
+    /// (re)load -- walk away from the object and back. Finds the transform that de-rotates textures.
+    inline int L_setUvMode(lua_State* L)
+    {
+        wxl::runtime::wmonative::SetUvMode(static_cast<int>(CheckInt(L, 1)));
+        return 0;
+    }
+
+    /// wxl.wmo.set_shader_remap_enabled(bool): live A/B of the modern-shader family remap. False reverts
+    /// unresolved materials to the single-layer fallback (any unsupported id -> 0).
+    inline int L_setShaderRemapEnabled(lua_State* L)
+    {
+        wxl::runtime::wmonative::SetShaderRemapEnabled(CheckBool(L, 1));
+        return 0;
+    }
+
+    /// wxl.wmo.set_vertex_color_fix(bool): live A/B of the modern vertex-colour fix. True (default) runs
+    /// the client's MOCV fix on modern groups so their near-black vertex colours stop rendering black;
+    /// false honours the file's do_not_fix flag (stock), so the black surfaces can be seen come back.
+    inline int L_setVertexColorFix(lua_State* L)
+    {
+        wxl::runtime::wmonative::SetVertexColorFixEnabled(CheckBool(L, 1));
+        return 0;
+    }
+
+    /// wxl.wmo.set_near_white_neutralize(bool): live A/B of the near-white MOCV neutralization. True (default)
+    /// zeroes the RGB of near-white placeholder vertex colours so an over-bright modern exterior group shades
+    /// from the ambient/scene light instead of rendering almost white; false leaves MOCV untouched.
+    inline int L_setNearWhiteNeutralize(lua_State* L)
+    {
+        wxl::runtime::wmonative::SetNearWhiteNeutralizeEnabled(CheckBool(L, 1));
+        return 0;
     }
 
     // --- indoor/outdoor gate (features/wmonative/OutdoorGate) ---
@@ -238,6 +320,13 @@ namespace wxl::lua::methods::wmo
             { "set_outdoor_rule_enabled", L_setOutdoorRuleEnabled },
             { "set_modern_occluders_disabled", L_setModernOccludersDisabled },
             { "set_occluder_underside_rule", L_setUndersideRule },
+            { "set_shader_remap_enabled", L_setShaderRemapEnabled },
+            { "set_vertex_color_fix", L_setVertexColorFix },
+            { "set_near_white_neutralize", L_setNearWhiteNeutralize },
+            { "set_composite_alpha_fix", L_setCompositeAlphaFix },
+            { "set_composite_base_uv", L_setCompositeBaseUv },
+            { "set_vs_route", L_setVsRoute },
+            { "set_uv_mode", L_setUvMode },
             { nullptr, nullptr },
         };
         RegisterModule(L, "wmo", fns);

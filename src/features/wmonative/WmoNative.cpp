@@ -160,6 +160,36 @@ namespace
     std::atomic<uint32_t> g_shaderSeen{0}; ///< bitmask of already-reported unsupported shader ids
     std::atomic<bool>     g_installed{false};
 
+    /// Live A/B of the family remap. True (default) maps a modern shader onto the nearest native
+    /// effect keeping its second diffuse layer; false reverts to the old single-layer fallback (any
+    /// unsupported id -> 0). Only affects materials not yet resolved (the handle guard in CreateMaterial).
+    std::atomic<bool>     g_shaderRemapEnabled{true};
+    /// Live A/B of the modern vertex-colour fix. A modern WMO sets MOHD 0x08 (do_not_fix_vertex_color
+    /// _alpha) because its UNIFIED SHADER folds the fix in; 3.3.5 has no such shader and MULTIPLIES
+    /// MOCV into the texture, so the modern near-black MOCV (measured mean RGB ~20/255) turns every
+    /// surface black. True (default) runs the stock CPU fix anyway for modern groups -- teaching the
+    /// client that, lacking the unified shader, it must keep doing the fix the flag disables. False
+    /// honours the flag (stock behaviour, surfaces stay black), for A/B.
+    std::atomic<bool>     g_forceVertexColorFix{true};
+    std::atomic<uint32_t> g_vertexColorFixed{0}; ///< modern groups whose MOCV was fixed by the client
+    /// Live A/B of the near-white MOCV neutralization. A modern source leaves some exterior groups' vertex
+    /// colours at a near-white PLACEHOLDER (its unified shader needs no baked lighting), while the groups
+    /// that shade correctly carry near-black colours. 3.3.5 MULTIPLIES the surface by the vertex colour, so
+    /// a near-white group renders almost white / over-bright. True (default) zeroes the RGB of any near-white
+    /// entry so it shades from the ambient/scene light like the correct groups; darker colours are untouched.
+    std::atomic<bool>     g_neutralizeNearWhite{true};
+    std::atomic<uint32_t> g_mocvNeutralized{0}; ///< MOCV entries zeroed as near-white placeholders
+    /// Manual UV-set probe, default 0 (untouched). The correct fix is NOT a global load-time swap -- that
+    /// is whack-a-mole, because it rewrites the whole group's shared vertex data, so a group mixing single-
+    /// and two-layer materials cannot be satisfied. The real fix routes per EFFECT at draw (CompositeShader)
+    /// using Legion's "a material samples the last N UV sets" rule. Modes 1..6 stay for A/B diagnostics.
+    std::atomic<int>      g_uvMode{0};
+    std::atomic<uint32_t> g_uvTransformed{0};
+    /// Pure-single-layer 2+-set groups whose base UV slot was pointed at the group's LAST set at load
+    /// (Legion's "a single-layer material samples the last N UV sets" rule), so the stock one-UV vertex
+    /// buffer feeds the right coordinates with no shader/vertex-declaration dependency. See WalkGroupModern.
+    std::atomic<uint32_t> g_baseSetReoriented{0};
+
     /// Modern verdict per root object. Rewritten on every root load, so a recycled pool slot never
     /// inherits the previous occupant's verdict.
     std::mutex g_mutex;
@@ -330,6 +360,49 @@ namespace
     }
 
     // ------------------------------------------------------------------ group
+    inline uint32_t NativeShaderFor(uint32_t modern); // defined with the material walker below
+
+    /// A modern MOBA batch carries its material index as a u16 at +0x0A (announced by flag bit 0x02 at
+    /// +0x16); a stock batch keeps the client's u8 at +0x17. Read whichever this record announces.
+    inline uint32_t BatchMaterialIndex(const uint8_t* rec)
+    {
+        if (rec[off::kOffMobaFlags] & off::kMobaFlagMaterialModern)
+        {
+            uint16_t m;
+            std::memcpy(&m, rec + off::kOffMobaMaterialModern, 2);
+            return m;
+        }
+        return rec[off::kOffMobaMaterial];
+    }
+
+    /// True when any batch of `group` draws a real two-layer Composite material -- i.e. when the stock
+    /// finalize would `or [group+0x198],8` and build the group in the two-UV vertex format. This
+    /// reproduces that whole-group decision at load: a material is Composite iff its shader maps to native
+    /// effect 6 (NativeShaderFor) AND it actually ships a second texture (else CreateMaterial collapses
+    /// 6 -> 4, single-layer). The raw modern shader / tex2 FileDataID are read straight from the MOMT in
+    /// the root buffer, so this holds whether or not CreateMaterial has run yet.
+    bool GroupHasComposite(void* group)
+    {
+        auto* batches = static_cast<uint8_t*>(GetPtr(group, off::kGroupSlots[5].ptrField));
+        const uint32_t batchCount = Rd32(Field(group, off::kGroupSlots[5].countField));
+        void* root = GetPtr(group, off::kOffGroupRoot);
+        auto* materials = root ? static_cast<uint8_t*>(GetPtr(root, off::kOffMaterialBase)) : nullptr;
+        const uint32_t matCount = root ? Rd32(Field(root, off::kOffMaterialCount)) : 0;
+        if (!batches || !materials)
+            return false;
+        for (uint32_t i = 0; i < batchCount; ++i)
+        {
+            const uint8_t* rec = batches + static_cast<size_t>(i) * off::kMobaStride;
+            const uint32_t mi = BatchMaterialIndex(rec);
+            if (mi >= matCount) continue;
+            const uint8_t* mat = materials + static_cast<size_t>(mi) * off::kMomtStride;
+            if (NativeShaderFor(Rd32(mat + off::kOffMomtShader)) != 6) continue;
+            if (Rd32(mat + off::kOffMomtTexture2) != 0 || Rd32(mat + off::kOffMomtHandle2) != 0)
+                return true; // shader-6 family WITH a second texture -> stock keeps it two-layer
+        }
+        return false;
+    }
+
     /// Tag-driven group fill, merging the stock mandatory and optional walkers into one pass.
     bool WalkGroupModern(void* group, uint8_t* cursor)
     {
@@ -362,6 +435,8 @@ namespace
         uint8_t* mobr = nullptr; uint32_t mobrSize = 0;
         uint32_t motvSeen = 0, mocvSeen = 0, unknown = 0;
         bool hasMocv = false;
+        uint8_t* motv0 = nullptr; uint32_t motv0Size = 0; // captured for the UV-orientation probe
+        uint8_t* motv1 = nullptr; uint32_t motv1Size = 0;
 
         auto store = [&](const off::ChunkSlot& slot, uint8_t* content, uint32_t chunkSize) {
             SetPtr(group, slot.ptrField, content);
@@ -375,8 +450,8 @@ namespace
             // so later sets are left in the buffer and counted instead.
             if (tag == off::WmoTag("MOTV"))
             {
-                if (motvSeen == 0)      store(off::kGroupSlots[4], content, chunkSize);
-                else if (motvSeen == 1) store(off::kGroupSlotMotv2, content, chunkSize);
+                if (motvSeen == 0)      { store(off::kGroupSlots[4], content, chunkSize); motv0 = content; motv0Size = chunkSize; }
+                else if (motvSeen == 1) { store(off::kGroupSlotMotv2, content, chunkSize); motv1 = content; motv1Size = chunkSize; }
                 else                    ++unknown;
                 ++motvSeen;
                 return;
@@ -404,6 +479,58 @@ namespace
             ++unknown;
         });
         g_unknownChunks.fetch_add(unknown, std::memory_order_relaxed);
+
+        // EXPERIMENTAL UV-orientation probe (see g_uvMode). Rewrites the base UV set in place, or swaps
+        // which set feeds the base texture, so the transform that de-rotates modern textures can be found
+        // in game. Applied on the file buffer (the client's own working memory, like the MOCV rewrite).
+        if (const int mode = g_uvMode.load(std::memory_order_relaxed); mode != 0 && motv0)
+        {
+            auto xform = [](uint8_t* uv, uint32_t bytes, int m) {
+                for (uint32_t i = 0; i + 8 <= bytes; i += 8)
+                {
+                    float u, v; std::memcpy(&u, uv + i, 4); std::memcpy(&v, uv + i + 4, 4);
+                    float nu = u, nv = v;
+                    switch (m)
+                    {
+                        case 1: nu = v;  nv = u;  break; // swap u/v (reflect across the diagonal)
+                        case 2: nu = v;  nv = -u; break; // rotate +90
+                        case 3: nu = -v; nv = u;  break; // rotate -90
+                        case 4: nu = u;  nv = -v; break; // flip v
+                        case 5: nu = -u; nv = v;  break; // flip u
+                        default: break;
+                    }
+                    std::memcpy(uv + i, &nu, 4); std::memcpy(uv + i + 4, &nv, 4);
+                }
+            };
+            if (mode >= 1 && mode <= 5)
+                xform(motv0, motv0Size, mode);
+            else if (mode == 6 && motv1) // feed the SECOND UV set to the base texture (t0)
+            {
+                store(off::kGroupSlots[4], motv1, motv1Size);
+                store(off::kGroupSlotMotv2, motv0, motv0Size);
+            }
+            g_uvTransformed.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        // UV-set orientation, split by group kind so a single global choice never fights itself (the old
+        // whack-a-mole). Legion's rule: a single-layer material samples the group's LAST UV set, a two-layer
+        // Composite samples set0 (base) + set1 (overlay). Three cases, decided per group at load:
+        //
+        //   * 1-UV group (no motv1) -- base already samples the only set. Nothing to do.
+        //   * 2+-set group with NO Composite batch -- stock builds it ONE-UV (it only flips to two-UV for a
+        //     shader-6 batch), so its base texcoord slot (+0xF0) feeds the vertex buffer. Point that slot at
+        //     the LAST set (motv1) so every single-layer batch samples set1, exactly as uv_mode 6 does but
+        //     scoped to the groups that want it -- no shader/vertex-declaration dependency, it is pure data.
+        //   * 2+-set group WITH a Composite batch -- stock builds it TWO-UV (both sets on every vertex), so
+        //     Composite's base=set0/overlay=set1 are already right. Leave the slots; the per-batch VS route
+        //     (CompositeShader) moves this group's single-layer batches onto set1 at draw, where TEXCOORD1
+        //     genuinely exists in the declaration. Detecting Composite here reproduces the stock decision.
+        if (motv1 && !GroupHasComposite(group))
+        {
+            store(off::kGroupSlots[4], motv1, motv1Size);   // base texcoord slot <- group's last UV set
+            store(off::kGroupSlotMotv2, motv0, motv0Size);  // keep set0 in the 2nd slot (unread when 1-UV)
+            g_baseSetReoriented.fetch_add(1, std::memory_order_relaxed);
+        }
 
         // BSP: the stock walker hands the two adjacent chunks straight to CAaBsp, which only copies
         // pointers and counts. Both must be present -- a lone MOBN would leave the face list null.
@@ -458,15 +585,51 @@ namespace
             }
         }
 
-        // Vertex-colour alpha rewrite, under the stock gate: MOHD flag 0x8 means the file is already
-        // in the final form and the client must not touch it.
+        // Vertex-colour alpha rewrite. The stock gate skips it when MOHD 0x08 (do_not_fix_vertex_color
+        // _alpha) is set -- but on this corpus EVERY modern root sets 0x08, because it means "the unified
+        // shader folds the fix in, don't do it on the CPU". 3.3.5 has no unified shader: it MULTIPLIES
+        // MOCV into the texture, and the modern MOCV is near-black (mean RGB ~20/255, baked light stored
+        // additively), so honouring 0x08 renders every surface black. So for a modern group we run the
+        // stock CPU fix anyway (g_forceVertexColorFix, default on) -- adapting the client to the fact that,
+        // lacking the shader the flag assumes, it must keep doing the fix the flag tries to disable.
         if (hasMocv)
         {
+            // Near-white placeholder neutralization (ex-hot-convert parity). A modern source leaves some
+            // exterior groups' MOCV at near-white because its shader path needs no baked lighting; the 3.3.5
+            // client MULTIPLIES the surface by the vertex colour, so a near-white group renders almost white.
+            // Zero the RGB of any near-white entry (>=220 on all of B,G,R) -- it then shades from the
+            // ambient/scene light like the correctly-baked (darker) groups. Alpha and darker colours are left
+            // as-is. Runs BEFORE the client's alpha fixup below, exactly where the converter did it (on the
+            // raw MOCV). MOCV is BGRA, stride 4; the count slot holds MOCV_size/4.
+            if (g_neutralizeNearWhite.load(std::memory_order_relaxed))
+            {
+                auto* mocv = static_cast<uint8_t*>(GetPtr(group, off::kGroupSlots[8].ptrField));
+                const uint32_t mocvCount = Rd32(Field(group, off::kGroupSlots[8].countField));
+                if (mocv)
+                {
+                    uint32_t zeroed = 0;
+                    for (uint32_t v = 0; v < mocvCount; ++v)
+                    {
+                        uint8_t* e = mocv + static_cast<size_t>(v) * 4u; // B,G,R,A
+                        if (e[0] >= 220 && e[1] >= 220 && e[2] >= 220)
+                        {
+                            e[0] = 0; e[1] = 0; e[2] = 0;
+                            ++zeroed;
+                        }
+                    }
+                    if (zeroed) g_mocvNeutralized.fetch_add(zeroed, std::memory_order_relaxed);
+                }
+            }
+
             void* root = GetPtr(group, off::kOffGroupRoot);
             auto* mohd = root ? static_cast<uint8_t*>(GetPtr(root, off::kOffMohd)) : nullptr;
             const uint32_t mohdFlags = mohd ? Rd32(mohd + off::kOffMohdFlags) : 0;
-            if (!(mohdFlags & off::kMohdFlagSkipColorFix))
+            const bool stockWantsFix = !(mohdFlags & off::kMohdFlagSkipColorFix);
+            if (g_forceVertexColorFix.load(std::memory_order_relaxed) || stockWantsFix)
+            {
                 wxl::game::Native<off::Wmo_FixColorVertexAlphaFn>(off::kFixColorVertexAlpha)(group, nullptr);
+                g_vertexColorFixed.fetch_add(1, std::memory_order_relaxed);
+            }
         }
         return true;
     }
@@ -510,14 +673,25 @@ namespace
     inline uint32_t NativeShaderFor(uint32_t modern)
     {
         if (modern <= off::kMaxClientShaderId) return modern; // already a native effect
+        // Classification taken from the Legion shader table (RE'd from the 7.3.5 Ghidra export): the
+        // vertex shader per id decides the layer count and texcoord routing. Map each modern id onto the
+        // nearest native effect of the SAME layer family so texture_1 keeps set 0 and a genuine second
+        // diffuse layer keeps set 1. Getting the family right matters: id 21 is MapObjLod (SINGLE layer),
+        // not two-layer -- routing it through Composite would blend a second texture the shader ignores.
         switch (modern)
         {
-            case 7: case 8: case 13: case 15: case 18: case 19: case 20: case 21:
-                return 6; // two-layer diffuse family
+            // two-layer diffuse (tex1->set0, tex2->set1): 7 TwoLayerEnvMetal, 9 DiffuseEmissive,
+            // 13 TwoLayerDiffuseOpaque, 15 TwoLayerDiffuseEmissive, 18 Mod2x, 19 Mod2xNA, 20 Alpha.
+            case 7: case 9: case 13: case 15: case 18: case 19: case 20:
+                return 6;
+            // env-metal family (tex1->set0 + generated env): 11 MaskedEnvMetal, 12 EnvMetalEmissive,
+            // 17 AdditiveMaskedEnvMetal. Their extra set-1 layer is dropped (native 5 cannot express it).
             case 11: case 12: case 17:
-                return 5; // env-metal family
+                return 5;
+            // single-layer (tex1->set0 only): 8 TwoLayerTerrain (2nd coord is vertex-generated, not a MOTV
+            // set), 16 Diffuse, 21 MapObjLod, 10/14, and anything unforeseen.
             default:
-                return 0; // single-layer diffuse (9 emissive, 10, 14, 16, and anything unforeseen)
+                return 0;
         }
     }
 
@@ -573,7 +747,10 @@ namespace
         // custom-shader follow-up. The rewrite lands on the client's own working buffer, exactly like
         // the 3/5/6 -> 4 rewrite below. Per-family counters make the trade visible in game.
         const uint32_t sourceShader = Rd32(record + off::kOffMomtShader);
-        const uint32_t nativeShader = NativeShaderFor(sourceShader);
+        const uint32_t nativeShader =
+            g_shaderRemapEnabled.load(std::memory_order_relaxed)
+                ? NativeShaderFor(sourceShader)                                   // family remap (default)
+                : (sourceShader > off::kMaxClientShaderId ? 0u : sourceShader);   // old single-layer fallback
         if (nativeShader != sourceShader)
         {
             SetU32(record, off::kOffMomtShader, nativeShader);
@@ -698,6 +875,10 @@ namespace wxl::runtime::wmonative
         s.materialIdsMoved   = g_materialIdsMoved.load(std::memory_order_relaxed);
         s.materialIdsOutOfRange = g_materialOutOfRange.load(std::memory_order_relaxed);
         s.batchCullBypassed  = g_batchCullBypassed.load(std::memory_order_relaxed);
+        s.vertexColorFixed   = g_vertexColorFixed.load(std::memory_order_relaxed);
+        s.mocvNeutralized    = g_mocvNeutralized.load(std::memory_order_relaxed);
+        s.uvTransformed      = g_uvTransformed.load(std::memory_order_relaxed);
+        s.baseSetReoriented  = g_baseSetReoriented.load(std::memory_order_relaxed);
         return s;
     }
 
@@ -706,6 +887,18 @@ namespace wxl::runtime::wmonative
     bool Installed() { return g_installed.load(std::memory_order_relaxed); }
 
     bool IsModernRoot(void* root) { return root && RootIsModern(root); }
+
+    bool ShaderRemapEnabled() { return g_shaderRemapEnabled.load(std::memory_order_relaxed); }
+    void SetShaderRemapEnabled(bool on) { g_shaderRemapEnabled.store(on, std::memory_order_relaxed); }
+
+    bool VertexColorFixEnabled() { return g_forceVertexColorFix.load(std::memory_order_relaxed); }
+    void SetVertexColorFixEnabled(bool on) { g_forceVertexColorFix.store(on, std::memory_order_relaxed); }
+
+    bool NearWhiteNeutralizeEnabled() { return g_neutralizeNearWhite.load(std::memory_order_relaxed); }
+    void SetNearWhiteNeutralizeEnabled(bool on) { g_neutralizeNearWhite.store(on, std::memory_order_relaxed); }
+
+    int  UvMode() { return g_uvMode.load(std::memory_order_relaxed); }
+    void SetUvMode(int mode) { g_uvMode.store(mode, std::memory_order_relaxed); }
 }
 
 WXL_REGISTER_FEATURE("wmo-native", wxl::features::kNativeWmo, InstallWmoNative)

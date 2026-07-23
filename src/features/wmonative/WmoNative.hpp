@@ -68,6 +68,19 @@ namespace wxl::runtime::wmonative
         /// Per-batch AABB culls bypassed because the batch is modern and ships no box (cumulative, per
         /// frame). Group-level frustum / portal / horizon culling still applies.
         uint32_t batchCullBypassed;
+        /// Modern groups whose MOCV was run through the client's CPU vertex-colour fix. A modern WMO's
+        /// near-black MOCV multiplied into the texture renders black; the fix is what 3.3.5 does for its
+        /// own WMOs and the flag disabling it assumes a shader 3.3.5 does not have. See VertexColorFix*.
+        uint32_t vertexColorFixed;
+        /// MOCV entries zeroed as near-white placeholders (ex-hot-convert parity): a modern exterior group
+        /// left near-white renders almost white on 3.3.5 (which multiplies the surface by the vertex colour);
+        /// zeroing lets it shade from the ambient/scene light like the correctly-baked groups.
+        uint32_t mocvNeutralized;
+        uint32_t uvTransformed; ///< groups whose UV set was transformed by the experimental UvMode probe
+        /// Pure-single-layer 2+-set groups whose base UV slot was pointed at the group's LAST set at load,
+        /// so their single-layer batches sample set1 with no shader/declaration dependency (Legion's "last
+        /// N UV sets" rule). Groups that also carry a Composite batch are left to the per-batch VS route.
+        uint32_t baseSetReoriented;
     };
 
     /** @brief Returns a snapshot of the session counters. */
@@ -85,4 +98,37 @@ namespace wxl::runtime::wmonative
      * @return true when its buffer carries no MOTX or carries GFID.
      */
     bool IsModernRoot(void* root);
+
+    /** @brief Live A/B of the modern-shader family remap. False reverts to the single-layer fallback. */
+    bool ShaderRemapEnabled();
+    void SetShaderRemapEnabled(bool on);
+
+    /**
+     * @brief Live A/B of the modern vertex-colour fix.
+     *
+     * True (default) runs the client's CPU MOCV fix on modern groups even though they set MOHD 0x08
+     * (do_not_fix), because that flag assumes a unified shader 3.3.5 lacks -- without it the near-black
+     * modern MOCV multiplied into the texture renders every surface black. False honours the flag (stock
+     * behaviour) so the black can be seen come back.
+     */
+    bool VertexColorFixEnabled();
+    void SetVertexColorFixEnabled(bool on);
+
+    /**
+     * @brief Live A/B of the near-white MOCV neutralization (ex-hot-convert parity).
+     *
+     * True (default) zeroes the RGB of any near-white vertex colour so an over-bright modern exterior group
+     * shades from the ambient/scene light instead of rendering almost white. False leaves MOCV as-is.
+     */
+    bool NearWhiteNeutralizeEnabled();
+    void SetNearWhiteNeutralizeEnabled(bool on);
+
+    /**
+     * @brief EXPERIMENTAL UV-orientation probe. 0 = untouched; 1 swap u/v; 2 rot+90; 3 rot-90; 4 flip v;
+     *        5 flip u; 6 feed the second UV set to the base texture. Applied at group load, so a change
+     *        takes effect on the next (re)load of a WMO -- walk away and back. Finds the transform that
+     *        de-rotates modern WMO textures empirically before it is made permanent / RE-confirmed.
+     */
+    int  UvMode();
+    void SetUvMode(int mode);
 }

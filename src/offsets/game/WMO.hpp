@@ -104,6 +104,25 @@ namespace wxl::offsets::game::wmo
     constexpr uintptr_t kCullBatch = 0x007A7630;
     using Wmo_CullBatchFn = char(__cdecl*)(void* mobaRecord);
 
+    // WMO batch-draw leaves (RE report: WMO Composite draw seam). Both are __thiscall(this=root, group,
+    // int flag) with a `ret 8` epilogue, invoked through a vtable (no direct E8 caller). Each iterates the
+    // group's MOBA batches and, per batch, activates the material's effect collection + binds VS/PS
+    // (kEffectBind) then issues an indexed draw that flushes GxState. When root->MOHD.flags & 0x2 (the
+    // modern "unified render path" bit -- set on 100% of the modern corpus) they tail-call the alternate
+    // renderer, so hooking these two entries brackets ALL modern WMO batch rendering, including that
+    // delegated path. Used only to stash the current root's modern verdict around the batch loop.
+    constexpr uintptr_t kExtRender = 0x007AC6A0; // single exterior-batch loop
+    constexpr uintptr_t kIntRender = 0x007AC9F0; // trans + interior + exterior segments
+    using Wmo_RenderLeafFn = void(__fastcall*)(void* root, void* edx, void* group, int flag);
+
+    // Group two-UV format flag. Set once at group finalize (0x007D8561 `or [group+0x198],8`) iff ANY
+    // batch uses a shader-6 (Composite) material -- a whole-group decision. When set, the group's vertex
+    // buffer is built in the two-UV format (stride 0x30): UV set0 at vertex offset 0x20, set1 at 0x28,
+    // so BOTH UV sets are present on every vertex and reachable by the per-batch vertex shader. That is
+    // the precondition for routing a single-layer batch onto set1 (features/wmonative/CompositeShader).
+    constexpr size_t   kOffGroupFormatFlags = 0x198;
+    constexpr uint32_t kGroupFlagTwoUv      = 0x8;
+
     // --- MOHD (root+kOffMohd content) ---
     constexpr size_t kOffMohdFlags = 0x3C; // u32; bit 0x1 / 0x4 / 0x8 gate group-side behaviour
     constexpr uint32_t kMohdFlagSkipColorFix = 0x8; // set => the MOCV alpha rewrite is skipped

@@ -113,6 +113,18 @@ namespace wxl::offsets::engine::shader
     // exterior-opaque effect. The slot holds the same pointer kActiveCollection is set to on activate.
     constexpr uintptr_t kExteriorEffectTable  = 0x00D1C3F0; // [0]=Diffuse .. [5]=EnvMetal
     constexpr uintptr_t kExteriorEffectOpaque = 0x00D1C400; // [4] MapObjOpaque collection pointer
+    // [6] MapObjComposite (the two-layer effect). When kActiveCollection equals *kExteriorEffectComposite
+    // the active draw is the two-layer composite: the seam where a modern WMO's second layer must be
+    // composited by the texture's own alpha instead of the secondary vertex-colour alpha the stock PS uses.
+    constexpr uintptr_t kExteriorEffectComposite = 0x00D1C408; // [6]
+
+    // The client keeps TWO adjacent 7-entry effect-collection tables. Ext/IntRender bind from 0xD1C3F0
+    // above; but a WMO whose root has MOHD.flags & 0x2 (every modern WMO) is DELEGATED to AltRender
+    // (0x007A9380), which binds from a SEPARATE table based at 0x00D1C3D4. So a modern Composite batch
+    // sets kActiveCollection to *kAltEffectComposite, never *kExteriorEffectComposite -- the Composite
+    // discriminator must accept the Alt-table slot to fire on modern content.
+    constexpr uintptr_t kAltEffectTable     = 0x00D1C3D4; // [0]=Diffuse .. used by AltRender (modern path)
+    constexpr uintptr_t kAltEffectComposite = 0x00D1C3EC; // [6] MapObjComposite, modern delegated path
 
     // Plain two-arg cdecl: the two permutation indices are pushed as ordinary stack args (no this).
     // Beyond binding the two shader handles, the native bind also advances a per-draw fog/alpha state

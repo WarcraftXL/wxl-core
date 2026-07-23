@@ -68,6 +68,12 @@ namespace wxl::features
     // occluder handling. Live A/B: wxl.wmo.set_outdoor_rule_enabled / set_modern_occluders_disabled.
     inline constexpr bool kWmoOutdoorGate = kNativeWmo && true;
 
+    // Modern-WMO two-layer fix: a modern material's texture_2 is an alpha-masked detail overlay, but the
+    // stock Composite pixel shader blends it by the secondary vertex-colour alpha (rendering its dark
+    // body as stripes). Patches the Composite PS IN MEMORY to composite by the texture's own alpha, for
+    // modern WMOs only. Live A/B: wxl.wmo.set_composite_alpha_fix.
+    inline constexpr bool kWmoCompositeAlphaFix = kNativeWmo && true;
+
     // --- open arbitrations -------------------------------------------------------------------
     // These are switches because the RIGHT answer is not settled yet, not because a fallback is kept
     // around. Each one has an entry in docs/TODO.md saying what would close it.

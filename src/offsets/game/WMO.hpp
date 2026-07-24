@@ -351,6 +351,7 @@ namespace wxl::offsets::game::wmo
     constexpr size_t kOffGroupFlags           = 0x30; // MOGP flags, copied by kGroupParse
     constexpr size_t kOffGroupTransBatchCount = 0x5C; // u16, MOGP+0x28
     constexpr uint32_t kGroupFlagIndoor       = 0x2000;
+    constexpr uint32_t kGroupFlagExterior     = 0x8;  // SMOGROUP_EXTERIOR: MOCV is a neutral placeholder, not baked light
     // Legion re-enables the exterior from inside an interior group under three conditions that 12340
     // has no equivalent for (FUN_00CB5FEC). Measured on the active corpus: A and C never occur, B holds
     // for 37 of the 94 interior groups -- those are the groups where standing inside kills the terrain

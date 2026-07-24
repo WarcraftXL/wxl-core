@@ -172,13 +172,14 @@ namespace
     /// honours the flag (stock behaviour, surfaces stay black), for A/B.
     std::atomic<bool>     g_forceVertexColorFix{true};
     std::atomic<uint32_t> g_vertexColorFixed{0}; ///< modern groups whose MOCV was fixed by the client
-    /// Live A/B of the near-white MOCV neutralization. A modern source leaves some exterior groups' vertex
-    /// colours at a near-white PLACEHOLDER (its unified shader needs no baked lighting), while the groups
-    /// that shade correctly carry near-black colours. 3.3.5 MULTIPLIES the surface by the vertex colour, so
-    /// a near-white group renders almost white / over-bright. True (default) zeroes the RGB of any near-white
-    /// entry so it shades from the ambient/scene light like the correct groups; darker colours are untouched.
+    /// Live A/B of the exterior-placeholder MOCV neutralization. Modern EXTERIOR groups (MOGP flag 0x8) carry
+    /// a neutral placeholder in MOCV -- their unified shader lights them from the scene, not from baked vertex
+    /// colour -- while INTERIOR groups (0x2000) carry real baked lighting. 3.3.5 MULTIPLIES the surface by
+    /// MOCV, so an exterior group renders almost white / over-bright. True (default) zeroes the RGB of an
+    /// exterior group's MOCV so it shades from ambient/scene light like the baked interior groups; interior
+    /// groups are left untouched. Gated on the group flag, not a pixel-value threshold.
     std::atomic<bool>     g_neutralizeNearWhite{true};
-    std::atomic<uint32_t> g_mocvNeutralized{0}; ///< MOCV entries zeroed as near-white placeholders
+    std::atomic<uint32_t> g_mocvNeutralized{0}; ///< MOCV entries zeroed in exterior placeholder groups
     /// Manual UV-set probe, default 0 (untouched). The correct fix is NOT a global load-time swap -- that
     /// is whack-a-mole, because it rewrites the whole group's shared vertex data, so a group mixing single-
     /// and two-layer materials cannot be satisfied. The real fix routes per EFFECT at draw (CompositeShader)
@@ -594,30 +595,27 @@ namespace
         // lacking the shader the flag assumes, it must keep doing the fix the flag tries to disable.
         if (hasMocv)
         {
-            // Near-white placeholder neutralization (ex-hot-convert parity). A modern source leaves some
-            // exterior groups' MOCV at near-white because its shader path needs no baked lighting; the 3.3.5
-            // client MULTIPLIES the surface by the vertex colour, so a near-white group renders almost white.
-            // Zero the RGB of any near-white entry (>=220 on all of B,G,R) -- it then shades from the
-            // ambient/scene light like the correctly-baked (darker) groups. Alpha and darker colours are left
-            // as-is. Runs BEFORE the client's alpha fixup below, exactly where the converter did it (on the
-            // raw MOCV). MOCV is BGRA, stride 4; the count slot holds MOCV_size/4.
-            if (g_neutralizeNearWhite.load(std::memory_order_relaxed))
+            // Modern EXTERIOR groups store a neutral (near-white) placeholder in MOCV -- their unified shader
+            // lights them from the scene, not from baked vertex colour. 3.3.5 has no such shader and MULTIPLIES
+            // MOCV into the surface, so an exterior group renders almost white / over-bright. The discriminator
+            // is the MOGP group flag, not the pixel value: EXTERIOR (0x8) => placeholder to drop, INTERIOR
+            // (0x2000) => real baked lighting to keep. Zero an exterior group's MOCV RGB so it shades from the
+            // ambient/scene light like the correctly-baked (near-black) interior groups. Alpha is preserved for
+            // the client's alpha fixup below. MOCV is BGRA, stride 4; the count slot holds MOCV_size/4.
+            const uint32_t groupFlags = Rd32(Field(group, off::kOffGroupFlags));
+            if (g_neutralizeNearWhite.load(std::memory_order_relaxed) &&
+                (groupFlags & off::kGroupFlagExterior))
             {
                 auto* mocv = static_cast<uint8_t*>(GetPtr(group, off::kGroupSlots[8].ptrField));
                 const uint32_t mocvCount = Rd32(Field(group, off::kGroupSlots[8].countField));
                 if (mocv)
                 {
-                    uint32_t zeroed = 0;
                     for (uint32_t v = 0; v < mocvCount; ++v)
                     {
                         uint8_t* e = mocv + static_cast<size_t>(v) * 4u; // B,G,R,A
-                        if (e[0] >= 220 && e[1] >= 220 && e[2] >= 220)
-                        {
-                            e[0] = 0; e[1] = 0; e[2] = 0;
-                            ++zeroed;
-                        }
+                        e[0] = 0; e[1] = 0; e[2] = 0;
                     }
-                    if (zeroed) g_mocvNeutralized.fetch_add(zeroed, std::memory_order_relaxed);
+                    if (mocvCount) g_mocvNeutralized.fetch_add(mocvCount, std::memory_order_relaxed);
                 }
             }
 

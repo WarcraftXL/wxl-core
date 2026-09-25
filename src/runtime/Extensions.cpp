@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "runtime/Extensions.hpp"
+#include "runtime/StartupCompletion.hpp"
 
 #include "wxl/PluginApi.h"
 
@@ -278,6 +279,7 @@ namespace wxl::runtime::extensions
         }
 
         game::boot::EngineInitFn g_origEngineInit = nullptr;
+        StartupCompletion g_loadComplete;
 
         /**
          * @brief Loads the extensions, then lets engine initialisation proceed.
@@ -295,9 +297,15 @@ namespace wxl::runtime::extensions
                 loaded = true;
                 LoadAll();
                 hook::EnableAll();
+                g_loadComplete.Complete();
             }
             return g_origEngineInit();
         }
+    }
+
+    bool WaitForLoadCompletion(uint32_t timeoutMs)
+    {
+        return g_loadComplete.Wait(std::chrono::milliseconds(timeoutMs));
     }
 
     bool InstallLoader()

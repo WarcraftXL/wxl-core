@@ -35,6 +35,10 @@ namespace wxl::runtime::extensions
      */
     bool InstallLoader();
 
+    // Called only by the deferred core worker, never under DllMain's loader lock.
+    // A timeout must not enable a partially registered extension hook chain.
+    bool WaitForLoadCompletion(uint32_t timeoutMs);
+
     /**
      * @brief Publishes a service into the same interface table WXL_Api::PublishInterface writes.
      *

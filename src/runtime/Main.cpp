@@ -50,6 +50,14 @@ namespace
         for (int i = 0; i < kDeviceWaitTicks && !wxl::game::gx::RawDevice(); ++i)
             Sleep(100);
 
+        // Device creation can finish while EngineInitDetour is still in LoadAll.
+        // Wait until every extension has registered and enabled its complete chain.
+        if (!wxl::runtime::extensions::WaitForLoadCompletion(60000))
+        {
+            WLOG_ERROR("wxl-core: extension startup did not complete; deferred hooks not enabled");
+            return 0;
+        }
+
         wxl::hook::InstallRegisteredFeatures(wxl::hook::Phase::Normal);
         wxl::hook::EnableAll();
         wxl::hook::InstallRegisteredFeatures(wxl::hook::Phase::PostEnable);

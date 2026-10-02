@@ -72,7 +72,7 @@ namespace
     {
         bool handled = false;
         ev::InputArgs a{ m, static_cast<uintptr_t>(w), static_cast<uintptr_t>(l), &handled };
-        ev::Emit(ev::Event::OnInput, &a);
+        ev::Emit<ev::Event::OnInput>(a);
         if (handled) return 0;
 
         // An unconsumed world click: resolve the cursor to a world point/object and publish OnWorldClick.
@@ -82,7 +82,7 @@ namespace
             if (world::PickCursor(hit))
             {
                 ev::WorldClickArgs wc{ m, hit.type, hit.pos.x, hit.pos.y, hit.pos.z, hit.objLo, hit.objHi };
-                ev::Emit(ev::Event::OnWorldClick, &wc);
+                ev::Emit<ev::Event::OnWorldClick>(wc);
             }
         }
         return CallWindowProcA(g_origWndProc, h, m, w, l);

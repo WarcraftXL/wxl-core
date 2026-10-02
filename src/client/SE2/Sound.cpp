@@ -42,7 +42,7 @@ namespace
     int __cdecl hkPlaySound(void* scriptState)
     {
         ev::SoundPlayArgs a{ scriptState };
-        ev::Emit(ev::Event::OnSoundPlay, &a);
+        ev::Emit<ev::Event::OnSoundPlay>(a);
 
         static bool logged = false;
         if (!logged) { logged = true; WLOG_INFO("sound: play hook active"); }

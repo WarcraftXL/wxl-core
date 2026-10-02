@@ -78,7 +78,7 @@ namespace wxl::runtime::extensions
                 WLOG_ERROR("extensions: emit of unknown event %u ignored", event);
                 return;
             }
-            events::Emit(events::Event(event), args);
+            events::EmitRaw(events::Event(event), args);
         }
 
         int __cdecl ApiHookAttach(const char* name, uintptr_t target, void* detour, void** original,

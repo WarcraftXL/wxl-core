@@ -1,0 +1,98 @@
+// The event table: one row per event, the single source of the Event enum, of the event -> args
+// binding and of the names. Included with WXL_EVENT(name, id, args) defined by the expander.
+//
+// The id is the ABI: an extension built against this table subscribes by number. A row is appended
+// with the next free id, never renumbered, never removed. The args struct is in wxl/Events.hpp.
+// Copyright (C) 2026 WarcraftXL
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+#ifndef WXL_EVENT
+#error "define WXL_EVENT(name, id, args) before including Events.def"
+#endif
+
+/** A model's raw bytes are read, before the parse. */
+WXL_EVENT(OnModelLoadPre,       0, ModelLoadArgs)
+/** A model finished loading and is parsed. */
+WXL_EVENT(OnModelLoad,          1, ModelLoadArgs)
+/** A model's skin profile is being finalized, before the native finalize sizes its batch blocks. */
+WXL_EVENT(OnM2SkinFinalize,     2, M2SkinFinalizeArgs)
+/** The scene graph updates one visible M2 instance; once per instance per frame. */
+WXL_EVENT(OnM2PerFrameUpdate,   3, M2PerFrameUpdateArgs)
+/** The engine filled an instance's bone palette, before the batch draw uploads it. */
+WXL_EVENT(OnBuildBonePalette,   4, BuildBonePaletteArgs)
+/** Once per frame, before Present. */
+WXL_EVENT(OnFrame,              5, FrameArgs)
+/** End of the frame, before Present. */
+WXL_EVENT(OnEndScene,           6, EndSceneArgs)
+/** Before IDirect3DDevice9::Reset frees the D3DPOOL_DEFAULT resources. */
+WXL_EVENT(OnDeviceLost,         7, DeviceResetArgs)
+/** After a successful IDirect3DDevice9::Reset. */
+WXL_EVENT(OnDeviceReset,        8, DeviceResetArgs)
+/** Once per frame, the logic tick, with the frame delta. */
+WXL_EVENT(OnUpdate,             9, UpdateArgs)
+/** The world draw pass starts. */
+WXL_EVENT(OnWorldRender,       10, WorldRenderArgs)
+/** The world is drawn and the interface is not yet: the post-process slot, in screen space. */
+WXL_EVENT(OnWorldRenderEnd,    11, WorldRenderEndArgs)
+/** The world is drawn and the camera matrices that drew it are still on the device. */
+WXL_EVENT(OnWorldSceneEnd,     12, WorldSceneEndArgs)
+/** A liquid render pass is about to draw. */
+WXL_EVENT(OnLiquidRender,      13, LiquidRenderArgs)
+/** One M2 triangle batch was drawn; its buffers are still bound. */
+WXL_EVENT(OnM2BatchDraw,       14, M2BatchDrawArgs)
+/** An M2 batch's alpha-test reference was chosen from its blend mode. */
+WXL_EVENT(OnM2SetupBatchAlpha, 15, M2SetupBatchAlphaArgs)
+/** A ribbon emitter is about to draw. */
+WXL_EVENT(OnRibbonDraw,        16, RibbonDrawArgs)
+/** A window message arrived; a handler may swallow it. */
+WXL_EVENT(OnInput,             17, InputArgs)
+/** A mouse click resolved to a point or an object in the world. */
+WXL_EVENT(OnWorldClick,        18, WorldClickArgs)
+/** An ADT map chunk is being built. */
+WXL_EVENT(OnAdtChunkBuild,     19, AdtChunkArgs)
+/** A split ADT tile finished loading its root, _tex0 and _obj0 files. */
+WXL_EVENT(OnAdtSplitTileLoad,  20, AdtSplitTileLoadArgs)
+/** A WMO root buffer is read, before the native chunk walk. */
+WXL_EVENT(OnWmoRootLoad,       21, WmoRootLoadArgs)
+/** A WMO group buffer is read, before the native sub-chunk walk. */
+WXL_EVENT(OnWmoGroupLoad,      22, WmoGroupLoadArgs)
+/** A texture is about to upload to the device. */
+WXL_EVENT(OnTextureUpload,     23, TextureUploadArgs)
+/** A BLP texture was requested by name; fires on every reference, cached or not. */
+WXL_EVENT(OnBlpLoad,           24, BlpLoadArgs)
+/** A server object create/update batch was parsed. */
+WXL_EVENT(OnObjectUpdate,      25, ObjectUpdateArgs)
+/** An object is about to despawn; it is still resident. */
+WXL_EVENT(OnObjectDestroy,     26, ObjectDestroyArgs)
+/** The target-set API applied a new target. */
+WXL_EVENT(OnTargetChanged,     27, TargetChangedArgs)
+/** A UI or world sound is about to play. */
+WXL_EVENT(OnSoundPlay,         28, SoundPlayArgs)
+/** A placed map doodad was built. */
+WXL_EVENT(OnDoodadSpawn,       29, DoodadSpawnArgs)
+/** A character model slot received an item. */
+WXL_EVENT(OnItemSlotChange,    30, ItemSlotChangeArgs)
+/** A character model equipment slot was cleared. */
+WXL_EVENT(OnItemSlotClear,     31, ItemSlotClearArgs)
+/** The world finished loading; the player is in-world. */
+WXL_EVENT(OnWorldEnter,        32, WorldEnterArgs)
+/** The world is being torn down; the map being left is still loaded. */
+WXL_EVENT(OnWorldLeave,        33, WorldLeaveArgs)
+/** The grass-wind integrator advanced this frame; only while grass draws. */
+WXL_EVENT(OnGrassWind,         34, GrassWindArgs)
+/** A stock terrain pixel-shader permutation was patched for height blending; once per permutation. */
+WXL_EVENT(OnAdtHeightBlend,    35, AdtHeightBlendArgs)
+/** The native reader direct-filled a modern MD21 model. */
+WXL_EVENT(OnM2NativeLoad,      36, M2NativeLoadArgs)

@@ -37,33 +37,17 @@ namespace
 
 namespace wxl::events
 {
-    /**
-     * @brief Appends a handler to an event's subscriber list.
-     * @param e        event to subscribe to.
-     * @param handler  function pointer invoked on Emit.
-     * @param user     opaque pointer passed back to the handler.
-     */
     void Subscribe(Event e, Handler handler, void* user)
     {
         if (e < Event::Count) Bucket(e).push_back({ handler, user });
     }
 
-    /**
-     * @brief Invokes every subscriber of an event in subscription order.
-     * @param e     event to publish.
-     * @param args  typed args struct for the event, passed by const pointer.
-     */
-    void Emit(Event e, const void* args)
+    void EmitRaw(Event e, const void* args)
     {
         if (e >= Event::Count) return;
         for (const Sub& s : Bucket(e)) s.fn(s.user, args);
     }
 
-    /**
-     * @brief Reports whether an event has at least one subscriber.
-     * @param e  event to test.
-     * @return true when Emit(e, ...) would invoke at least one handler.
-     */
     bool Any(Event e)
     {
         return e < Event::Count && !Bucket(e).empty();

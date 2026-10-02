@@ -92,6 +92,16 @@
 #define WXL_PRAGMA(x) _Pragma(#x)
 #endif
 
+// --- Deprecation ----------------------------------------------------------------------------------
+// WXL_DEPRECATED("use X") on a declaration: every compiler prints the message at each use.
+#if defined(__cplusplus) && __cplusplus >= 201402L
+#define WXL_DEPRECATED(msg) [[deprecated(msg)]]
+#elif WXL_MSVC_FRONTEND
+#define WXL_DEPRECATED(msg) __declspec(deprecated(msg))
+#else
+#define WXL_DEPRECATED(msg) __attribute__((deprecated(msg)))
+#endif
+
 // --- Linkage --------------------------------------------------------------------------------------
 // Every Windows compiler understands __declspec(dllexport); mingw maps it to the GNU attribute.
 #define WXL_EXPORT __declspec(dllexport)

@@ -63,7 +63,7 @@ namespace
     long __stdcall hkEndScene(void* dev)
     {
         ev::EndSceneArgs a{ dev };
-        ev::Emit(ev::Event::OnEndScene, &a);
+        ev::Emit<ev::Event::OnEndScene>(a);
         return g_origEndScene(dev);
     }
 
@@ -79,7 +79,7 @@ namespace
     long __stdcall hkPresent(void* dev, const void* src, const void* dst, void* wnd, const void* dirty)
     {
         ev::FrameArgs a{ dev };
-        ev::Emit(ev::Event::OnFrame, &a);
+        ev::Emit<ev::Event::OnFrame>(a);
         return g_origPresent(dev, src, dst, wnd, dirty);
     }
 
@@ -98,7 +98,7 @@ namespace
         const off::LiquidPassEntry& entry = static_cast<off::LiquidPassEntry*>(bank)[passType];
 
         ev::LiquidRenderArgs a{ bank, transform, passType, entry.count };
-        ev::Emit(ev::Event::OnLiquidRender, &a);
+        ev::Emit<ev::Event::OnLiquidRender>(a);
 
         g_origLiquidRender(bank, edx, transform, passType);
     }
@@ -129,7 +129,7 @@ namespace
         if (ev::Any(ev::Event::OnWorldSceneEnd))
         {
             ev::WorldSceneEndArgs a{ gx::RawDevice(), sceneDepth };
-            ev::Emit(ev::Event::OnWorldSceneEnd, &a);
+            ev::Emit<ev::Event::OnWorldSceneEnd>(a);
         }
 
         if (sceneDepth) sceneDepth->Release();
@@ -149,7 +149,7 @@ namespace
         g_origWorldFinalize(worldFrame);
 
         ev::WorldRenderEndArgs a{ gx::RawDevice() };
-        ev::Emit(ev::Event::OnWorldRenderEnd, &a);
+        ev::Emit<ev::Event::OnWorldRenderEnd>(a);
     }
 
     /**
@@ -192,13 +192,13 @@ namespace
         ev::DeviceResetArgs a{ dev, params };
         // Subscribers using engine-owned color/depth surfaces must retire their GPU work and release their
         // DEFAULT-pool resources before the native Reset, or the Reset fails and the device is lost.
-        ev::Emit(ev::Event::OnDeviceLost, &a);
+        ev::Emit<ev::Event::OnDeviceLost>(a);
         gx::ReleaseResetResources();  // free any tracked engine render targets (DEFAULT pool)
 
         const long r = g_origReset(dev, params);
         if (SUCCEEDED(r))
         {
-            ev::Emit(ev::Event::OnDeviceReset, &a);
+            ev::Emit<ev::Event::OnDeviceReset>(a);
             if (logThis) WLOG_INFO("render: Reset ok");
         }
         else

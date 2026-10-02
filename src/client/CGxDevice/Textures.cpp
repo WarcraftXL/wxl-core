@@ -86,7 +86,7 @@ namespace
         ev::TextureUploadArgs a{
             tex, static_cast<uint32_t>(x2 - x), static_cast<uint32_t>(y2 - y)
         };
-        ev::Emit(ev::Event::OnTextureUpload, &a);
+        ev::Emit<ev::Event::OnTextureUpload>(a);
         const uint64_t started = aprof::Now();
         const bool completed = SafeTextureUpdate(tex, x, y, x2, y2, flag);
         if (!completed)
@@ -124,7 +124,7 @@ namespace
         if (started) aprof::Record(aprof::Phase::TextureRequest, aprof::Now() - started);
 
         ev::BlpLoadArgs a{ name, handle };
-        ev::Emit(ev::Event::OnBlpLoad, &a);
+        ev::Emit<ev::Event::OnBlpLoad>(a);
 
         return handle;
     }

@@ -18,7 +18,7 @@
 
 #include "wxl/PluginApi.h"
 
-#include "engine/events/Event.hpp"
+#include "wxl/Events.hpp"
 
 /// An extension subclasses EventScript and, in its constructor, binds member functions to events
 /// with on<&Self::method>(Event::X). The bind is a non-capturing trampoline, so the event bus keeps

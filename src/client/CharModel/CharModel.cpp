@@ -49,7 +49,7 @@ namespace
         // then subscribers receive the event with the slot already in its post-dispatch state.
         g_origSlotDispatch(cmo, edx, modelSlot, itemDataPtr, postFlag);
         ev::ItemSlotChangeArgs a{ cmo, modelSlot, itemDataPtr };
-        ev::Emit(ev::Event::OnItemSlotChange, &a);
+        ev::Emit<ev::Event::OnItemSlotChange>(a);
     }
 
     /**
@@ -64,7 +64,7 @@ namespace
     void __fastcall hkSlotClear(void* cmo, void* edx, uint32_t equipSlotWow)
     {
         ev::ItemSlotClearArgs a{ cmo, equipSlotWow };
-        ev::Emit(ev::Event::OnItemSlotClear, &a);
+        ev::Emit<ev::Event::OnItemSlotClear>(a);
         g_origSlotClear(cmo, edx, equipSlotWow);
     }
 

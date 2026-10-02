@@ -47,11 +47,11 @@ namespace
     {
         const auto mapId = static_cast<uint32_t>(*reinterpret_cast<int32_t*>(wld::kCurrentMapId));
         ev::WorldLeaveArgs leave{ mapId }; // old world still loaded: id is the one being left
-        ev::Emit(ev::Event::OnWorldLeave, &leave);
+        ev::Emit<ev::Event::OnWorldLeave>(leave);
         g_origWorldEnter(worldTime, withLoadingScreen);
         const auto entered = static_cast<uint32_t>(*reinterpret_cast<int32_t*>(wld::kCurrentMapId));
         ev::WorldEnterArgs enter{ entered };
-        ev::Emit(ev::Event::OnWorldEnter, &enter);
+        ev::Emit<ev::Event::OnWorldEnter>(enter);
     }
 
     /**
@@ -66,7 +66,7 @@ namespace
     {
         g_origFramePump(deltaSeconds, frameTimeMs);
         ev::UpdateArgs a{ deltaSeconds, frameTimeMs };
-        ev::Emit(ev::Event::OnUpdate, &a);
+        ev::Emit<ev::Event::OnUpdate>(a);
         aprof::RecordFrame(a.dt);
     }
 

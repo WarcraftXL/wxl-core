@@ -38,7 +38,7 @@ namespace
     {
         void* doodad = g_origDoodadSpawn(modelName, mddf, tileOrigin);
         ev::DoodadSpawnArgs a{ doodad };
-        ev::Emit(ev::Event::OnDoodadSpawn, &a);
+        ev::Emit<ev::Event::OnDoodadSpawn>(a);
         return doodad;
     }
 

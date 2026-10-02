@@ -45,7 +45,7 @@ namespace
         const int r = g_origObjUpdate(ctx, opcode, msg, packet);
 
         ev::ObjectUpdateArgs a{ packet, opcode };
-        ev::Emit(ev::Event::OnObjectUpdate, &a);
+        ev::Emit<ev::Event::OnObjectUpdate>(a);
 
         static bool logged = false;
         if (!logged) { logged = true; WLOG_INFO("object: update stream active"); }
@@ -65,7 +65,7 @@ namespace
     int __cdecl hkObjDestroy(void* ctx, int opcode, int msg, void* packet)
     {
         ev::ObjectDestroyArgs a{ packet, opcode };
-        ev::Emit(ev::Event::OnObjectDestroy, &a);
+        ev::Emit<ev::Event::OnObjectDestroy>(a);
 
         static bool logged = false;
         if (!logged) { logged = true; WLOG_INFO("object: destroy hook active"); }
@@ -82,7 +82,7 @@ namespace
         const int r = g_origTargetSet(scriptState);
 
         ev::TargetChangedArgs a{ scriptState };
-        ev::Emit(ev::Event::OnTargetChanged, &a);
+        ev::Emit<ev::Event::OnTargetChanged>(a);
 
         // Log the first fire only: target changes are a per-combat-action event.
         static bool logged = false;

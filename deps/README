@@ -1,12 +1,7 @@
-Vendored third-party dependencies (self-contained).
+Vendored third-party dependencies, built with the project (deps/CMakeLists.txt).
 
-Contents:
-  stormlib/     - MPQ archive access. Used by: host (MpqStore). Built via add_subdirectory.
-  flatbuffers/  - FlexBuffers payloads for the IPC contract. Used by: host + DLL (ipc/).
-                  Header-only for our use plus src/util.cpp compiled into the host.
-  minhook/      - inline detour engine. Used by: DLL only (core/Hook). Wired with the DLL target.
-  imgui/        - Dear ImGui v1.91.9b. Used by: DLL only (engine/ui), the in-game tuning panels.
-                  Core + the DX9 and Win32 backends only; the demo window is not vendored. Sources
-                  are listed explicitly in CMakeLists (WXL_IMGUI), not globbed.
+  minhook/   inline detour engine (BSD-2-Clause). Static library linked into WarcraftXL.dll.
+  imgui/     Dear ImGui v1.91.9b (MIT): the core plus the DX9 and Win32 backends, compiled into
+             WarcraftXL.dll for the overlay. The demo window is not vendored.
 
-These are the only external dependencies.
+Nothing else is external: the client, the patcher and the proxy link the system libraries only.

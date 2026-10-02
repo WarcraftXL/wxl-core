@@ -1,7 +1,0 @@
-{
-   "cmake.configureArgs": [
-       "-DCMAKE_BUILD_TYPE=Debug",
-       "-DSTORM_BUILD_TESTS=on",
-   ]
- }
- 

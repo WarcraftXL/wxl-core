@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "engine/events/Event.hpp"
+#include "wxl/Events.hpp"
 
 /**
  * @brief Opts a multi-layer ribbon into the single-pass texture combine at draw.

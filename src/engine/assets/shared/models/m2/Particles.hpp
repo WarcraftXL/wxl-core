@@ -16,8 +16,8 @@
 
 #pragma once
 
+#include "wxl/Events.hpp"
 #include "wxl/formats/M2Format.hpp"
-#include "engine/events/Event.hpp"
 
 /**
  * @brief Scopes the alpha-key cutoff a source-authored batch expects, at draw time.

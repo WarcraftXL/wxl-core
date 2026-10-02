@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "engine/assets/shared/models/m2/M2Format.hpp"
+#include "wxl/formats/M2Format.hpp"
 #include "engine/events/Event.hpp"
 
 /**

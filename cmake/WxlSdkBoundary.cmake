@@ -11,7 +11,7 @@ file(GLOB_RECURSE WXL_BOUNDARY_SCAN CONFIGURE_DEPENDS
 
 set(WXL_BOUNDARY_VIOLATIONS "")
 foreach(wxl_file IN LISTS WXL_BOUNDARY_SCAN)
-    file(STRINGS "${wxl_file}" wxl_hit REGEX "^[ \t]*#include[ \t]+\"offsets/")
+    file(STRINGS "${wxl_file}" wxl_hit REGEX "^[ \t]*#include[ \t]+\"(wxl/)?offsets/")
     if(wxl_hit)
         file(RELATIVE_PATH wxl_rel "${CMAKE_SOURCE_DIR}" "${wxl_file}")
         list(APPEND WXL_BOUNDARY_VIOLATIONS "${wxl_rel}")

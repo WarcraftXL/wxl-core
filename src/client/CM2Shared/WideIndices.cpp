@@ -28,15 +28,15 @@
 // level can make the fill read outside the array it is reading from.
 
 #include "common/Log.hpp"
-#include "engine/assets/shared/models/m2/M2Format.hpp"
+#include "wxl/formats/M2Format.hpp"
 #include "engine/hook/Hook.hpp"
 #include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
-#include "game/Binding.hpp"
-#include "game/Gx.hpp"
-#include "game/M2.hpp"
-#include "offsets/engine/Gx.hpp"
-#include "offsets/game/M2.hpp"
+#include "wxl/game/Binding.hpp"
+#include "wxl/game/Gx.hpp"
+#include "wxl/game/M2.hpp"
+#include "wxl/offsets/engine/Gx.hpp"
+#include "wxl/offsets/game/M2.hpp"
 
 #include <cstring>
 

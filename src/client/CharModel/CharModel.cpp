@@ -19,7 +19,7 @@
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 
-#include "offsets/game/M2.hpp"
+#include "wxl/offsets/game/M2.hpp"
 
 #include <cstdint>
 

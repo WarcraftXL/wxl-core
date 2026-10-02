@@ -21,7 +21,7 @@
 #include "engine/diag/AssetProfile.hpp"
 
 #include "common/Log.hpp"
-#include "offsets/engine/Gx.hpp"
+#include "wxl/offsets/engine/Gx.hpp"
 
 #include <windows.h>
 

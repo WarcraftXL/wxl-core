@@ -19,8 +19,8 @@
 #include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 
-#include "offsets/engine/Gx.hpp"
-#include "offsets/game/World.hpp"
+#include "wxl/offsets/engine/Gx.hpp"
+#include "wxl/offsets/game/World.hpp"
 
 #include <windows.h>
 

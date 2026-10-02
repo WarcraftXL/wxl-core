@@ -1,4 +1,4 @@
-// Engine initialisation as a detourable point.
+// Forwarding header: the bindings live in include/wxl/game.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,23 +16,9 @@
 
 #pragma once
 
-#include "offsets/engine/Boot.hpp"
+#include "wxl/Common.h"
+#include "wxl/game/Boot.hpp"
 
-/**
- * @brief The engine's initialisation routine, exposed as a detour target.
- *
- * It runs once, on the main thread, and brings up the background file reader before the texture
- * subsystem. Detouring its entry is how anything gets in ahead of either -- including the core's own
- * extension loading, which needs a point that is outside the loader lock and still early enough to
- * precede both.
- */
-namespace wxl::game::boot
-{
-    namespace off = wxl::offsets::engine::boot;
-
-    /// Entry of the engine initialisation routine.
-    constexpr uintptr_t kEngineInit = off::kEngineInit;
-
-    /// Its signature, for a detour and the matching trampoline.
-    using EngineInitFn = off::EngineInitFn;
-}
+#if defined(WXL_EXTENSION)
+WXL_PRAGMA(message("src/game/Boot.hpp moved: include wxl/game/Boot.hpp"))
+#endif

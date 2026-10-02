@@ -1,4 +1,4 @@
-// unit bindings: model access and reaction.
+// Forwarding header: the bindings live in include/wxl/game.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,48 +16,9 @@
 
 #pragma once
 
-#include <cstdint>
+#include "wxl/Common.h"
+#include "wxl/game/Unit.hpp"
 
-#include "game/Binding.hpp"
-#include "offsets/game/Unit.hpp"
-
-/**
- * @brief Typed accessors for unit model fields and the reaction call.
- */
-namespace wxl::game::unit
-{
-    namespace off = wxl::offsets::game::unit;
-
-    /**
-     * @brief Reads the unit's body model.
-     * @param unit  Unit object.
-     * @return The body model, or null.
-     */
-    inline void* Model(void* unit)
-    { return unit ? static_cast<off::UnitObject*>(unit)->model : nullptr; }
-
-    /**
-     * @brief Reads a model's parent in the attachment chain.
-     * @param model  Model object.
-     * @return The parent model, or null at the root.
-     */
-    inline void* ModelParent(void* model)
-    { return model ? static_cast<off::ModelObject*>(model)->parent : nullptr; }
-
-    /**
-     * @brief Reads the unit's owned CharacterComponent (the CMO the equip/attach pipeline operates on).
-     * @param unit  Unit object.
-     * @return The CharacterComponent, or null (non-humanoid unit, or none built yet).
-     */
-    inline void* CharacterComponent(void* unit)
-    { return unit ? static_cast<off::UnitObject*>(unit)->characterComponent : nullptr; }
-
-    /**
-     * @brief Reads the reaction of self toward other.
-     * @param self   Observing unit.
-     * @param other  Observed unit.
-     * @return Reaction level: 0..1 hostile, 2..3 neutral, 4+ friendly.
-     */
-    inline int Reaction(void* self, void* other)
-    { return Native<off::ReactionFn>(off::kUnitReaction)(self, nullptr, other); }
-}
+#if defined(WXL_EXTENSION)
+WXL_PRAGMA(message("src/game/Unit.hpp moved: include wxl/game/Unit.hpp"))
+#endif

@@ -23,7 +23,7 @@
 #include "runtime/HookPoints.hpp"
 #include "common/Log.hpp"
 #include "common/Mem.hpp"
-#include "offsets/engine/Io.hpp"
+#include "wxl/offsets/engine/Io.hpp"
 
 #include <windows.h>
 #include <cctype>

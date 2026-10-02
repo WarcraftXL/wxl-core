@@ -14,10 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "game/Gfx.hpp"
+#include "wxl/game/Gfx.hpp"
 
-#include "game/Camera.hpp"
-#include "game/Pick.hpp"
+#include "wxl/game/Camera.hpp"
+#include "wxl/game/Pick.hpp"
 
 #include <cmath>
 #include <vector>

@@ -18,7 +18,7 @@
 #include "engine/events/Event.hpp"
 
 #include "common/Log.hpp"
-#include "game/Pick.hpp"
+#include "wxl/game/Pick.hpp"
 
 #include <windows.h>
 

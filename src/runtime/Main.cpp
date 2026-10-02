@@ -22,7 +22,7 @@
 #include "engine/hook/Registry.hpp"
 #include "engine/storage/StorageHook.hpp"
 #include "common/Log.hpp"
-#include "game/Gx.hpp"
+#include "wxl/game/Gx.hpp"
 #include "runtime/Extensions.hpp"
 
 /**

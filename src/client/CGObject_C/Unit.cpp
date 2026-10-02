@@ -20,7 +20,7 @@
 #include "engine/events/Event.hpp"
 
 #include "common/Log.hpp"
-#include "offsets/game/Unit.hpp"
+#include "wxl/offsets/game/Unit.hpp"
 
 namespace
 {

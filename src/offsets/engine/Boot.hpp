@@ -1,4 +1,4 @@
-// The engine's one-shot initialisation routine.
+// Forwarding header: the offsets live in include/wxl/offsets.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,18 +16,9 @@
 
 #pragma once
 
-#include <cstdint>
+#include "wxl/Common.h"
+#include "wxl/offsets/engine/Boot.hpp"
 
-// INTERNAL to the core. Modules never include this; they use wxl::game / wxl::events.
-namespace wxl::offsets::engine::boot
-{
-    // Engine initialisation, run once from the client's own startup: it brings up the background
-    // file reader and then the texture subsystem, in that order, along with the rest of the engine.
-    // Reached indirectly, so it has no call site of its own.
-    //
-    // Its entry is the earliest point that is both on the main thread and outside the loader lock,
-    // which is what makes it the place to load anything that must precede the reader queues or the
-    // texture scratch sizing.
-    constexpr uintptr_t kEngineInit = 0x004047E0;
-    using EngineInitFn = uint32_t(__cdecl*)();
-}
+#if defined(WXL_EXTENSION)
+WXL_PRAGMA(message("src/offsets/engine/Boot.hpp moved: include wxl/offsets/engine/Boot.hpp"))
+#endif

@@ -1,4 +1,4 @@
-// ui bindings: show / hide the entire game interface (single engine flag).
+// Forwarding header: the bindings live in include/wxl/game.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,39 +16,9 @@
 
 #pragma once
 
-#include <cstdint>
+#include "wxl/Common.h"
+#include "wxl/game/Ui.hpp"
 
-#include "game/Binding.hpp"
-#include "offsets/engine/Ui.hpp"
-
-/**
- * @brief Toggles the interface layer via a single render-enable flag while the 3D world keeps drawing.
- *
- * Restore the interface to shown before anything that expects it, such as a reload.
- */
-namespace wxl::game::ui
-{
-    namespace off = wxl::offsets::engine::ui;
-
-    /**
-     * @brief Reads the interface render-enable flag pointer.
-     * @return The flag pointer, or null before the interface root exists.
-     */
-    inline int* Flag()
-    {
-        // kUiRootPtr is a fixed-address global slot; the deref reads the live root object pointer.
-        void* root = *reinterpret_cast<void**>(off::kUiRootPtr);
-        return root ? &static_cast<off::UiRoot*>(root)->enabled : nullptr;
-    }
-
-    /**
-     * @brief Reports whether the interface is shown.
-     * @return True when shown, including before the root exists.
-     */
-    inline bool IsShown()      { int* f = Flag(); return f ? (*f != 0) : true; }
-    /**
-     * @brief Shows or hides the interface.
-     * @param on  True to show, false to hide.
-     */
-    inline void Show(bool on)  { int* f = Flag(); if (f) *f = on ? 1 : 0; }
-}
+#if defined(WXL_EXTENSION)
+WXL_PRAGMA(message("src/game/Ui.hpp moved: include wxl/game/Ui.hpp"))
+#endif

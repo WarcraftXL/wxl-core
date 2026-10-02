@@ -1,4 +1,4 @@
-// Game binding pattern: typed native calls + an enumerable catalog of curated client functions.
+// Forwarding header: the bindings live in include/wxl/game.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,20 +16,9 @@
 
 #pragma once
 
-#include <cstdint>
+#include "wxl/Common.h"
+#include "wxl/game/Binding.hpp"
 
-/**
- * @brief Exposes a client function as a typed call via a plain function-pointer cast.
- *
- * The call is a zero-overhead pointer cast (no vtable, no std::function), safe in any path.
- */
-namespace wxl::game
-{
-    /**
-     * @brief Returns a client address as a typed function pointer.
-     * @param address  the client address to cast.
-     * @return the address typed as Fn, for use at a call site: Native<Fn>(addr)(args...).
-     */
-    template <class Fn>
-    inline Fn Native(uintptr_t address) { return reinterpret_cast<Fn>(address); }
-}
+#if defined(WXL_EXTENSION)
+WXL_PRAGMA(message("src/game/Binding.hpp moved: include wxl/game/Binding.hpp"))
+#endif

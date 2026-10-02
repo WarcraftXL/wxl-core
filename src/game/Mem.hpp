@@ -1,4 +1,4 @@
-// MEM game bindings: typed inline wrappers over the engine's heap allocator and free.
+// Forwarding header: the bindings live in include/wxl/game.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,42 +16,9 @@
 
 #pragma once
 
-#include <cstdint>
+#include "wxl/Common.h"
+#include "wxl/game/Mem.hpp"
 
-#include "game/Binding.hpp"
-#include "offsets/engine/Mem.hpp"
-
-/**
- * @brief Typed inline wrappers over the engine heap allocator and free, exposed as the MEM binding catalog.
- *
- * Blocks allocated here are freed by the engine itself, and blocks the engine allocates can be freed here.
- */
-namespace wxl::game::mem
-{
-    namespace off = wxl::offsets::engine::mem;
-
-    /**
-     * @brief Allocates a block from the engine heap. Size is rounded up internally.
-     * @param size   Requested byte count.
-     * @param file   Caller file tag.
-     * @param line   Caller line tag.
-     * @param flags  Allocation flags.
-     * @return The allocated block, or null on failure.
-     */
-    inline void* Alloc(uint32_t size, const char* file = "wxl", int line = 0, uint32_t flags = 0)
-    {
-        return Native<off::Mem_AllocFn>(off::kAlloc)(size, file, line, flags);
-    }
-
-    /**
-     * @brief Frees a block obtained from the engine heap.
-     * @param ptr    Block to free.
-     * @param file   Caller file tag.
-     * @param line   Caller line tag.
-     * @param flags  Free flags.
-     */
-    inline void Free(void* ptr, const char* file = "wxl", int line = 0, uint32_t flags = 0)
-    {
-        Native<off::Mem_FreeFn>(off::kFree)(ptr, file, line, flags);
-    }
-}
+#if defined(WXL_EXTENSION)
+WXL_PRAGMA(message("src/game/Mem.hpp moved: include wxl/game/Mem.hpp"))
+#endif

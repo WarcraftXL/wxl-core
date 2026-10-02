@@ -17,7 +17,7 @@
 #include "common/Log.hpp"
 #include "common/Mem.hpp"
 #include "engine/hook/Registry.hpp"
-#include "offsets/engine/Gx.hpp"
+#include "wxl/offsets/engine/Gx.hpp"
 
 #include <cstdint>
 

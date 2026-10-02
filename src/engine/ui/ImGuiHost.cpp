@@ -30,7 +30,7 @@
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 #include "engine/ui/ImGuiHost.hpp"
-#include "game/Gx.hpp"
+#include "wxl/game/Gx.hpp"
 
 #include "common/Log.hpp"
 

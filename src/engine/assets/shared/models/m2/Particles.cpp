@@ -16,7 +16,7 @@
 
 #include "Particles.hpp"
 
-#include "game/M2.hpp" // PushAlphaRef: live-engine, DLL-only draw path
+#include "wxl/game/M2.hpp" // PushAlphaRef: live-engine, DLL-only draw path
 
 namespace wxl::modern::assets::m2::particles
 {

@@ -20,7 +20,7 @@
 #include "engine/events/Event.hpp"
 
 #include "common/Log.hpp"
-#include "offsets/engine/Sound.hpp"
+#include "wxl/offsets/engine/Sound.hpp"
 
 #include <cstdint>
 #include <unordered_set>

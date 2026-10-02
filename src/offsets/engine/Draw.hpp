@@ -1,4 +1,4 @@
-// Terrain per-chunk draw entry addresses, their signatures, and draw-node field offsets.
+// Forwarding header: the offsets live in include/wxl/offsets.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,27 +16,9 @@
 
 #pragma once
 
-#include <cstdint>
-#include <cstddef>
+#include "wxl/Common.h"
+#include "wxl/offsets/engine/Draw.hpp"
 
-// INTERNAL to the core. Terrain per-chunk draw entries and the variants the live render-state
-// selector dispatches to.
-namespace wxl::offsets::engine::draw
-{
-    // Candidate per-chunk terrain draw entries, each taking the render node. The first two take the
-    // node in the this-register; the last two take it on the stack. Used to discover which variant the
-    // live render-state selector dispatches to.
-    constexpr uintptr_t kTerrainDrawV1 = 0x007D28B0; // node in this-register
-    constexpr uintptr_t kTerrainDrawV2 = 0x007D2D70; // node in this-register
-    constexpr uintptr_t kTerrainDrawV3 = 0x007D1AD0; // node on stack
-    constexpr uintptr_t kTerrainDrawV4 = 0x007D2520; // node on stack
-
-    // Render-node field: layer count (the draw-loop bound).
-    constexpr size_t kOffNodeLayerCount = 0x09;
-
-    // Node-in-this-register draw variant: native this-in-ECX; declared with a dummy second parameter
-    // so the trampoline routes the node into the this-register.
-    using Terrain_DrawNodeRegFn = void(__fastcall*)(void* node, void* edx);
-    // Node-on-stack draw variant.
-    using Terrain_DrawNodeStackFn = void(__cdecl*)(void* node);
-}
+#if defined(WXL_EXTENSION)
+WXL_PRAGMA(message("src/offsets/engine/Draw.hpp moved: include wxl/offsets/engine/Draw.hpp"))
+#endif

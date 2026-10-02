@@ -22,9 +22,9 @@
 
 #include "common/Log.hpp"
 #include "common/Mem.hpp"
-#include "offsets/engine/Frame.hpp"
-#include "offsets/game/ADT.hpp"
-#include "offsets/game/World.hpp"
+#include "wxl/offsets/engine/Frame.hpp"
+#include "wxl/offsets/game/ADT.hpp"
+#include "wxl/offsets/game/World.hpp"
 
 #include <cstdint>
 

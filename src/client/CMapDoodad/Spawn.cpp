@@ -19,7 +19,7 @@
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 
-#include "offsets/game/Doodad.hpp"
+#include "wxl/offsets/game/Doodad.hpp"
 
 namespace
 {

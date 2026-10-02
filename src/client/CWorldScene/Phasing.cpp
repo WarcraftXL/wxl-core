@@ -20,10 +20,10 @@
 
 #include "common/Log.hpp"
 #include "engine/assets/shared/common/Chunk.hpp"
-#include "game/Loading.hpp"
-#include "offsets/engine/Io.hpp"
-#include "offsets/game/ADT.hpp"
-#include "offsets/game/World.hpp"
+#include "wxl/game/Loading.hpp"
+#include "wxl/offsets/engine/Io.hpp"
+#include "wxl/offsets/game/ADT.hpp"
+#include "wxl/offsets/game/World.hpp"
 
 #include <cstdint>
 #include <cstdio>

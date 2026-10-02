@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "game/Gx.hpp"
+#include "wxl/game/Gx.hpp"
 
 #include <d3d9.h>
 #include <d3dcompiler.h>

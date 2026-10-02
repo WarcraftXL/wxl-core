@@ -39,7 +39,7 @@
 #include "engine/hook/Hook.hpp"
 #include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
-#include "offsets/game/M2.hpp"
+#include "wxl/offsets/game/M2.hpp"
 
 #include <cmath>
 #include <cstdint>

@@ -1,4 +1,4 @@
-// Per-frame pump entry and the frame-timing globals it refreshes.
+// Forwarding header: the offsets live in include/wxl/offsets.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,23 +16,9 @@
 
 #pragma once
 
-#include <cstdint>
+#include "wxl/Common.h"
+#include "wxl/offsets/engine/Frame.hpp"
 
-// INTERNAL to the core. The master per-frame pump and the timing globals it updates each frame.
-namespace wxl::offsets::engine::frame
-{
-    // Frame-time tick: the one writer of the frame delta and the frame timestamp, which it receives
-    // as arguments. Everything in the client that asks "how long was the last frame" reads what this
-    // stores, so it runs exactly once per frame by construction -- a second call would corrupt the
-    // client's own timing before it corrupted ours. That makes it the OnUpdate anchor.
-    //
-    // __cdecl, two stack args, verified at the prologue ([ebp+8] float, [ebp+0xc] int) and at the
-    // bare `ret` that ends it.
-    constexpr uintptr_t kFramePump = 0x0077ECB0;
-    using FramePumpFn = void(__cdecl*)(float deltaSeconds, uint32_t frameTimeMs);
-
-    // The two globals it stores into, kept because a great deal of the client reads them and they
-    // are the only place a late caller can recover the current frame's timing from.
-    constexpr uintptr_t kDeltaSeconds = 0x00CD76A0; // float
-    constexpr uintptr_t kFrameTimeMs  = 0x00CD76AC; // u32
-}
+#if defined(WXL_EXTENSION)
+WXL_PRAGMA(message("src/offsets/engine/Frame.hpp moved: include wxl/offsets/engine/Frame.hpp"))
+#endif

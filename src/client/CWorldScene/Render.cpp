@@ -20,8 +20,8 @@
 #include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
-#include "game/Gx.hpp"
-#include "offsets/engine/Gx.hpp"
+#include "wxl/game/Gx.hpp"
+#include "wxl/offsets/engine/Gx.hpp"
 
 #include <windows.h>
 #include <d3d9.h>

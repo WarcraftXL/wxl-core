@@ -22,7 +22,7 @@
 #include "engine/events/Event.hpp"
 #include "engine/hook/Hook.hpp"
 #include "engine/ui/ImGuiHost.hpp"
-#include "game/Boot.hpp"
+#include "wxl/game/Boot.hpp"
 #include "runtime/HookPoints.hpp"
 
 #include <windows.h>

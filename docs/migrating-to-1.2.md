@@ -83,3 +83,17 @@ Steps:
    pointer by `wxl::ScriptMgr::Api()`. `ScriptMgr::GetInterface<T>(name, version)` looks a service up.
 
 A script receives every hook of its type; an empty default costs one virtual call per event.
+
+## The SDK lives under `include/wxl/`
+
+The bindings (`src/game/*.hpp`), the offsets (`src/offsets/`) and the M2 format contract moved:
+
+| Before | After |
+|---|---|
+| `#include "game/Unit.hpp"` | `#include "wxl/game/Unit.hpp"` |
+| `#include "offsets/game/Unit.hpp"` | `#include "wxl/offsets/game/Unit.hpp"` (the boundary rule still applies: an extension reads offsets through the bindings) |
+| `#include "engine/assets/shared/models/m2/M2Format.hpp"` | `#include "wxl/formats/M2Format.hpp"` |
+
+The old paths still compile through forwarding headers that print the new path. Namespaces are
+unchanged (`wxl::game::unit`, `wxl::offsets::game::unit`, `wxl::structure::m2`). An extension that
+includes nothing else from `src/` can drop `src` from its include paths.

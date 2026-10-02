@@ -1,4 +1,4 @@
-// The glue screens' model frame: its 3D render slot, and its script methods.
+// Forwarding header: the bindings live in include/wxl/game.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,77 +16,9 @@
 
 #pragma once
 
-#include <cstdint>
+#include "wxl/Common.h"
+#include "wxl/game/Glue.hpp"
 
-#include "game/Binding.hpp"
-#include "offsets/engine/Gx.hpp"
-#include "offsets/engine/Lua.hpp"
-
-/**
- * @brief The model frame the login and character-select screens are built on.
- *
- * The engine has no single "3D is done" point: it defers every 3D render into a per-frame-object
- * callback, and this frame type owns the one the glue screens use. That callback is also where a
- * different scene can be put in a frame's place.
- *
- * The frame type carries script methods -- SetModel is the one the stock glue Lua calls -- and new
- * ones can be added alongside, which is how a screen says what it should show rather than a file
- * beside the binary saying it on the screen's behalf.
- */
-namespace wxl::game::glue
-{
-    namespace off  = wxl::offsets::engine::gx;
-    namespace loff = wxl::offsets::engine::lua;
-
-    /// Entry of the glue screens' 3D render callback.
-    constexpr uintptr_t kModelRender = off::kSimpleModelFFXRender;
-
-    /// Its signature, for a detour and the matching trampoline.
-    using ModelRenderFn = off::GlueModelRenderFn;
-
-    /// Entry that registers the frame type's script methods, and the place to add more.
-    constexpr uintptr_t kRegisterMethods = off::kSimpleModelRegisterMethods;
-
-    /// Its signature, for a detour and the matching trampoline.
-    using RegisterMethodsFn = off::RegisterScriptMethodsFn;
-
-    /// A script method: the name Lua calls, and the function it reaches.
-    using Method = loff::ScriptMethod;
-
-    /// A script method's own signature.
-    using MethodFn = loff::LuaCFunction;
-
-    /**
-     * @brief Adds script methods to the frame type.
-     * @param target   The registration target handed to a RegisterMethods callback.
-     * @param methods  Methods to add, living for the process lifetime.
-     * @param count    How many.
-     *
-     * Only meaningful from inside such a callback, after the original has run: the target is a
-     * metatable under construction and exists nowhere else.
-     */
-    inline void AddMethods(void* target, const Method* methods, int count)
-    { Native<loff::FillScriptMethodTableFn>(loff::kFillScriptMethodTable)(target, methods, count); }
-
-    /**
-     * @brief Reads the frame a script method was invoked on.
-     * @return The frame, or null when called outside a script method.
-     *
-     * This is the same pointer the 3D render callback receives, so what a method records about a frame
-     * can be looked up when that frame draws.
-     *
-     * The frame type's script type id is claimed lazily by whichever of its methods runs first. An
-     * added method may be that one, so it claims the id exactly as the stock methods do -- into the
-     * type's own slot, from the shared counter.
-     */
-    inline void* MethodSelf()
-    {
-        int* typeId = reinterpret_cast<int*>(off::kSimpleModelTypeId);
-        if (*typeId == 0)
-        {
-            int* counter = reinterpret_cast<int*>(loff::kObjectTypeCounter);
-            *typeId = ++(*counter);
-        }
-        return Native<loff::GetObjectThisFn>(loff::kGetObjectThis)(*typeId);
-    }
-}
+#if defined(WXL_EXTENSION)
+WXL_PRAGMA(message("src/game/Glue.hpp moved: include wxl/game/Glue.hpp"))
+#endif

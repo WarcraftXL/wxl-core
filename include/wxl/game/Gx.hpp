@@ -66,24 +66,12 @@ namespace wxl::game::gx
     namespace prim  { constexpr int kLineList = 2, kTriangleList = 4, kTriangleStrip = 5; }
 
     /**
-     * @brief Fetches a vtable slot of an object as a typed function pointer.
-     * @param obj  the object whose vtable to read.
-     * @param idx  the vtable slot index.
-     * @return slot idx typed as Fn.
-     */
-    template <class Fn>
-    inline Fn Vtbl(void* obj, unsigned idx)
-    {
-        return reinterpret_cast<Fn>((*reinterpret_cast<void***>(obj))[idx]);
-    }
-
-    /**
      * @brief Releases a COM object obtained from a Get* call.
      * @param obj  the COM object to release; ignored if null.
      */
     inline void Release(void* obj)
     {
-        if (obj) Vtbl<unsigned long(__stdcall*)(void*)>(obj, 2)(obj);
+        if (obj) Virtual<unsigned long(__stdcall*)(void*)>(obj, 2)(obj);
     }
 
     /**
@@ -93,7 +81,7 @@ namespace wxl::game::gx
     inline void* RawDevice()
     {
         // kGxDevicePtr is a fixed-address global slot; the deref reads the graphics-device object.
-        void* g = *reinterpret_cast<void**>(off::kGxDevicePtr);
+        void* g = Read<void*>(off::kGxDevicePtr);
         if (!g) return nullptr;
         return static_cast<off::GxDevice*>(g)->d3dDevice;
     }
@@ -103,7 +91,7 @@ namespace wxl::game::gx
      * @return the object, or null if graphics is not up yet.
      */
     inline void* RawGraphicsDevice()
-    { return *reinterpret_cast<void**>(off::kGxDevicePtr); }
+    { return Read<void*>(off::kGxDevicePtr); }
 
     /**
      * @brief Holds the engine's projection and view across a render that overwrites them.
@@ -120,7 +108,7 @@ namespace wxl::game::gx
         {
             if (!device_) return;
             const uintptr_t base = uintptr_t(device_);
-            const int slot = *reinterpret_cast<int*>(base + off::kDeviceViewIndex);
+            const int slot = At<int>(base, off::kDeviceViewIndex);
 
             const float* projection = reinterpret_cast<const float*>(base + off::kDeviceProjection);
             const float* view       = reinterpret_cast<const float*>(base + off::kDeviceViewBase
@@ -135,8 +123,8 @@ namespace wxl::game::gx
         ~ScopedXform()
         {
             if (!device_) return;
-            Vtbl<off::GxSetProjectionFn>(device_, off::kGxSetProjectionSlot)(device_, nullptr, savedProjection_);
-            Vtbl<off::GxSetProjectionFn>(device_, off::kGxSetViewSlot)(device_, nullptr, savedView_);
+            Virtual<off::GxSetProjectionFn>(device_, off::kGxSetProjectionSlot)(device_, nullptr, savedProjection_);
+            Virtual<off::GxSetProjectionFn>(device_, off::kGxSetViewSlot)(device_, nullptr, savedView_);
             Native<off::ShaderUpdateProjMatrixFn>(off::kShaderUpdateProjMatrix)();
         }
 
@@ -399,7 +387,7 @@ namespace wxl::game::gx
          * @return slot idx typed as Fn.
          */
         template <class Fn>
-        Fn Call(unsigned idx) const { return Vtbl<Fn>(dev_, idx); }
+        Fn Call(unsigned idx) const { return Virtual<Fn>(dev_, idx); }
         void* dev_;
     };
 

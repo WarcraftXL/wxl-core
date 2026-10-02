@@ -344,7 +344,7 @@ namespace wxl::game::script
      */
     inline bool PushTextureMetatable(void* state)
     {
-        const int ref = *reinterpret_cast<const int*>(off::kSimpleTextureMetaTableRef);
+        const int ref = Read<int>(off::kSimpleTextureMetaTableRef);
         if (ref <= 0) return false;
 
         const int base = StackTop(state);

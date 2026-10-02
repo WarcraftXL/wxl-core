@@ -81,12 +81,12 @@ namespace wxl::game::glue
      */
     inline void* MethodSelf()
     {
-        int* typeId = reinterpret_cast<int*>(off::kSimpleModelTypeId);
-        if (*typeId == 0)
+        if (Read<int>(off::kSimpleModelTypeId) == 0)
         {
-            int* counter = reinterpret_cast<int*>(loff::kObjectTypeCounter);
-            *typeId = ++(*counter);
+            const int id = Read<int>(loff::kObjectTypeCounter) + 1;
+            Write<int>(loff::kObjectTypeCounter, id);
+            Write<int>(off::kSimpleModelTypeId, id);
         }
-        return Native<loff::GetObjectThisFn>(loff::kGetObjectThis)(*typeId);
+        return Native<loff::GetObjectThisFn>(loff::kGetObjectThis)(Read<int>(off::kSimpleModelTypeId));
     }
 }

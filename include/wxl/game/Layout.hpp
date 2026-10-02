@@ -69,14 +69,13 @@ namespace wxl::game::layout
      */
     inline float EffectiveScale(void* object)
     {
-        return *reinterpret_cast<const float*>(static_cast<char*>(object) +
-                                               off::kRegionEffectiveScale);
+        return At<float>(object, off::kRegionEffectiveScale);
     }
 
     /// The object's parent, or null. A region's parent is always a frame.
     inline void* Parent(void* object)
     {
-        return *reinterpret_cast<void* const*>(static_cast<char*>(object) + off::kRegionParent);
+        return At<void*>(object, off::kRegionParent);
     }
 
     /// The effective scale a child of @p object inherits; 1 for an object with no parent.
@@ -108,13 +107,13 @@ namespace wxl::game::layout
     /// claim it the same way and into the same slot.
     inline int TextureTypeId()
     {
-        int* slot = reinterpret_cast<int*>(off::kSimpleTextureTypeId);
-        if (*slot == 0)
+        if (Read<int>(off::kSimpleTextureTypeId) == 0)
         {
-            int* counter = reinterpret_cast<int*>(wxl::offsets::engine::lua::kObjectTypeCounter);
-            *slot        = ++(*counter);
+            const int id = Read<int>(wxl::offsets::engine::lua::kObjectTypeCounter) + 1;
+            Write<int>(wxl::offsets::engine::lua::kObjectTypeCounter, id);
+            Write<int>(off::kSimpleTextureTypeId, id);
         }
-        return *slot;
+        return Read<int>(off::kSimpleTextureTypeId);
     }
 
     /**

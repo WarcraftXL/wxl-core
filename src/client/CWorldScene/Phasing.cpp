@@ -139,7 +139,7 @@ namespace wxl::game::world
 
         // Stay on the base map (its present table keeps every base tile); re-stream it - the loader detour
         // swaps in the phase ADT only for the tiles the phase actually has, leaving the rest as base.
-        EnterMap(g_baseMap, MapId());
+        EnterMap(g_baseMap, CurrentMapId());
         WLOG_INFO("phasing: phase '%s' active over base '%s'", g_childMap, g_baseMap);
     }
 
@@ -147,7 +147,7 @@ namespace wxl::game::world
     {
         if (!g_baseMap[0]) return; // no phase active
         g_childMap[0] = '\0';      // redirect off before the re-stream
-        EnterMap(g_baseMap, MapId());
+        EnterMap(g_baseMap, CurrentMapId());
         WLOG_INFO("phasing: restored base map '%s'", g_baseMap);
         g_baseMap[0] = '\0';
     }

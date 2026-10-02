@@ -166,10 +166,10 @@ namespace wxl::game::wmo
      */
     inline const char* GetCurrentInteriorPath()
     {
-        void* instance = *reinterpret_cast<void**>(off::kCurrentInteriorInstance);
+        void* instance = Read<void*>(off::kCurrentInteriorInstance);
         if (!instance)
             return nullptr;
-        void* root = *reinterpret_cast<void**>(static_cast<char*>(instance) + off::kOffInstanceRoot);
+        void* root = At<void*>(instance, off::kOffInstanceRoot);
         if (!root)
             return nullptr;
         return static_cast<char*>(root) + off::kOffNameInline;
@@ -184,7 +184,7 @@ namespace wxl::game::wmo
      */
     inline float GetOutdoorGateValue()
     {
-        return *reinterpret_cast<const float*>(off::kOutdoorEnabled);
+        return Read<float>(off::kOutdoorEnabled);
     }
 
     /**

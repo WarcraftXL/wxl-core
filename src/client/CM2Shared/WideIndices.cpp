@@ -178,13 +178,13 @@ namespace
     /** @brief Locks the index buffer for writing, exactly as the engine fill does. */
     void* LockBuffer(void* device, void* buffer)
     {
-        return wxl::game::gx::Vtbl<off::Gx_BufLockFn>(device, static_cast<unsigned>(off::kGxVtblBufLock / sizeof(void*)))(device, buffer);
+        return wxl::game::Virtual<off::Gx_BufLockFn>(device, off::kGxVtblBufLock / sizeof(void*))(device, buffer);
     }
 
     /** @brief Commits the refilled buffer and re-arms the device's index binding, as the engine does. */
     void CommitBuffer(void* device, void* buffer)
     {
-        wxl::game::gx::Vtbl<off::Gx_BufUnlockFn>(device, static_cast<unsigned>(off::kGxVtblBufUnlock / sizeof(void*)))(device, buffer, 0);
+        wxl::game::Virtual<off::Gx_BufUnlockFn>(device, off::kGxVtblBufUnlock / sizeof(void*))(device, buffer, 0);
         *At<uint8_t>(buffer, off::kOffGxBufBuilt) = 1;
         wxl::game::Native<off::Gx_PrimIndexPtrFn>(off::kPrimIndexPtr)(device, buffer);
     }

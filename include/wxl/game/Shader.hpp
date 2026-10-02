@@ -18,6 +18,7 @@
 
 #include <cstdint>
 
+#include "wxl/game/Binding.hpp"
 #include "wxl/offsets/engine/Shader.hpp"
 
 /**
@@ -47,38 +48,38 @@ namespace wxl::game::shader
      * @return the collection pointer, or null before the first activate of the frame.
      */
     inline const void* ActiveCollection()
-    { return *reinterpret_cast<const void* const*>(off::kActiveCollection); }
+    { return Read<const void*>(off::kActiveCollection); }
 
     /**
      * @brief Reads the shadow tier feeding the permutation choice.
      * @return the tier, clamped by the engine to 0..2.
      */
-    inline int ShadowTier() { return *reinterpret_cast<const int*>(off::kShadowTier); }
+    inline int ShadowTier() { return Read<int>(off::kShadowTier); }
 
     /**
      * @brief Reads the pixel-side shadow group feeding the permutation choice.
      * @return the group index.
      */
-    inline int ShadowGroup() { return *reinterpret_cast<const int*>(off::kShadowGroup); }
+    inline int ShadowGroup() { return Read<int>(off::kShadowGroup); }
 
     /**
      * @brief Reads the light/fog bit feeding the permutation choice.
      * @return 0 or 1.
      */
-    inline int LightBit() { return *reinterpret_cast<const int*>(off::kLightBit); }
+    inline int LightBit() { return Read<int>(off::kLightBit); }
 
     /**
      * @brief Reads the permutation sub-index feeding the permutation choice.
      * @return the sub-index, 0..14.
      */
-    inline int SubIndex() { return *reinterpret_cast<const int*>(off::kSubIndex); }
+    inline int SubIndex() { return Read<int>(off::kSubIndex); }
 
     /**
      * @brief Reads the master flag gating the whole programmable path.
      * @return true when effects are bound from shader collections rather than fixed function.
      */
     inline bool ProgrammablePathActive()
-    { return *reinterpret_cast<const uint32_t*>(off::kProgrammablePathFlag) != 0; }
+    { return Read<uint32_t>(off::kProgrammablePathFlag) != 0; }
 
     /**
      * @brief Reads one slot of the exterior effect table.

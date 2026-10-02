@@ -74,7 +74,7 @@ namespace wxl::game::camera
     inline float GetFov(void* camera)
     {
         return camera
-            ? *reinterpret_cast<const float*>(static_cast<const uint8_t*>(camera) + off::kCameraFov)
+            ? At<float>(camera, off::kCameraFov)
             : 1.2217f; // ~70 degrees; fallback for the no-camera case
     }
 
@@ -149,7 +149,7 @@ namespace wxl::game::camera
      */
     inline void SetFov(void* camera, float fovRad)
     {
-        if (camera) *reinterpret_cast<float*>(static_cast<uint8_t*>(camera) + off::kCameraFov) = fovRad;
+        if (camera) At<float>(camera, off::kCameraFov) = fovRad;
     }
 
     // --- supplying a camera the world renderer accepts ---

@@ -96,7 +96,7 @@ namespace wxl::game::xml
     {
         if (!anim) return nullptr;
 
-        void* group = *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(anim) + off::kAnimGroupField);
+        void* group = At<void*>(anim, off::kAnimGroupField);
         if (!group) return nullptr;
 
         return reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(group) + off::kAnimGroupTargetField);
@@ -121,20 +121,20 @@ namespace wxl::game::xml
      */
     inline void* AnimGroupSelf()
     {
-        int* typeId = reinterpret_cast<int*>(off::kSimpleAnimGroupTypeId);
-        if (*typeId == 0)
+        if (Read<int>(off::kSimpleAnimGroupTypeId) == 0)
         {
-            int* counter = reinterpret_cast<int*>(loff::kObjectTypeCounter);
-            *typeId = ++(*counter);
+            const int id = Read<int>(loff::kObjectTypeCounter) + 1;
+            Write<int>(loff::kObjectTypeCounter, id);
+            Write<int>(off::kSimpleAnimGroupTypeId, id);
         }
-        return Native<loff::GetObjectThisFn>(loff::kGetObjectThis)(*typeId);
+        return Native<loff::GetObjectThisFn>(loff::kGetObjectThis)(Read<int>(off::kSimpleAnimGroupTypeId));
     }
 
     /// Whether a group is mid-play, paused included: its play-state byte is 0 only when stopped.
     inline bool AnimGroupIsPlaying(void* group)
     {
         if (!group) return false;
-        return *(reinterpret_cast<uint8_t*>(group) + off::kAnimGroupPlayStateField) != 0;
+        return At<uint8_t>(group, off::kAnimGroupPlayStateField) != 0;
     }
 
     /**
@@ -183,15 +183,14 @@ namespace wxl::game::xml
         if (AnimGroupIsPlaying(group))
             Native<off::AnimGroupStopFn>(off::kSimpleAnimGroupStop)(group, 0);
 
-        uint8_t*  base        = reinterpret_cast<uint8_t*>(group);
-        int*      cursor      = reinterpret_cast<int*>(base + off::kAnimGroupOrderCursorField);
-        const int orderCount  = *reinterpret_cast<const int*>(base + off::kAnimGroupOrderCountField);
-        const int savedCursor = *cursor;
+        int&      cursor      = At<int>(group, off::kAnimGroupOrderCursorField);
+        const int orderCount  = At<int>(group, off::kAnimGroupOrderCountField);
+        const int savedCursor = cursor;
 
-        *cursor = orderCount;
+        cursor = orderCount;
         Native<off::AnimGroupPlayFn>(off::kSimpleAnimGroupPlay)(group);
 
-        if (*cursor == orderCount) *cursor = savedCursor;
+        if (cursor == orderCount) cursor = savedCursor;
     }
 
     /// Signature and address of the <Texture> load entry.
@@ -238,14 +237,14 @@ namespace wxl::game::xml
     inline Node FirstChild(Node node)
     {
         if (!node) return nullptr;
-        return *reinterpret_cast<Node*>(reinterpret_cast<uint8_t*>(node) + off::kNodeFirstChild);
+        return At<Node>(node, off::kNodeFirstChild);
     }
 
     /// The node after this one under the same parent, or null.
     inline Node NextSibling(Node node)
     {
         if (!node) return nullptr;
-        return *reinterpret_cast<Node*>(reinterpret_cast<uint8_t*>(node) + off::kNodeNextSibling);
+        return At<Node>(node, off::kNodeNextSibling);
     }
 
     /**
@@ -256,14 +255,14 @@ namespace wxl::game::xml
     inline const char* NodeText(Node node)
     {
         if (!node) return nullptr;
-        return *reinterpret_cast<const char**>(reinterpret_cast<uint8_t*>(node) + off::kNodeText);
+        return At<const char*>(node, off::kNodeText);
     }
 
     /// The node's element name.
     inline const char* NodeName(Node node)
     {
         if (!node) return nullptr;
-        return *reinterpret_cast<const char**>(reinterpret_cast<uint8_t*>(node) + off::kNodeName);
+        return At<const char*>(node, off::kNodeName);
     }
 
     /**
@@ -329,7 +328,7 @@ namespace wxl::game::xml
         void* object = ObjectOf(region);
         if (!object || !file || !*file) return false;
 
-        const int filter = *reinterpret_cast<const int*>(off::kTextureDefaultFilterMode);
+        const int filter = Read<int>(off::kTextureDefaultFilterMode);
         return Native<off::TextureSetTextureFn>(off::kSimpleTextureSetTexture)(
                    object, nullptr, file, horizTile ? 1 : 0, vertTile ? 1 : 0, filter, 0) != 0;
     }
@@ -363,8 +362,8 @@ namespace wxl::game::xml
      */
     inline float PixelsToLayout(float pixels)
     {
-        const float aspect = *reinterpret_cast<const float*>(off::kAspectCompensation);
-        const float scale  = *reinterpret_cast<const float*>(off::kNdcToDdcWidthScale);
+        const float aspect = Read<float>(off::kAspectCompensation);
+        const float scale  = Read<float>(off::kNdcToDdcWidthScale);
         if (aspect == 0.0f) return 0.0f;
         return scale * (pixels / (aspect * off::kLayoutReferenceWidth));
     }
@@ -380,8 +379,7 @@ namespace wxl::game::xml
     {
         if (!region) return;
 
-        uint8_t* vtable = *reinterpret_cast<uint8_t**>(region);
-        auto fn = *reinterpret_cast<off::LayoutFrameSetExtentFn*>(vtable + off::kLayoutFrameSetWidthSlot);
+        auto fn = Virtual<off::LayoutFrameSetExtentFn>(region, off::kLayoutFrameSetWidthSlot / sizeof(void*));
         fn(region, nullptr, width);
     }
 
@@ -390,8 +388,7 @@ namespace wxl::game::xml
     {
         if (!region) return;
 
-        uint8_t* vtable = *reinterpret_cast<uint8_t**>(region);
-        auto fn = *reinterpret_cast<off::LayoutFrameSetExtentFn*>(vtable + off::kLayoutFrameSetHeightSlot);
+        auto fn = Virtual<off::LayoutFrameSetExtentFn>(region, off::kLayoutFrameSetHeightSlot / sizeof(void*));
         fn(region, nullptr, height);
     }
     /**
@@ -411,8 +408,7 @@ namespace wxl::game::xml
         if (!object || !name || !*name) return nullptr;
 
         const char* signature = off::kDefaultScriptSignature;
-        uint8_t*    vtable    = *reinterpret_cast<uint8_t**>(object);
-        auto fn = *reinterpret_cast<off::GetScriptByNameFn*>(vtable + off::kGetScriptByNameSlot);
+        auto fn = Virtual<off::GetScriptByNameFn>(object, off::kGetScriptByNameSlot / sizeof(void*));
         return fn(object, nullptr, name, &signature);
     }
 

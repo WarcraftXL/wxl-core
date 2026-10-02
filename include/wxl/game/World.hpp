@@ -53,7 +53,7 @@ namespace wxl::game::world
      * @return The map id, or -1 when no map is loaded.
      */
     inline int CurrentMapId()
-    { return *reinterpret_cast<int*>(woff::kCurrentMapId); }
+    { return Read<int>(woff::kCurrentMapId); }
 
     /**
      * @brief Moves the point terrain streams around.
@@ -64,9 +64,9 @@ namespace wxl::game::world
      */
     inline void SetStreamFocus(const float pos[3])
     {
-        *reinterpret_cast<float*>(woff::kFocusPosX) = pos[0];
-        *reinterpret_cast<float*>(woff::kFocusPosY) = pos[1];
-        *reinterpret_cast<float*>(woff::kFocusPosZ) = pos[2];
+        Write<float>(woff::kFocusPosX, pos[0]);
+        Write<float>(woff::kFocusPosY, pos[1]);
+        Write<float>(woff::kFocusPosZ, pos[2]);
     }
 
     /**
@@ -103,7 +103,7 @@ namespace wxl::game::world
      * @return The bitmask. Bit 1 gates the solid terrain draw.
      */
     inline uint32_t Enables()
-    { return *reinterpret_cast<const uint32_t*>(woff::kEnables); }
+    { return Read<uint32_t>(woff::kEnables); }
 
     /**
      * @brief Rebuilds what the scene render culls and shades against.
@@ -134,14 +134,14 @@ namespace wxl::game::world
      * @return The mouseover GUID.
      */
     inline unsigned long long MouseoverGuid()
-    { return *reinterpret_cast<unsigned long long*>(off::kMouseoverGuid); }
+    { return Read<unsigned long long>(off::kMouseoverGuid); }
 
     /**
      * @brief Reads the GUID of the current target.
      * @return The target GUID.
      */
     inline unsigned long long TargetGuid()
-    { return *reinterpret_cast<unsigned long long*>(off::kTargetGuid); }
+    { return Read<unsigned long long>(off::kTargetGuid); }
 
     /**
      * @brief Reads the GUID of the active player.
@@ -179,14 +179,6 @@ namespace wxl::game::world
     constexpr unsigned kTypeMaskDynamicObject = off::kTypeMaskDynamicObject;
     constexpr unsigned kTypeMaskCorpse        = off::kTypeMaskCorpse;
 
-    namespace detail
-    {
-        /** @brief Reads one slot out of an object's virtual table as a callable. */
-        template <class Fn>
-        inline Fn Virtual(void* obj, size_t slot)
-        { return Fn((*static_cast<void***>(obj))[slot]); }
-    }
-
     /**
      * @brief Reads an object's GUID out of the header every object carries.
      * @param obj  Any object.
@@ -214,7 +206,7 @@ namespace wxl::game::world
     inline void Position(void* obj, float out[3])
     {
         out[0] = out[1] = out[2] = 0.0f;
-        if (obj) detail::Virtual<off::PositionFn>(obj, off::kVtPosition)(obj, out);
+        if (obj) Virtual<off::PositionFn>(obj, off::kVtPosition)(obj, out);
     }
 
     /**
@@ -231,7 +223,7 @@ namespace wxl::game::world
      */
     inline float Facing(void* obj)
     {
-        return obj ? detail::Virtual<off::FacingFn>(obj, off::kVtFacing)(obj) : 0.0f;
+        return obj ? Virtual<off::FacingFn>(obj, off::kVtFacing)(obj) : 0.0f;
     }
 
     /**
@@ -242,7 +234,7 @@ namespace wxl::game::world
     inline void NamePosition(void* obj, float out[3])
     {
         out[0] = out[1] = out[2] = 0.0f;
-        if (obj) detail::Virtual<off::PositionFn>(obj, off::kVtNamePosition)(obj, out);
+        if (obj) Virtual<off::PositionFn>(obj, off::kVtNamePosition)(obj, out);
     }
 
     // The walk reads the object manager out of thread-local storage and dereferences it without

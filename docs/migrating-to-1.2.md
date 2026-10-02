@@ -97,3 +97,17 @@ The bindings (`src/game/*.hpp`), the offsets (`src/offsets/`) and the M2 format 
 The old paths still compile through forwarding headers that print the new path. Namespaces are
 unchanged (`wxl::game::unit`, `wxl::offsets::game::unit`, `wxl::structure::m2`). An extension that
 includes nothing else from `src/` can drop `src` from its include paths.
+
+## Typed reads, object handles
+
+`wxl/game/Binding.hpp` now holds, next to `Native<Fn>`: `Read<T>(address)`, `Write<T>(address, v)`,
+`At<T>(base, offset)` and `Virtual<Fn>(object, slot)`. The bindings use them in place of raw casts;
+an extension that reads client memory can do the same. The two private vtable helpers
+(`gx::Vtbl`, `world::detail::Virtual`) are gone: call `wxl::game::Virtual<Fn>(obj, slot)`.
+
+`world::MapId()` is deprecated: call `world::CurrentMapId()`. `Loading.hpp` includes `World.hpp`,
+and its duplicate `EnterMap` is gone (the one in `World.hpp` is the same function).
+
+`wxl/game/Objects.hpp` adds the handles `wxl::game::Object`, `Unit` and `Player`: one pointer,
+no ownership, methods over the same bindings (`Player::Active().Position()`,
+`unit.IsHostileTo(other)`, `Object::FromGuid(guid)`). The free functions stay.

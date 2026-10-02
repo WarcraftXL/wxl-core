@@ -18,7 +18,9 @@
 
 #include <cstdint>
 
+#include "wxl/Common.h"
 #include "wxl/game/Binding.hpp"
+#include "wxl/game/World.hpp"
 #include "wxl/offsets/game/ADT.hpp"
 #include "wxl/offsets/game/World.hpp"
 
@@ -43,23 +45,8 @@ namespace wxl::game::world
      * @brief Reads the numeric map id of the loaded world.
      * @return The current map id, or -1 when no world is loaded.
      */
-    inline int32_t MapId()
-    {
-        return *reinterpret_cast<int32_t*>(woff::kCurrentMapId);
-    }
-
-    /**
-     * @brief Changes the terrain source to another map directory at the current position.
-     *
-     * Runs the engine's own map-change: repoints the dir/name/wdt-path globals to @p mapDir, purges all
-     * tiles, loads that map's WDT + WDL, and re-streams around the current camera. The player is not moved.
-     * @param mapDir  the map directory stem (e.g. "Azeroth", "Gilneas").
-     * @param mapId   the map id to keep (pass MapId() to preserve the logical map / gameplay).
-     */
-    inline void EnterMap(const char* mapDir, int mapId)
-    {
-        Native<woff::World_MapEnterFn>(woff::kMapEnter)(mapDir, mapId);
-    }
+    WXL_DEPRECATED("use CurrentMapId()")
+    inline int32_t MapId() { return CurrentMapId(); }
 
     /**
      * @brief Reads a tile's in-flight async-read object (TileArea+0x70), null while idle.
@@ -154,13 +141,13 @@ namespace wxl::game::world
     {
         Native<woff::World_AsyncWaitAllFn>(woff::kAsyncWaitAll)();
 
-        uint32_t node = *reinterpret_cast<uint32_t*>(woff::kActiveListHead);
+        uint32_t node = Read<uint32_t>(woff::kActiveListHead);
         if ((node & 1) || node == 0) return;
-        const uint32_t linkBase = *reinterpret_cast<uint32_t*>(woff::kActiveListLinkBase);
+        const uint32_t linkBase = Read<uint32_t>(woff::kActiveListLinkBase);
         for (int guard = 0; (node & 1) == 0 && node != 0 && guard < 100000; ++guard)
         {
-            const uint32_t tile = *reinterpret_cast<uint32_t*>(node + 4);
-            const uint32_t next = *reinterpret_cast<uint32_t*>(linkBase + 4 + node);
+            const uint32_t tile = Read<uint32_t>(node + 4);
+            const uint32_t next = Read<uint32_t>(linkBase + 4 + node);
             if (tile >= 0x00400000 && tile < 0xF0000000 &&
                 !TileAsyncRead(reinterpret_cast<void*>(tile))) // idle: no read in flight
             {
@@ -200,8 +187,8 @@ namespace wxl::game::world
      */
     inline void CurrentTile(int& first, int& second)
     {
-        const float px = *reinterpret_cast<float*>(woff::kFocusPosX);
-        const float py = *reinterpret_cast<float*>(woff::kFocusPosY);
+        const float px = Read<float>(woff::kFocusPosX);
+        const float py = Read<float>(woff::kFocusPosY);
         first  = static_cast<int>((woff::kGridOriginYards - py) / woff::kTileSizeYards);
         second = static_cast<int>((woff::kGridOriginYards - px) / woff::kTileSizeYards);
     }
@@ -233,7 +220,7 @@ namespace wxl::game::world
      */
     inline bool LoadActive()
     {
-        return *reinterpret_cast<uint32_t*>(woff::kLoadActive) != 0;
+        return Read<uint32_t>(woff::kLoadActive) != 0;
     }
 
     /**
@@ -242,8 +229,8 @@ namespace wxl::game::world
      */
     inline void FocusPos(float out[3])
     {
-        out[0] = *reinterpret_cast<float*>(woff::kFocusPosX);
-        out[1] = *reinterpret_cast<float*>(woff::kFocusPosY);
-        out[2] = *reinterpret_cast<float*>(woff::kFocusPosZ);
+        out[0] = Read<float>(woff::kFocusPosX);
+        out[1] = Read<float>(woff::kFocusPosY);
+        out[2] = Read<float>(woff::kFocusPosZ);
     }
 }

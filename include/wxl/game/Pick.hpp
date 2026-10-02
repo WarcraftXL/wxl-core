@@ -52,7 +52,7 @@ namespace wxl::game::world
     inline int Pick(float ddcX, float ddcY, WorldHit& out)
     {
         out = WorldHit{};
-        void* wf = *reinterpret_cast<void**>(woff::kWorldFrame);
+        void* wf = Read<void*>(woff::kWorldFrame);
         if (!wf) return 0;
 
         // result[0..5] = {objLo, objHi, posX, posY, posZ, t}; [6..11] are the near/far ray the call fills.
@@ -138,19 +138,17 @@ namespace wxl::game::world
      */
     inline bool CursorDdc(float& ddcX, float& ddcY)
     {
-        void* wf = *reinterpret_cast<void**>(woff::kWorldFrame);
+        void* wf = Read<void*>(woff::kWorldFrame);
         if (!wf) return false;
-        void* input = *reinterpret_cast<void**>(reinterpret_cast<char*>(wf) + woff::kWorldFrameInput);
+        void* input = At<void*>(wf, woff::kWorldFrameInput);
         if (!input) return false;
 
         // This mirrors the engine's own normalized-to-device cursor conversion, applied
         // immediately before its native hit-test call.
-        const float ndcX = *reinterpret_cast<float*>(
-            reinterpret_cast<char*>(input) + woff::kInputCursorNdcX);
-        const float ndcY = *reinterpret_cast<float*>(
-            reinterpret_cast<char*>(input) + woff::kInputCursorNdcY);
-        const float ddcWidth = *reinterpret_cast<float*>(woff::kDdcWidth);
-        const float ddcHeight = *reinterpret_cast<float*>(woff::kDdcHeight);
+        const float ndcX = At<float>(input, woff::kInputCursorNdcX);
+        const float ndcY = At<float>(input, woff::kInputCursorNdcY);
+        const float ddcWidth = Read<float>(woff::kDdcWidth);
+        const float ddcHeight = Read<float>(woff::kDdcHeight);
         if (ddcWidth <= 0.0f || ddcHeight <= 0.0f) return false;
 
         ddcX = ndcX * ddcWidth;

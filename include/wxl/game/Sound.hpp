@@ -32,7 +32,7 @@ namespace wxl::game::sound
     /** @brief Returns true once the client sound system is initialized. */
     inline bool Available()
     {
-        return *reinterpret_cast<int*>(off::kSoundActiveFlag) != 0;
+        return Read<int>(off::kSoundActiveFlag) != 0;
     }
 
     /**
@@ -52,7 +52,7 @@ namespace wxl::game::sound
     {
         if (!Available()) return 1.0f;
         // kSoundGroupArrayPtr is a fixed-address global slot; the deref reads the first group record.
-        void* group0 = *reinterpret_cast<void**>(off::kSoundGroupArrayPtr);
+        void* group0 = Read<void*>(off::kSoundGroupArrayPtr);
         if (!group0) return 1.0f;
         return static_cast<off::SoundGroup*>(group0)->masterVolume;
     }

@@ -128,7 +128,7 @@ namespace wxl::game::doodad
         inline void* P(void* d, size_t o)
         {
             void* slot = reinterpret_cast<char*>(d) + o;
-            return Readable(slot, sizeof(void*)) ? *reinterpret_cast<void**>(slot) : nullptr;
+            return Readable(slot, sizeof(void*)) ? At<void*>(d, o) : nullptr;
         }
 
         /**
@@ -219,8 +219,7 @@ namespace wxl::game::doodad
     inline int EnumerateChunk(void* chunk, void** out, int n, int maxCount)
     {
         if (!detail::Readable(chunk, off::kChunkDoodadHead + sizeof(void*))) return n;
-        const uint32_t linkOff =
-            *reinterpret_cast<uint32_t*>(reinterpret_cast<char*>(chunk) + off::kChunkDoodadLinkOff);
+        const uint32_t linkOff = At<uint32_t>(chunk, off::kChunkDoodadLinkOff);
         if (linkOff > 0x400) return n; // a real link offset is small; reject a garbage field
         uintptr_t node = reinterpret_cast<uintptr_t>(detail::P(chunk, off::kChunkDoodadHead));
         for (int i = 0; (node & 1) == 0 && node != 0 && i < 8192 && n < maxCount; ++i)

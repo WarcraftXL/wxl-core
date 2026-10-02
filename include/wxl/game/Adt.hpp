@@ -63,6 +63,6 @@ namespace wxl::game::adt
     {
         if (tileSecond >= off::kTileGridDim || tileFirst >= off::kTileGridDim)
             return nullptr;
-        return *reinterpret_cast<void**>(off::kTileSlots + (tileSecond * off::kTileGridDim + tileFirst) * off::kTileSlotStride);
+        return Read<void*>(off::kTileSlots + (tileSecond * off::kTileGridDim + tileFirst) * off::kTileSlotStride);
     }
 }

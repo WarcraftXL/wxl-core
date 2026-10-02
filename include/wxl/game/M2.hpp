@@ -149,7 +149,7 @@ namespace wxl::game::m2
          */
         M2SkinProfile* GetSkin() const
         {
-            return *reinterpret_cast<M2SkinProfile**>(reinterpret_cast<char*>(model_) + off::kOffModelSkin);
+            return At<M2SkinProfile*>(model_, off::kOffModelSkin);
         }
 
         /**

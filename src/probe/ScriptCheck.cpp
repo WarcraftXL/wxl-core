@@ -30,6 +30,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <type_traits>
 
 namespace
 {
@@ -72,6 +73,8 @@ namespace
     }
 
     using ProbeFn = int __cdecl(int);
+    // The shape every offsets/ alias has, so Hook is proven against both spellings.
+    using ProbeFnPtr = int(__cdecl*)(int);
     int __cdecl ChainEnd(int v) { return v + 1; }
     const char* g_attachedName = nullptr;
     int         g_attachedPriority = -1;
@@ -199,6 +202,14 @@ int main()
     CHECK(hook && hook.Original() == &ChainEnd);
     CHECK(std::strcmp(g_attachedName, "Probe.Point") == 0 && g_attachedPriority == 3);
     CHECK(hook(41) == 42);
+
+    // A function-pointer alias names the same hook: this is the form every offsets/ header declares,
+    // and the two spellings must land on one type.
+    wxl::Hook<ProbeFnPtr> aliased;
+    CHECK(aliased.Attach("Probe.Point", &ChainEnd));
+    CHECK(aliased(41) == 42);
+    static_assert(std::is_same_v<wxl::Hook<ProbeFnPtr>::Function, wxl::Hook<ProbeFn>::Function>,
+                  "Hook must accept a function type and a pointer to it alike");
 
     // Service: unresolved until something publishes the exact name and version, then cached.
     static const FakeService s_service{ sizeof(FakeService), 7 };

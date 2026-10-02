@@ -120,24 +120,37 @@ Three pieces of `WXL_Api` plumbing every extension was writing for itself now sh
 raw table is untouched, so none of this is forced: `ScriptMgr::Api()` keeps working.
 
 **`wxl/Hook.hpp`** — `wxl::Hook<Fn>` holds a detour and the chain link behind it under one function
-type, so a detour wired to the wrong trampoline no longer compiles. `Fn` is the function *type*, the
-same convention the core's own `hookpoints::Attach` uses.
+type, so a detour wired to the wrong trampoline no longer compiles. `Fn` may be written out as a
+function type (`void __cdecl(void*)`) or named through one of the `offsets/` aliases, which are
+function *pointer* types; `Hook` strips the pointer, so both spellings land on the same type.
 
 ```cpp
 // before: a global for the original, a cast per attach
-using ChunkBuildFn = void __cdecl(void*);
-ChunkBuildFn* g_origChunkBuild = nullptr;
-void __cdecl hkChunkBuild(void* c) { g_origChunkBuild(c); }
+adt::Map_ChunkBuildFn g_origChunkBuild = nullptr;
+void __fastcall hkChunkBuild(void* c, void* edx, void* raw, int flag)
+{
+    g_origChunkBuild(c, edx, raw, flag);
+}
 g_api->HookAttachByName("Adt.ChunkBuild", reinterpret_cast<void*>(&hkChunkBuild),
                         reinterpret_cast<void**>(&g_origChunkBuild), 0);
 // after
-static wxl::Hook<void __cdecl(void*)> g_chunkBuild;
-void __cdecl hkChunkBuild(void* c) { g_chunkBuild(c); }
+wxl::Hook<adt::Map_ChunkBuildFn> g_chunkBuild;
+void __fastcall hkChunkBuild(void* c, void* edx, void* raw, int flag)
+{
+    g_chunkBuild(c, edx, raw, flag);
+}
 g_chunkBuild.Attach("Adt.ChunkBuild", &hkChunkBuild);
 ```
 
+Prefer the alias over a retyped signature: it keeps one declaration of the prototype, so a change to
+the engine signature fails to compile at the detour instead of passing the wrong arguments.
+
 `Attach` also has an address overload for a point the core does not name. Calling the handle calls
 the next link in the chain; `Original()` hands it over if you would rather be explicit.
+
+A `Hook` at namespace scope is constant-initialised, so it needs no load-order care. It models a
+hook *point*, though: a vtable slot that must be re-patched per device object stays a raw pointer
+plus `wxl::mem::SwapPointer`.
 
 **`wxl/Service.hpp`** — `wxl::Service<T>` resolves a published capability on first use and keeps it,
 which is the lazy accessor each extension had copied. A lookup that finds nothing is retried, so a

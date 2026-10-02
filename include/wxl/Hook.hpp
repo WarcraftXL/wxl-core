@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
 
 #include "wxl/Script.hpp"
 
@@ -26,32 +27,43 @@ namespace wxl
     /**
      * A detour and the chain link behind it, under one function type.
      *
-     * @param Fn : the hooked function's type, e.g. `void __cdecl(void*)`
+     * @param Fn : the hooked function's type, either written out as `void __cdecl(void*)` or taken
+     *             from a function-pointer alias such as `offsets::game::adt::Map_ChunkBuildFn`
      *
      * One instance owns one detour. A chain is never taken apart, so there is no detach: an instance
      * lives as long as the extension, which in practice means a namespace-scope or static object.
      *
-     *     static wxl::Hook<void __cdecl(void*)> g_chunkBuild;
+     *     static wxl::Hook<adt::Map_ChunkBuildFn> g_chunkBuild;
      *
-     *     void __cdecl hkChunkBuild(void* chunk) { g_chunkBuild(chunk); }
+     *     void __fastcall hkChunkBuild(void* chunk, void* edx, void* raw, int flag)
+     *     {
+     *         g_chunkBuild(chunk, edx, raw, flag);
+     *     }
      *
      *     g_chunkBuild.Attach("Adt.ChunkBuild", &hkChunkBuild);
+     *
+     * Naming the offsets alias rather than retyping the signature keeps one declaration of it: a
+     * change to the engine prototype then fails to compile at the detour instead of passing the
+     * wrong arguments at runtime.
      */
     template <class Fn>
     class Hook
     {
     public:
+        /// The hooked function's type, with the pointer stripped when Fn was an alias for one.
+        using Function = std::remove_pointer_t<Fn>;
+
         Hook() = default;
 
         /**
          * Installs the detour on a hook point the core knows by name.
          *
          * @param string pointName : a name from the core's hook-point table
-         * @param Fn* detour : runs in place of the engine function
+         * @param Function* detour : runs in place of the engine function
          * @param int32 priority = WXL_HOOK_DEFAULT_PRIORITY : chain position, lower runs first
          * @return bool ok : false before ScriptMgr::Bind, or when the name is not a hook point
          */
-        bool Attach(const char* pointName, Fn* detour, int priority = WXL_HOOK_DEFAULT_PRIORITY)
+        bool Attach(const char* pointName, Function* detour, int priority = WXL_HOOK_DEFAULT_PRIORITY)
         {
             const WXL_Api* api = ScriptMgr::Api();
             if (!api) return false;
@@ -64,11 +76,11 @@ namespace wxl
          *
          * @param string label : name this detour logs under
          * @param uintptr target : the address to detour
-         * @param Fn* detour : runs in place of the engine function
+         * @param Function* detour : runs in place of the engine function
          * @param int32 priority = WXL_HOOK_DEFAULT_PRIORITY : chain position, lower runs first
          * @return bool ok : false before ScriptMgr::Bind
          */
-        bool Attach(const char* label, uintptr_t target, Fn* detour,
+        bool Attach(const char* label, uintptr_t target, Function* detour,
                     int priority = WXL_HOOK_DEFAULT_PRIORITY)
         {
             const WXL_Api* api = ScriptMgr::Api();
@@ -83,9 +95,9 @@ namespace wxl
         /**
          * The next link in the chain, which ends at the engine function.
          *
-         * @return Fn* original : null until Attach succeeds
+         * @return Function* original : null until Attach succeeds
          */
-        Fn* Original() const { return original_; }
+        Function* Original() const { return original_; }
 
         /**
          * Calls the next link in the chain. Not calling it suppresses both the parties behind this
@@ -103,6 +115,6 @@ namespace wxl
         }
 
     private:
-        Fn* original_ = nullptr;
+        Function* original_ = nullptr;
     };
 }

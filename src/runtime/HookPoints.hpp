@@ -17,15 +17,41 @@
 
 #pragma once
 
+#include "engine/hook/Hook.hpp"
+
+#include <cstddef>
+
+/// The hook points of HookPoints.def, attached by name. The core's own detours go through Attach,
+/// extensions through WXL_Api::HookAttachByName; both land in the same per-address chain.
 namespace wxl::runtime::hookpoints
 {
     /**
-     * @brief Resolves pointName against the core's hook-point table and installs a detour there.
-     * @param pointName  name a hook point is registered under (see HookPoints.cpp).
-     * @param detour     replacement function.
-     * @param original   receives the next link in the chain.
-     * @param priority   chain position; see wxl::hook::kDefaultPriority.
-     * @return non-zero if the detour was registered; zero if pointName is not registered.
+     * Installs a detour on a named hook point.
+     *
+     * @param string pointName : a name from HookPoints.def
+     * @param void* detour
+     * @param void** original : receives the next link in the chain
+     * @param int32 priority : chain position, lower runs first
+     * @return int32 ok : non-zero when registered, zero for an unknown name
      */
     int AttachByName(const char* pointName, void* detour, void** original, int priority);
+
+    /**
+     * Installs a detour on a named hook point; the detour and the trampoline share one function
+     * type, so a mismatch does not compile.
+     *
+     * @param string pointName : a name from HookPoints.def
+     * @param Fn* detour
+     * @param Fn** original : receives the next link in the chain
+     * @param int32 priority = 0 : chain position, lower runs first
+     * @return bool ok
+     */
+    template <class Fn>
+    inline bool Attach(const char* pointName, Fn* detour, Fn** original, int priority = wxl::hook::kDefaultPriority)
+    {
+        return AttachByName(pointName, reinterpret_cast<void*>(detour), reinterpret_cast<void**>(original), priority) != 0;
+    }
+
+    /// The number of hook points in the table.
+    size_t Count();
 }

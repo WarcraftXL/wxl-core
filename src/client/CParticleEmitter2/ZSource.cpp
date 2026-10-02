@@ -25,6 +25,7 @@
 
 #include "common/Log.hpp"
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "offsets/game/M2.hpp"
 
@@ -45,7 +46,7 @@ namespace
 
     bool InstallParticleZSource()
     {
-        if (!wxl::hook::Install("M2SetZsource", off::kSetZsource, &hkSetZsource, &g_origSetZsource))
+        if (!wxl::runtime::hookpoints::Attach("M2.ParticleSetZSource", &hkSetZsource, &g_origSetZsource))
             return false;
         WLOG_INFO("m2native-particles: emitter z-source sentinel translated at its read");
         return true;

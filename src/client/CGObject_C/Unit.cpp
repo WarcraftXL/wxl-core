@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 
@@ -92,9 +93,9 @@ namespace
 
     bool InstallUnit()
     {
-        wxl::hook::Install("ObjectUpdate", unit::kObjectUpdateHandler, &hkObjUpdate, &g_origObjUpdate);
-        wxl::hook::Install("ObjectDestroy", unit::kObjectDestroyHandler, &hkObjDestroy, &g_origObjDestroy);
-        wxl::hook::Install("TargetSet", unit::kTargetSet, &hkTargetSet, &g_origTargetSet);
+        wxl::runtime::hookpoints::Attach("Unit.ObjectUpdate", &hkObjUpdate, &g_origObjUpdate);
+        wxl::runtime::hookpoints::Attach("Unit.ObjectDestroy", &hkObjDestroy, &g_origObjDestroy);
+        wxl::runtime::hookpoints::Attach("Unit.TargetSet", &hkTargetSet, &g_origTargetSet);
         return true;
     }
 }

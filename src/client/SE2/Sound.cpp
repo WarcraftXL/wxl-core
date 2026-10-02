@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 
@@ -73,8 +74,8 @@ namespace
 
     bool InstallSound()
     {
-        wxl::hook::Install("PlaySound", snd::kPlaySound, &hkPlaySound, &g_origPlaySound);
-        wxl::hook::Install("PlaySoundKit", snd::kPlaySoundKit, &hkPlaySoundKit, &g_origPlaySoundKit);
+        wxl::runtime::hookpoints::Attach("Sound.PlaySound", &hkPlaySound, &g_origPlaySound);
+        wxl::runtime::hookpoints::Attach("Sound.PlaySoundKit", &hkPlaySoundKit, &g_origPlaySoundKit);
         return true;
     }
 }

@@ -37,6 +37,7 @@
 
 #include "common/Log.hpp"
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "offsets/game/M2.hpp"
 
@@ -122,7 +123,7 @@ namespace
 
     bool InstallEmitterBudget()
     {
-        if (!wxl::hook::Install("M2EmitterSync", off::kEmitterSync, &hkEmitterSync, &g_origSync))
+        if (!wxl::runtime::hookpoints::Attach("M2.EmitterSync", &hkEmitterSync, &g_origSync))
             return false;
         WLOG_INFO("m2native-particles: emitter budget keeps its margin and its range");
         return true;

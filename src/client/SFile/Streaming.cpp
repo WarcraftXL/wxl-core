@@ -16,6 +16,7 @@
 
 #include "common/Log.hpp"
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 
 #include "offsets/engine/Gx.hpp"
@@ -224,9 +225,9 @@ namespace
      */
     bool InstallStreaming()
     {
-        wxl::hook::Install("AsyncDrain", wld::kAsyncServiceQueues,
+        wxl::runtime::hookpoints::Attach("World.AsyncServiceQueues",
                            &hkAsyncDrain, &g_origAsyncDrain);
-        wxl::hook::Install("AsyncFileReadWaitGuard", wld::kAsyncFileReadWait,
+        wxl::runtime::hookpoints::Attach("World.AsyncFileReadWait",
                            &hkAsyncFileReadWait, &g_origAsyncFileReadWait);
         return true;
     }

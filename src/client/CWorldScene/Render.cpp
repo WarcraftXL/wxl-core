@@ -17,6 +17,7 @@
 #include "common/Mem.hpp"
 #include "common/Log.hpp"
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 #include "game/Gx.hpp"
@@ -248,11 +249,11 @@ namespace
         else
             WLOG_WARN("render: device not up, vtable hooks deferred to first world finalize");
 
-        wxl::hook::Install("WorldRenderFinalize", off::kWorldRenderFinalize,
+        wxl::runtime::hookpoints::Attach("Gx.WorldRenderFinalize",
                            &hkWorldFinalize, &g_origWorldFinalize);
-        wxl::hook::Install("WorldScenePass", off::kWorldOnRender,
+        wxl::runtime::hookpoints::Attach("Gx.WorldOnRender",
                            &hkWorldScene, &g_origWorldScene);
-        wxl::hook::Install("LiquidRenderPass", off::kLiquidRenderPass,
+        wxl::runtime::hookpoints::Attach("Gx.LiquidRenderPass",
                            &hkLiquidRender, &g_origLiquidRender);
 
         WLOG_INFO("render: hooks installed (EndScene, Present, Reset, WorldFinalize, WorldScenePass, LiquidRenderPass)");

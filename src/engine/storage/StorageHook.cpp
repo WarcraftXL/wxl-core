@@ -20,6 +20,7 @@
 #include "engine/assets/shared/common/Text.hpp"
 #include "common/Config.hpp"
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "common/Log.hpp"
 #include "common/Mem.hpp"
 #include "offsets/engine/Io.hpp"
@@ -506,7 +507,7 @@ namespace wxl::runtime::storage
      */
     void InstallArchiveGuard()
     {
-        wxl::hook::Install("InitializeWowConfig", io::kInitializeWowConfig,
+        wxl::runtime::hookpoints::Attach("Io.InitializeWowConfig",
             &InitializeWowConfigDetour, &g_origInitializeWowConfig);
 
         auto* gate = reinterpret_cast<void*>(io::kRequiredArchiveGateJnz);
@@ -529,11 +530,11 @@ namespace wxl::runtime::storage
      */
     void Install()
     {
-        wxl::hook::Install("Storage_FileOpen",  io::kFileOpen,  &OpenDetour, &g_origOpen);
-        wxl::hook::Install("Storage_FileSize",  io::kFileSize,  &SizeDetour, &g_origSize);
-        wxl::hook::Install("Storage_FileRead",  io::kFileRead,  &ReadDetour, &g_origRead);
-        wxl::hook::Install("Storage_FileSeek",  io::kFileSeek,  &SeekDetour, &g_origSeek);
-        wxl::hook::Install("Storage_FileClose", io::kFileClose, &CloseDetour, &g_origClose);
+        wxl::runtime::hookpoints::Attach("Io.FileOpen",  &OpenDetour, &g_origOpen);
+        wxl::runtime::hookpoints::Attach("Io.FileSize",  &SizeDetour, &g_origSize);
+        wxl::runtime::hookpoints::Attach("Io.FileRead",  &ReadDetour, &g_origRead);
+        wxl::runtime::hookpoints::Attach("Io.FileSeek",  &SeekDetour, &g_origSeek);
+        wxl::runtime::hookpoints::Attach("Io.FileClose", &CloseDetour, &g_origClose);
         WLOG_INFO("Storage: hooks installed");
     }
 

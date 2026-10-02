@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 
@@ -70,9 +71,9 @@ namespace
 
     bool InstallCharModel()
     {
-        wxl::hook::Install("CharModelSlotDispatch", m2::kCharModelSlotDispatch,
+        wxl::runtime::hookpoints::Attach("M2.CharModelSlotDispatch",
                            &hkSlotDispatch, &g_origSlotDispatch);
-        wxl::hook::Install("CharModelSlotClear", m2::kCharModelSlotClear,
+        wxl::runtime::hookpoints::Attach("M2.CharModelSlotClear",
                            &hkSlotClear, &g_origSlotClear);
         return true;
     }

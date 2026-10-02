@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 #include "engine/diag/AssetProfile.hpp"
@@ -131,8 +132,8 @@ namespace
 
     bool InstallTextures()
     {
-        wxl::hook::Install("TextureUpdate", gxoff::kTextureUpdate, &hkTexUpdate, &g_origTexUpdate);
-        wxl::hook::Install("TextureCreate", gxoff::kTextureCreate, &hkTexCreate, &g_origTexCreate);
+        wxl::runtime::hookpoints::Attach("Gx.TextureUpdate", &hkTexUpdate, &g_origTexUpdate);
+        wxl::runtime::hookpoints::Attach("Gx.TextureCreate", &hkTexCreate, &g_origTexCreate);
         return true;
     }
 }

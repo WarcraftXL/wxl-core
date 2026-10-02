@@ -30,6 +30,7 @@
 #include "common/Log.hpp"
 #include "engine/assets/shared/models/m2/M2Format.hpp"
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "game/Binding.hpp"
 #include "game/Gx.hpp"
@@ -561,22 +562,22 @@ namespace
 
     bool InstallWideIndices()
     {
-        if (!wxl::hook::Install("M2SetModelIndices", off::kSetModelIndices,
+        if (!wxl::runtime::hookpoints::Attach("M2.SetModelIndices",
                                 &hkSetModelIndices, &g_origSetModelIndices))
             return false;
-        if (!wxl::hook::Install("M2SharedSetIndices", off::kSharedSetIndices,
+        if (!wxl::runtime::hookpoints::Attach("M2.SharedSetIndices",
                                 &hkSharedSetIndices, &g_origSharedSetIndices))
             return false;
-        if (!wxl::hook::Install("M2DrawBatch", gxoff::kDrawTriangleBatch,
+        if (!wxl::runtime::hookpoints::Attach("M2.DrawBatch",
                                 &hkDrawBatch, &g_origDrawBatch))
             return false;
-        if (!wxl::hook::Install("GxDeviceDraw", gxoff::kGxDeviceDraw,
+        if (!wxl::runtime::hookpoints::Attach("Gx.DeviceDraw",
                                 &hkDeviceDraw, &g_origDeviceDraw))
             return false;
-        if (!wxl::hook::Install("M2SharedSetVertices", off::kSharedSetVertices,
+        if (!wxl::runtime::hookpoints::Attach("M2.SharedSetVertices",
                                 &hkSharedSetVertices, &g_origSharedSetVertices))
             return false;
-        if (!wxl::hook::Install("M2SceneTriangleHitTest", off::kSceneTriangleHitTest,
+        if (!wxl::runtime::hookpoints::Attach("M2.SceneTriangleHitTest",
                                 &hkSceneTriangleHitTest, &g_origTriangleHitTest))
             return false;
         WLOG_INFO("m2native-indices: submesh triangle starts read and drawn as "

@@ -302,7 +302,7 @@ namespace wxl::runtime::extensions
 
     bool InstallLoader()
     {
-        return hook::Install("extensions-loader", game::boot::kEngineInit,
+        return hookpoints::Attach("Boot.EngineInit",
                              &EngineInitDetour, &g_origEngineInit);
     }
 }

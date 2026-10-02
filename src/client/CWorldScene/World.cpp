@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 #include "engine/diag/AssetProfile.hpp"
@@ -72,8 +73,8 @@ namespace
 
     bool InstallWorld()
     {
-        wxl::hook::Install("CWorldEnter", wld::kEnter, &hkWorldEnter, &g_origWorldEnter);
-        wxl::hook::Install("FramePump", frame::kFramePump, &hkFramePump, &g_origFramePump);
+        wxl::runtime::hookpoints::Attach("World.Enter", &hkWorldEnter, &g_origWorldEnter);
+        wxl::runtime::hookpoints::Attach("Frame.Pump", &hkFramePump, &g_origFramePump);
 
         // Liquid-row null guard: this one liquid consumer dereferences the LiquidType row flag without the
         // null check the others have, so an unknown liquid id (from any served source) faults. Skip the

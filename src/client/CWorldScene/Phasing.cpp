@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 
 #include "common/Log.hpp"
@@ -122,7 +123,7 @@ namespace
 
     bool InstallPhasing()
     {
-        wxl::hook::Install("TileLoader", woff::kTileLoader, &hkTileLoad, &g_origTileLoad);
+        wxl::runtime::hookpoints::Attach("World.TileLoader", &hkTileLoad, &g_origTileLoad);
         return true;
     }
 }

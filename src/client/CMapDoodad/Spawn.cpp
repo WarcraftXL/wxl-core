@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "engine/hook/Hook.hpp"
+#include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 
@@ -44,7 +45,7 @@ namespace
 
     bool InstallDoodadSpawn()
     {
-        wxl::hook::Install("DoodadSpawn", dd::kSpawnFromMDDF, &hkDoodadSpawn, &g_origDoodadSpawn);
+        wxl::runtime::hookpoints::Attach("Doodad.SpawnFromMddf", &hkDoodadSpawn, &g_origDoodadSpawn);
         return true;
     }
 }

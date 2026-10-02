@@ -5,71 +5,73 @@
 WarcraftXL loads into the running client and gives mods a clean, typed way to talk to the engine -
 the same idea as RED4ext for Cyberpunk 2077 or SKSE for Skyrim. The framework owns the hard,
 repetitive parts (getting into the process, the hook engine, client offsets, engine bindings, an
-event bus, file-format contracts); your mods - here called **modules / scripts** - own the actual features.
+event bus); your mods - here called **extensions** - own the actual features.
 
 > **Core principle.** If something is needed everywhere and always works the same way, it belongs in
-> the core. Anything that is a *feature* - a decision, an effect, an editor - is a module. The core
-> stays small and reusable; the modules stay free to do whatever they want.
+> the core. Anything that is a *feature* - a decision, an effect, an editor - is an extension. The
+> core stays small and neutral; the extensions stay free to do whatever they want.
 
 ## How it works
 
-`WarcraftXL.dll` is the framework. It boots inside the client, brings up the hook engine, and raises
-a set of events. Each module is a small self-contained unit under `scripts/` that subscribes to those
-events and uses the core's bindings to read and drive the game. Drop a module in, rebuild, and it is
-live - no separate injector, no patched data files.
+`WarcraftXL.dll` is the framework. It boots inside the client, brings up the hook engine, raises a
+set of events, and loads every `Extensions/<Name>/<Name>.dll` found next to the client. An extension
+is its own repository and its own DLL: it exports two entry points, receives the core's service
+table, subscribes to events, and uses the core's bindings to read and drive the game.
 
-The core is organised as four pillars, so a module never touches a raw address itself:
+The core is organised as three pillars, so an extension never touches a raw address itself:
 
-| Pillar | Namespace | What it gives a module |
+| Pillar | Namespace | What it gives an extension |
 |---|---|---|
-| **Offsets** | `wxl::offsets` | The curated client addresses and struct layouts. Internal - modules never include these directly. |
-| **Bindings** | `wxl::game` | Typed, zero-overhead calls into engine functions (`Native<Fn>(addr)(args...)`) plus an enumerable catalog of `{name, address, signature}`. |
-| **Events** | `wxl::events` | A POD-dispatch event bus. A module subclasses `EventScript` and binds member functions with `on<&Self::OnEndScene>(Event::OnEndScene)`. |
-| **Assets** | `wxl::asset` | In-memory contracts for the client's file formats (ADT, WMO, M2, WDT, WDL) so modules read structured data, not byte soup. |
+| **Offsets** | `wxl::offsets` | The curated client addresses and struct layouts. Internal: an extension never includes these. |
+| **Bindings** | `wxl::game` | Typed, zero-overhead calls into engine functions (`Native<Fn>(addr)(args...)`) and typed readers of engine objects. |
+| **Events** | `wxl::events` | A POD-dispatch event bus. An extension subclasses `EventScript` and binds member functions with `on<&Self::OnEndScene>(Event::OnEndScene)`. |
 
-A module looks like this - bind in the constructor, react in the handler:
+An extension looks like this - bind in the constructor, react in the handler:
 
 ```cpp
-class MyModule final : public wxl::events::EventScript {
+class MyScript final : public wxl::ext::EventScript {
 public:
-    MyModule() { on<&MyModule::OnEndScene>(wxl::events::Event::OnEndScene); }
+    MyScript() { on<&MyScript::OnEndScene>(wxl::events::Event::OnEndScene); }
     void OnEndScene(const wxl::events::EndSceneArgs& a) { /* draw, read world, edit... */ }
 };
-MyModule g_myModule; // file-scope instance self-registers at load
+
+int __cdecl WXL_Load(const WXL_Api* api)
+{
+    wxl::ext::EventScript::Bind(api);   // the table arrives here, so scripts are built here
+    static MyScript script;
+    return 1;
+}
 ```
 
 ## Layout
 
 ```
+include/wxl/    what an extension includes: the C ABI (PluginApi.h, Common.h), the C++ SDK
+                (Common.hpp, EventScript.hpp) and the service contracts
 src/
-├── core/       Hook · Logger · Mem · Main     process bring-up, hook engine, entry point
-├── offsets/    engine/ · game/                client addresses + struct layouts (internal)
-├── game/       camera · doodad · world · ui   typed engine bindings (the wxl::game pillar)
-│               m2 · wmo · adt · unit · gx · 
-│               io · mem ...
-├── events/     Event · EventScript            the event bus + the module base class
-├── asset/      adt · wmo · m2 · wdt · wdl     file-format contracts
-├── services/   asset                          higher-level services over the pillars
-└── runtime/    RenderHooks                    per-frame / device hooks the events ride on
-
-scripts/              the modules (each builds into WarcraftXL.dll)
-├── wxl-mini-noggit   an in-client map editor (ImGui + 3D gizmo): pick a doodad, move/rotate/scale it
-├── wxl-unit-outline  a unit outline / highlight effect
-└── wxl-glue-unlock   glue-screen unlock
-
-deps/           vendored: MinHook, Dear ImGui + ImGuizmo, StormLib, FlatBuffers
+├── common/     logger, configuration, page-protection helpers, shared by every binary
+├── offsets/    engine/ · game/      client addresses, function types and struct layouts (internal)
+├── game/       camera · doodad · world · unit · m2 · wmo · gx ...   typed engine bindings
+├── engine/     hook engine, event bus, overlay, input, storage, diagnostics
+├── client/     one folder per client class: the detours that publish the events
+├── runtime/    DllMain, the extension loader, the service table
+├── patcher/    wxl-patcher.exe
+├── engine/gpu/ d3d9.dll, the render proxy
+└── probe/      development checks
+cmake/          build settings, helpers, the Linux toolchain
+deps/           vendored: MinHook, Dear ImGui
+extensions/     local clones of extensions (ignored by git; each has its own repository)
 ```
 
-Every address the bindings rely on lives in `src/offsets/`, named and annotated. The reasoning behind
-each one is kept in the project's RE documentation - the code follows it.
+Every address the bindings rely on lives in `src/offsets/`, named and annotated.
 
 ## Building
 
 The target client is a 32-bit process, so everything builds **Win32**.
 
 **Requirements**
-- CMake ≥ 3.25
-- A Win32 C++17 toolchain (Visual Studio 2022 recommended)
+- CMake ≥ 3.20
+- A Win32 C++20 toolchain (Visual Studio 2022 or later on Windows, clang mingw-w64 on Linux)
 - A legally-obtained 3.3.5a (12340) client
 
 ```sh
@@ -94,7 +96,7 @@ cmake -S . -B build/mingw-x86 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain/mi
 ## Install
 
 1. Place `WarcraftXL.dll` next to `Wow.exe` and load it into the client (import-table entry / loader).
-2. Launch. The framework writes a startup log on bootstrap - check it to confirm modules came up.
+2. Launch. The framework writes a startup log on bootstrap - check it to confirm the extensions came up.
 
 > Modifying a client binary is on you: work on a **copy**, keep an untouched backup, and only point
 > this at a client and server you are permitted to modify and connect to.
@@ -130,6 +132,5 @@ not affiliated with or endorsed by Blizzard.
 
 Released under the **GNU General Public License v3.0** - see [LICENSE](LICENSE).
 
-Bundles [MinHook](https://github.com/TsudaKageyu/minhook) (© Tsuda Kageyu, BSD 2-Clause),
-[Dear ImGui](https://github.com/ocornut/imgui) + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo),
-and [StormLib](https://github.com/ladislav-zezula/StormLib) under `deps/`, with their licenses retained.
+Bundles [MinHook](https://github.com/TsudaKageyu/minhook) (© Tsuda Kageyu, BSD 2-Clause) and
+[Dear ImGui](https://github.com/ocornut/imgui) (MIT) under `deps/`, with their licenses retained.

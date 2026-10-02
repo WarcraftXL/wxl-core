@@ -1,7 +1,6 @@
 # Builds WarcraftXL.dll + wxl-patcher.exe and publishes them as a GitHub Release on every push to
-# v1.1 (the current SDK line). The job runs the exact same commands a developer runs locally
-# (test-ci-build.ps1 / build.ps1) -- nothing here knows anything the local build recipe does not, so a
-# green run means the documented local build works, not that some parallel CI-only path does.
+# v1.2 (the current SDK line). The job runs the same commands a developer runs locally (build.ps1),
+# so a green run means the documented local build works.
 #
 # d3d9.dll (the render proxy) is a separate, feature-specific injection mechanism and is not part of
 # this release: the base install is wxl-patcher.exe adding the WarcraftXL.dll import to a user's own
@@ -13,16 +12,16 @@ name: Build and Release
 
 on:
   push:
-    branches: [v1.1]
+    branches: [v1.2]
   pull_request:
-    branches: [v1.1]
+    branches: [v1.2]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
-  SERIES: '1.1'
+  SERIES: '1.2'
 
 defaults:
   run:
@@ -45,7 +44,7 @@ jobs:
         id: v
         run: |
           $count   = [int](git rev-list --count HEAD)
-          $release = $env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -eq 'refs/heads/v1.1'
+          $release = $env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -eq 'refs/heads/v1.2'
           $version = if ($release) { "$env:SERIES.$count" } else { 'dev-' + $env:GITHUB_SHA.Substring(0, 7) }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host $version
@@ -73,12 +72,12 @@ jobs:
             dist/wxl-patcher.exe
           if-no-files-found: error
 
-  # Every push to v1.1 becomes a release, tag included. The tag is created by this job from the
+  # Every push to v1.2 becomes a release, tag included. The tag is created by this job from the
   # version above rather than pushed by hand, and a tag created with GITHUB_TOKEN does not start
   # another run, so there is no loop to break.
   release:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/v1.1'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/v1.2'
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -70,3 +70,6 @@ Testing/
 
 # internal
 tools/
+
+# extensions are cloned here for local builds; each has its own repository
+/extensions/

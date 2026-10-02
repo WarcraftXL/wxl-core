@@ -22,9 +22,12 @@ function(wxl_add_extensions root)
         # An extension that needs cross-target-shared source (src/engine/assets/shared/...) declares it
         # in its own extensions/<name>/shared.cmake (populates WXL_EXT_SHARED_SRC) instead of this loop
         # hardcoding extension names -- drop a new extension in, give it a shared.cmake if it needs
-        # one, and it's picked up with no edit here. Reset before each include: file(GLOB) in the
-        # included script would otherwise accumulate the previous iteration's stale value.
+        # one, and it's picked up with no edit here. WXL_EXT_INCLUDE_DIRS is the same arrangement for
+        # headers an extension vendors itself, so a dependency only it uses stays in its own repository
+        # rather than in the core's deps/. Reset before each include: file(GLOB) in the included script
+        # would otherwise accumulate the previous iteration's stale value.
         set(WXL_EXT_SHARED_SRC "")
+        set(WXL_EXT_INCLUDE_DIRS "")
         include("${wxl_ext_dir}/shared.cmake" OPTIONAL)
         list(APPEND WXL_EXT_SRC ${WXL_EXT_SHARED_SRC})
 
@@ -32,7 +35,8 @@ function(wxl_add_extensions root)
         set_target_properties(${wxl_ext_name} PROPERTIES OUTPUT_NAME "${wxl_ext_name}" PREFIX "")
         target_include_directories(${wxl_ext_name} PRIVATE
             "${CMAKE_SOURCE_DIR}/include"
-            "${CMAKE_SOURCE_DIR}/src")
+            "${CMAKE_SOURCE_DIR}/src"
+            ${WXL_EXT_INCLUDE_DIRS})
         # WXL_EXTENSION is what makes PluginApi.h declare the two entry points as exports. It belongs on
         # the target rather than in a source file: an extension that forgets it still builds, and fails
         # only at load with "exports no WXL_Query/WXL_Load".

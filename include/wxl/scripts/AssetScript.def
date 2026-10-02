@@ -1,0 +1,68 @@
+// AssetScript: terrain, WMO and texture loads.
+// One row per hook: WXL_SCRIPT_HOOK(name, (params), (args)) where args unpacks `a`, the event's args
+// struct (wxl/Events.hpp). The name is the event's name. Rows are appended, never reordered.
+// Copyright (C) 2026 WarcraftXL
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+#ifndef WXL_SCRIPT_HOOK
+#error "define WXL_SCRIPT_HOOK(name, params, args) before including this table"
+#endif
+
+/**
+ * An ADT map chunk is being built.
+ *
+ * @param void* chunk : the map chunk
+ * @param uint32 layerCount : its texture layers
+ */
+WXL_SCRIPT_HOOK(OnAdtChunkBuild, (void* chunk, uint32_t layerCount), (a.chunk, a.layerCount))
+
+/**
+ * A split ADT tile finished loading its root, _tex0 and _obj0 files; main thread, after the stock
+ * parser ran. Read-only.
+ *
+ * @param AdtSplitTileLoadArgs tile : tileFirst, tileSecond, rootSize, texSize, objSize, chunkCount
+ */
+WXL_SCRIPT_HOOK(OnAdtSplitTileLoad, (const events::AdtSplitTileLoadArgs& tile), (a))
+
+/**
+ * A WMO root buffer is read, before the native chunk walk: reshape it through wxl::game::wmo.
+ *
+ * @param void* root : the root buffer
+ */
+WXL_SCRIPT_HOOK(OnWmoRootLoad, (void* root), (a.root))
+
+/**
+ * A WMO group buffer is read, before the native sub-chunk walk: reshape it through wxl::game::wmo.
+ *
+ * @param void* group : the group buffer
+ */
+WXL_SCRIPT_HOOK(OnWmoGroupLoad, (void* group), (a.group))
+
+/**
+ * A texture is about to upload to the device.
+ *
+ * @param void* texture : the texture object
+ * @param uint32 width
+ * @param uint32 height
+ */
+WXL_SCRIPT_HOOK(OnTextureUpload, (void* texture, uint32_t width, uint32_t height), (a.texture, a.width, a.height))
+
+/**
+ * A BLP texture was requested by name; fires on every reference, cached or not. Read-only.
+ *
+ * @param string name : the full virtual path requested
+ * @param void* handle : the resolved texture handle, null on failure
+ */
+WXL_SCRIPT_HOOK(OnBlpLoad, (const char* name, void* handle), (a.name, a.handle))

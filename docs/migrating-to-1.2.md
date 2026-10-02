@@ -34,3 +34,52 @@ own detours: every `wxl::hook::Install("Label", address, ...)` of the core becam
 `hookpoints::Attach("Section.Name", ...)`, so the core and the extensions share the same chain and
 the same name in the log. One duplicate row (`M2.SharedSetIndices`) was dropped; every other name is
 unchanged, and `WXL_Api::HookAttachByName` works as before.
+
+## Scripts: `wxl/Script.hpp` replaces `EventScript` and the hand-written entry points
+
+`EventScript::on<>` and `EventScript::Bind` still work and now print a deprecation warning. The
+replacement is a script type with one virtual per hook; the hooks of each type are the rows of
+`include/wxl/scripts/<Type>Script.def`:
+
+| Type | Hooks |
+|---|---|
+| `WorldScript` | OnUpdate, OnWorldEnter, OnWorldLeave, OnInput, OnWorldClick, OnTargetChanged, OnSoundPlay |
+| `RenderScript` | OnFrame, OnEndScene, OnDeviceLost, OnDeviceReset, OnWorldRender, OnWorldRenderEnd, OnWorldSceneEnd, OnLiquidRender, OnGrassWind, OnAdtHeightBlend |
+| `ModelScript` | OnModelLoadPre, OnModelLoad, OnM2SkinFinalize, OnM2PerFrameUpdate, OnBuildBonePalette, OnM2BatchDraw, OnM2SetupBatchAlpha, OnRibbonDraw, OnM2NativeLoad |
+| `ObjectScript` | OnObjectUpdate, OnObjectDestroy, OnDoodadSpawn, OnItemSlotChange, OnItemSlotClear |
+| `AssetScript` | OnAdtChunkBuild, OnAdtSplitTileLoad, OnWmoRootLoad, OnWmoGroupLoad, OnTextureUpload, OnBlpLoad |
+
+Before:
+
+```cpp
+class Mod final : public wxl::ext::EventScript {
+public:
+    Mod() { on<&Mod::OnUpdate>(wxl::events::Event::OnUpdate); }
+    void OnUpdate(const wxl::events::UpdateArgs& a) { tick(a.dt); }
+};
+const WXL_PluginInfo* __cdecl WXL_Query(void) { static const WXL_PluginInfo i = { sizeof i, WXL_API_VERSION, "mod", 1, WXL_CLIENT_BUILD }; return &i; }
+int __cdecl WXL_Load(const WXL_Api* api) { wxl::ext::EventScript::Bind(api); static Mod mod; return 1; }
+```
+
+After:
+
+```cpp
+#include "wxl/Script.hpp"
+class Mod final : public wxl::WorldScript {
+    void OnUpdate(float dt, uint32_t timeMs) override { tick(dt); }
+};
+WXL_DECLARE_EXTENSION("mod", 1)
+void AddScripts() { wxl::ScriptMgr::Add(new Mod()); }
+```
+
+Steps:
+
+1. Replace the base class by the type (or types: a class may derive several) that holds the hooks
+   you use, and give each handler the signature of its row in the `.def`. Args structs with more
+   than four fields arrive as `const XxxArgs&`; a `bool*` of the struct arrives as `bool&`.
+2. Delete `WXL_Query` and `WXL_Load`; write `WXL_DECLARE_EXTENSION("name", version)` and an
+   `AddScripts()` that adds each script with `wxl::ScriptMgr::Add(new ...)`.
+3. Replace `api->Log(level, "tag", ...)` by `wxl::ScriptMgr::Log(level, ...)` and a kept `api`
+   pointer by `wxl::ScriptMgr::Api()`. `ScriptMgr::GetInterface<T>(name, version)` looks a service up.
+
+A script receives every hook of its type; an empty default costs one virtual call per event.

@@ -1,0 +1,61 @@
+// ObjectScript: server objects, doodads and character equipment.
+// One row per hook: WXL_SCRIPT_HOOK(name, (params), (args)) where args unpacks `a`, the event's args
+// struct (wxl/Events.hpp). The name is the event's name. Rows are appended, never reordered.
+// Copyright (C) 2026 WarcraftXL
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+#ifndef WXL_SCRIPT_HOOK
+#error "define WXL_SCRIPT_HOOK(name, params, args) before including this table"
+#endif
+
+/**
+ * A server object create/update batch was parsed. Read-only.
+ *
+ * @param void* packet : the inbound message reader, cursor already consumed
+ * @param int32 opcode : the message opcode
+ */
+WXL_SCRIPT_HOOK(OnObjectUpdate, (void* packet, int opcode), (a.packet, a.opcode))
+
+/**
+ * An object is about to despawn; it is still resident. Read-only.
+ *
+ * @param void* packet : holds the object GUID and the on-death flag
+ * @param int32 opcode : the message opcode
+ */
+WXL_SCRIPT_HOOK(OnObjectDestroy, (void* packet, int opcode), (a.packet, a.opcode))
+
+/**
+ * A placed map doodad was built; the transform is read through wxl::game::doodad.
+ *
+ * @param void* doodad : the doodad object
+ */
+WXL_SCRIPT_HOOK(OnDoodadSpawn, (void* doodad), (a.doodad))
+
+/**
+ * A character model slot received an item.
+ *
+ * @param void* charModelObj : the CharModelObject
+ * @param uint32 modelSlot : the internal model slot, one per equipment category
+ * @param void* itemDataPtr : the item data block
+ */
+WXL_SCRIPT_HOOK(OnItemSlotChange, (void* charModelObj, uint32_t modelSlot, void* itemDataPtr), (a.charModelObj, a.modelSlot, a.itemDataPtr))
+
+/**
+ * A character model equipment slot was cleared.
+ *
+ * @param void* charModelObj : the CharModelObject
+ * @param uint32 equipSlotWow : the equipment slot, EQUIPMENT_SLOT_* 0..18
+ */
+WXL_SCRIPT_HOOK(OnItemSlotClear, (void* charModelObj, uint32_t equipSlotWow), (a.charModelObj, a.equipSlotWow))

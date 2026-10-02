@@ -18,6 +18,7 @@
 
 #include "wxl/PluginApi.h"
 
+#include "wxl/Common.h"
 #include "wxl/Events.hpp"
 
 /// An extension subclasses EventScript and, in its constructor, binds member functions to events
@@ -43,6 +44,7 @@ namespace wxl::ext
          * it is handed one, so a subclass built at static-initialisation time would bind to nothing.
          * @param api  the table WXL_Load received.
          */
+        WXL_DEPRECATED("derive a script type from wxl/Script.hpp and bind through WXL_EXTENSION")
         static void Bind(const WXL_Api* api) { s_api = api; }
 
     protected:
@@ -54,6 +56,7 @@ namespace wxl::ext
          * @param e  event to bind the member function to.
          */
         template <auto Method>
+        WXL_DEPRECATED("derive a script type from wxl/Script.hpp: its hooks are virtuals")
         void on(events::Event e)
         {
             using Traits = decltype(detail::MemArgOf(Method));

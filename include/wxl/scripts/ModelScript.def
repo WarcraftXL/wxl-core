@@ -1,0 +1,89 @@
+// ModelScript: M2 models, skins, poses and batches. Several hooks fire per instance or per batch.
+// One row per hook: WXL_SCRIPT_HOOK(name, (params), (args)) where args unpacks `a`, the event's args
+// struct (wxl/Events.hpp). The name is the event's name. Rows are appended, never reordered.
+// Copyright (C) 2026 WarcraftXL
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+#ifndef WXL_SCRIPT_HOOK
+#error "define WXL_SCRIPT_HOOK(name, params, args) before including this table"
+#endif
+
+/**
+ * A model's raw bytes are read, before the parse.
+ *
+ * @param void* model : the model object
+ */
+WXL_SCRIPT_HOOK(OnModelLoadPre, (void* model), (a.model))
+
+/**
+ * A model finished loading and is parsed.
+ *
+ * @param void* model : the model object
+ */
+WXL_SCRIPT_HOOK(OnModelLoad, (void* model), (a.model))
+
+/**
+ * A model's skin profile is being finalized, before the native finalize sizes its batch blocks.
+ *
+ * @param void* model : the model object
+ */
+WXL_SCRIPT_HOOK(OnM2SkinFinalize, (void* model), (a.model))
+
+/**
+ * The scene graph updates one visible M2 instance; once per instance per frame.
+ *
+ * @param void* renderCtx : the per-instance render context
+ */
+WXL_SCRIPT_HOOK(OnM2PerFrameUpdate, (void* renderCtx), (a.renderCtx))
+
+/**
+ * The engine filled an instance's bone palette, before the batch draw uploads it; bone matrices
+ * may be overwritten here.
+ *
+ * @param void* renderCtx : the M2Instance whose palette was written
+ */
+WXL_SCRIPT_HOOK(OnBuildBonePalette, (void* renderCtx), (a.renderCtx))
+
+/**
+ * One M2 triangle batch was drawn; its buffers are still bound.
+ *
+ * @param M2BatchDrawArgs batch : device, model, primType, baseVertex, minIndex, numVerts, startIndex, primCount
+ */
+WXL_SCRIPT_HOOK(OnM2BatchDraw, (const events::M2BatchDrawArgs& batch), (a))
+
+/**
+ * An M2 batch's alpha-test reference was chosen from its blend mode; wxl::game::m2::PushAlphaRef
+ * re-pushes it.
+ *
+ * @param void* model : the model object, may be null
+ * @param uint16 blendMode : the batch blend mode; 1 is alpha key
+ */
+WXL_SCRIPT_HOOK(OnM2SetupBatchAlpha, (void* model, uint16_t blendMode), (a.model, a.blendMode))
+
+/**
+ * A ribbon emitter is about to draw.
+ *
+ * @param void* emitter : the ribbon emitter
+ * @param uint32 layerCount : the emitter's texture layers
+ * @param bool& useMultiTexture : set true to request the single-pass multi-texture combine
+ */
+WXL_SCRIPT_HOOK(OnRibbonDraw, (void* emitter, uint32_t layerCount, bool& useMultiTexture), (a.emitter, a.layerCount, *a.useMultiTexture))
+
+/**
+ * The native reader direct-filled a modern MD21 model.
+ *
+ * @param M2NativeLoadArgs load : model, version, texturesResolved, texturesUnresolved, skipMask
+ */
+WXL_SCRIPT_HOOK(OnM2NativeLoad, (const events::M2NativeLoadArgs& load), (a))

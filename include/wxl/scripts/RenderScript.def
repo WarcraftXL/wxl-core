@@ -1,0 +1,101 @@
+// RenderScript: the device, the frame and the world passes.
+// One row per hook: WXL_SCRIPT_HOOK(name, (params), (args)) where args unpacks `a`, the event's args
+// struct (wxl/Events.hpp). The name is the event's name. Rows are appended, never reordered.
+// Copyright (C) 2026 WarcraftXL
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+#ifndef WXL_SCRIPT_HOOK
+#error "define WXL_SCRIPT_HOOK(name, params, args) before including this table"
+#endif
+
+/**
+ * Once per frame, before Present.
+ *
+ * @param void* device : the IDirect3DDevice9
+ */
+WXL_SCRIPT_HOOK(OnFrame, (void* device), (a.device))
+
+/**
+ * End of the frame, before Present: the overlay slot.
+ *
+ * @param void* device : the IDirect3DDevice9
+ */
+WXL_SCRIPT_HOOK(OnEndScene, (void* device), (a.device))
+
+/**
+ * Before IDirect3DDevice9::Reset: release every D3DPOOL_DEFAULT resource here.
+ *
+ * @param void* device : the IDirect3DDevice9
+ * @param void* params : the D3DPRESENT_PARAMETERS the reset creates with
+ */
+WXL_SCRIPT_HOOK(OnDeviceLost, (void* device, void* params), (a.device, a.params))
+
+/**
+ * After a successful IDirect3DDevice9::Reset: recreate the D3DPOOL_DEFAULT resources here.
+ *
+ * @param void* device : the IDirect3DDevice9
+ * @param void* params : the D3DPRESENT_PARAMETERS the reset created with
+ */
+WXL_SCRIPT_HOOK(OnDeviceReset, (void* device, void* params), (a.device, a.params))
+
+/**
+ * The world draw pass starts.
+ *
+ * @param void* device : the IDirect3DDevice9
+ */
+WXL_SCRIPT_HOOK(OnWorldRender, (void* device), (a.device))
+
+/**
+ * The world is drawn and the interface is not yet: the post-process slot, in screen space.
+ *
+ * @param void* device : the IDirect3DDevice9
+ */
+WXL_SCRIPT_HOOK(OnWorldRenderEnd, (void* device), (a.device))
+
+/**
+ * The world is drawn and the camera matrices that drew it are still on the device: geometry
+ * placed by world coordinate lands where those coordinates say.
+ *
+ * @param void* device : the IDirect3DDevice9
+ * @param void* sceneDepth : the depth-stencil surface the world was drawn into, may be null
+ */
+WXL_SCRIPT_HOOK(OnWorldSceneEnd, (void* device, void* sceneDepth), (a.device, a.sceneDepth))
+
+/**
+ * A liquid render pass is about to draw. Read-only.
+ *
+ * @param LiquidRenderArgs pass : bank, transform, passType (0 main, 1 secondary), instanceCount
+ */
+WXL_SCRIPT_HOOK(OnLiquidRender, (const events::LiquidRenderArgs& pass), (a))
+
+/**
+ * The grass-wind integrator advanced this frame; only while grass draws. Read-only.
+ *
+ * @param float dirX : damped wind vector, x
+ * @param float dirY : damped wind vector, y
+ * @param float strength : its magnitude
+ * @param float phase : accumulated sway phase in radians
+ */
+WXL_SCRIPT_HOOK(OnGrassWind, (float dirX, float dirY, float strength, float phase), (a.dirX, a.dirY, a.strength, a.phase))
+
+/**
+ * A stock terrain pixel-shader permutation was patched for height blending; once per permutation,
+ * on the draw thread.
+ *
+ * @param uint32 layerCount : the permutation's texture layers (2..4)
+ * @param uint32 stockBytes : bytecode size before the injection
+ * @param uint32 patchedBytes : bytecode size after it
+ */
+WXL_SCRIPT_HOOK(OnAdtHeightBlend, (uint32_t layerCount, uint32_t stockBytes, uint32_t patchedBytes), (a.layerCount, a.stockBytes, a.patchedBytes))

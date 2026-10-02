@@ -24,30 +24,27 @@ The core is organised as three pillars, so an extension never touches a raw addr
 |---|---|---|
 | **Offsets** | `wxl::offsets` | The curated client addresses and struct layouts. Internal: an extension never includes these. |
 | **Bindings** | `wxl::game` | Typed, zero-overhead calls into engine functions (`Native<Fn>(addr)(args...)`) and typed readers of engine objects. |
-| **Events** | `wxl::events` | A POD-dispatch event bus. An extension subclasses `EventScript` and binds member functions with `on<&Self::OnEndScene>(Event::OnEndScene)`. |
+| **Scripts** | `wxl` | Script types with one virtual per hook (`WorldScript`, `RenderScript`, `ModelScript`, `ObjectScript`, `AssetScript`), their tables under `include/wxl/scripts/`, and a `ScriptMgr`. |
 
-An extension looks like this - bind in the constructor, react in the handler:
+An extension looks like this - derive a type, override what you need, add the script:
 
 ```cpp
-class MyScript final : public wxl::ext::EventScript {
-public:
-    MyScript() { on<&MyScript::OnEndScene>(wxl::events::Event::OnEndScene); }
-    void OnEndScene(const wxl::events::EndSceneArgs& a) { /* draw, read world, edit... */ }
+#include "wxl/Script.hpp"
+
+class MyScript final : public wxl::RenderScript {
+    void OnEndScene(void* device) override { /* draw, read world, edit... */ }
 };
 
-int __cdecl WXL_Load(const WXL_Api* api)
-{
-    wxl::ext::EventScript::Bind(api);   // the table arrives here, so scripts are built here
-    static MyScript script;
-    return 1;
-}
+WXL_DECLARE_EXTENSION("my-extension", 1)   // writes WXL_Query and WXL_Load
+
+void AddScripts() { wxl::ScriptMgr::Add(new MyScript()); }
 ```
 
 ## Layout
 
 ```
-include/wxl/    what an extension includes: the C ABI (PluginApi.h, Common.h), the C++ SDK
-                (Common.hpp, EventScript.hpp) and the service contracts
+include/wxl/    what an extension includes: the C ABI (PluginApi.h, Common.h, Events.hpp), the
+                C++ SDK (Common.hpp, Script.hpp and the scripts/*.def tables)
 src/
 ├── common/     logger, configuration, page-protection helpers, shared by every binary
 ├── offsets/    engine/ · game/      client addresses, function types and struct layouts (internal)

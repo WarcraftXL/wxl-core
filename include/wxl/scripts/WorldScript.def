@@ -1,0 +1,75 @@
+// WorldScript: the world, the frame tick, input and the player's target.
+// One row per hook: WXL_SCRIPT_HOOK(name, (params), (args)) where args unpacks `a`, the event's args
+// struct (wxl/Events.hpp). The name is the event's name. Rows are appended, never reordered.
+// Copyright (C) 2026 WarcraftXL
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+#ifndef WXL_SCRIPT_HOOK
+#error "define WXL_SCRIPT_HOOK(name, params, args) before including this table"
+#endif
+
+/**
+ * Once per frame, the logic tick.
+ *
+ * @param float dt : seconds since the previous frame
+ * @param uint32 timeMs : the frame timestamp in milliseconds
+ */
+WXL_SCRIPT_HOOK(OnUpdate, (float dt, uint32_t timeMs), (a.dt, a.timeMs))
+
+/**
+ * The world finished loading; the player is in-world.
+ *
+ * @param uint32 mapId : the map entered
+ */
+WXL_SCRIPT_HOOK(OnWorldEnter, (uint32_t mapId), (a.mapId))
+
+/**
+ * The world is being torn down; the map being left is still loaded.
+ *
+ * @param uint32 mapId : the map being left
+ */
+WXL_SCRIPT_HOOK(OnWorldLeave, (uint32_t mapId), (a.mapId))
+
+/**
+ * A window message arrived.
+ *
+ * @param uint32 message : the window message
+ * @param uintptr wparam
+ * @param uintptr lparam
+ * @param bool& handled : set true to swallow the message; the game never sees it
+ */
+WXL_SCRIPT_HOOK(OnInput, (uint32_t message, uintptr_t wparam, uintptr_t lparam, bool& handled), (a.message, a.wparam, a.lparam, *a.handled))
+
+/**
+ * A mouse click resolved to a point or an object in the world. Does not fire when a UI handler
+ * consumed the click.
+ *
+ * @param WorldClickArgs click : message, hitType (2 M2 or doodad, 3 terrain or WMO), x y z, objLo objHi
+ */
+WXL_SCRIPT_HOOK(OnWorldClick, (const events::WorldClickArgs& click), (a))
+
+/**
+ * The target-set API applied a new target; the GUID is read through wxl::game.
+ *
+ * @param void* scriptState : the script state the call ran on
+ */
+WXL_SCRIPT_HOOK(OnTargetChanged, (void* scriptState), (a.scriptState))
+
+/**
+ * A UI or world sound is about to play; the sound id or name is on the script stack.
+ *
+ * @param void* scriptState : the script state the call ran on
+ */
+WXL_SCRIPT_HOOK(OnSoundPlay, (void* scriptState), (a.scriptState))

@@ -161,9 +161,10 @@
       });
     });
 
-    // Script framework
-    var fw = add(null, { id: "framework", label: "Script Framework", group: true, desc: api.framework.description,
-      render: function () { return "<h2>Script Framework</h2>" + where("include/wxl/Script.hpp") +
+    // Extension API: the script registry plus the hook, service and config headers. Each item
+    // carries its own file, so the group itself names none.
+    var fw = add(null, { id: "framework", label: "Extension API", group: true, desc: api.framework.description,
+      render: function () { return "<h2>Extension API</h2>" +
         '<div class="desc">' + prose(fw.desc) + "</div>" + overview(fw); } });
     roots.push(fw);
     api.framework.items.forEach(function (it) { itemNode(fw, it, "framework"); });

@@ -16,6 +16,9 @@ ASSETS = Path(__file__).resolve().parent
 SCRIPT_TYPES = ["WorldScript", "RenderScript", "ModelScript", "ObjectScript", "AssetScript"]
 OBJECT_BASE_FILES = ["Object.hpp", "Unit.hpp", "Player.hpp"]  # the base chain, documented in order
 FRAMEWORK_NAMES = {"ScriptObject", "ScriptMgr", "WXL_DECLARE_EXTENSION"}
+# The rest of the extension-authoring surface, one top-level header each. CfgParse.hpp is left out:
+# it is the parser Config.hpp is built on, not something an extension calls.
+PLUMBING_FILES = ["Hook.hpp", "Service.hpp", "Config.hpp"]
 
 
 # ---------------------------------------------------------------- lexer
@@ -244,9 +247,27 @@ def strip_attributes(s):
             return s
 
 
+def strip_decltype(s):
+    """Drops a leading decltype(...) return type, whose parens are not a parameter list."""
+    s = s.strip()
+    while s.startswith("decltype("):
+        depth = 0
+        for k in range(len("decltype"), len(s)):
+            if s[k] == "(":
+                depth += 1
+            elif s[k] == ")":
+                depth -= 1
+                if depth == 0:
+                    s = s[k + 1:].strip()
+                    break
+        else:
+            return s
+    return s
+
+
 def classify(sig):
     """(kind, name) of a subject signature."""
-    core = strip_attributes(strip_template(sig))
+    core = strip_decltype(strip_attributes(strip_template(sig)))
     if core.startswith("friend"):
         return "friend", None
     m = re.match(r"namespace\s+([\w:]+)", core)
@@ -267,6 +288,11 @@ def classify(sig):
     p = core.find("(")
     if p >= 0 and "=" not in core[:p].replace("operator=", "").replace("==", "").replace("!=", ""):
         head = core[:p].rstrip()
+        # operator() and operator[] carry their own brackets, so the first '(' is part of the name.
+        if head.endswith("operator"):
+            for sym in ("()", "[]"):
+                if core[p:].startswith(sym):
+                    return "function", "operator" + sym
         m = re.search(r"(operator\s*(?:[\w:]+(?:\s*[*&])*|[^\w\s(]+))$", head)
         if m:
             return "function", re.sub(r"\s+", " ", m.group(1))
@@ -648,6 +674,8 @@ def main():
     framework = parse_header(INCLUDE / "Script.hpp")
     scripts = build_scripts(framework)
     framework_items = [it for it in framework["items"] if it["name"] in FRAMEWORK_NAMES]
+    for f in PLUMBING_FILES:
+        framework_items.extend(parse_header(INCLUDE / f)["items"])
 
     names = [p.name for p in sorted((INCLUDE / "objects").glob("*.hpp"))]
     ordered = OBJECT_BASE_FILES + [n for n in names if n not in OBJECT_BASE_FILES]
@@ -668,7 +696,9 @@ def main():
                          "description": h["description"] or h["banner"], "items": h["items"]})
 
     api = {"events": events, "eventTypes": event_types, "scripts": scripts,
-           "framework": {"description": banner((INCLUDE / "Script.hpp").read_text(encoding="utf-8"), True),
+           "framework": {"description":
+                             "What an extension is built out of: the script registry, a typed hook, "
+                             "the cross-extension services and the per-extension config reader.",
                          "items": framework_items},
            "objects": objects, "bindings": bindings}
 

@@ -114,6 +114,51 @@ and its duplicate `EnterMap` is gone (the one in `World.hpp` is the same functio
 most derived type you need; `Player.hpp` pulls in `Unit.hpp` and `Object.hpp`. The free functions
 stay.
 
+## Hooks, services and the config reader
+
+Three pieces of `WXL_Api` plumbing every extension was writing for itself now ship with the SDK. The
+raw table is untouched, so none of this is forced: `ScriptMgr::Api()` keeps working.
+
+**`wxl/Hook.hpp`** — `wxl::Hook<Fn>` holds a detour and the chain link behind it under one function
+type, so a detour wired to the wrong trampoline no longer compiles. `Fn` is the function *type*, the
+same convention the core's own `hookpoints::Attach` uses.
+
+```cpp
+// before: a global for the original, a cast per attach
+using ChunkBuildFn = void __cdecl(void*);
+ChunkBuildFn* g_origChunkBuild = nullptr;
+void __cdecl hkChunkBuild(void* c) { g_origChunkBuild(c); }
+g_api->HookAttachByName("Adt.ChunkBuild", reinterpret_cast<void*>(&hkChunkBuild),
+                        reinterpret_cast<void**>(&g_origChunkBuild), 0);
+// after
+static wxl::Hook<void __cdecl(void*)> g_chunkBuild;
+void __cdecl hkChunkBuild(void* c) { g_chunkBuild(c); }
+g_chunkBuild.Attach("Adt.ChunkBuild", &hkChunkBuild);
+```
+
+`Attach` also has an address overload for a point the core does not name. Calling the handle calls
+the next link in the chain; `Original()` hands it over if you would rather be explicit.
+
+**`wxl/Service.hpp`** — `wxl::Service<T>` resolves a published capability on first use and keeps it,
+which is the lazy accessor each extension had copied. A lookup that finds nothing is retried, so a
+service published after the first attempt is still picked up. `wxl::Publish<T>` is the typed
+counterpart of `ScriptMgr::GetInterface<T>`, and does the `const_cast` the raw call needs once.
+
+```cpp
+static wxl::Service<WXL_FdidApi> g_fdid("wxl.fdid", WXL_FDID_API_VERSION);
+if (g_fdid) g_fdid->ResolveTexture(path, out, cap);
+
+wxl::Publish("wxl.db2", WXL_DB2_API_VERSION, &g_db2Api);
+```
+
+**`wxl/Config.hpp`** — the per-extension env-var + `.cfg` reader moved out of the core's private
+`src/common/`, where extensions were reaching into it. The API and the `wxl::ext::config` namespace
+are unchanged, and `wxl::config` is now an alias for it. `common/CfgParse.hpp` moved to
+`wxl/CfgParse.hpp` the same way.
+
+- Replace `#include "common/ExtensionConfig.hpp"` with `#include "wxl/Config.hpp"`.
+- Both old paths still compile through forwarding headers that print the new path.
+
 ## More object handles (nothing to do)
 
 `wxl/objects/` gains seven handles beside `Object`, `Unit` and `Player`. Each one wraps a raw pointer

@@ -5,7 +5,10 @@
 # proxy do not link the engine, so the shared infrastructure is object-level, not a link dependency.
 file(GLOB WXL_COMMON_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/common/*.cpp")
 add_library(wxl_common OBJECT ${WXL_COMMON_SRC})
-target_include_directories(wxl_common PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+# include/ too: the config reader it compiles is the one extensions include, so it lives in the SDK.
+target_include_directories(wxl_common PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/include")
 target_compile_definitions(wxl_common PRIVATE ${WXL_DEFS})
 
 # --- WarcraftXL.dll = engine + features + assets pipelines ------------------------------------------

@@ -15,7 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "common/Config.hpp"
-#include "common/CfgParse.hpp"
+#include "wxl/CfgParse.hpp"
 
 #include <windows.h>
 #include <cstdio>

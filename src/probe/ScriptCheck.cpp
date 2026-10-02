@@ -16,7 +16,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+#include "wxl/Hook.hpp"
 #include "wxl/Script.hpp"
+#include "wxl/Service.hpp"
 #include "wxl/objects/Camera.hpp"
 #include "wxl/objects/Doodad.hpp"
 #include "wxl/objects/GameObject.hpp"
@@ -53,7 +55,38 @@ namespace
     {
         for (uint32_t i = 0; i < g_subCount; ++i) if (g_subs[i].event == event) g_subs[i].fn(g_subs[i].user, args);
     }
-    void* __cdecl FakeGetInterface(const char*, uint32_t) { return nullptr; }
+    // One published service, so Service<T> has something to resolve, and a hook table that answers
+    // one name, so Hook can be driven without the engine behind it.
+    struct Published { const char* name; uint32_t version; void* iface; };
+    Published g_published{};
+
+    void __cdecl FakePublishInterface(const char* name, uint32_t version, void* iface)
+    {
+        g_published = { name, version, iface };
+    }
+    void* __cdecl FakeGetInterface(const char* name, uint32_t version)
+    {
+        const bool match = g_published.name && name && std::strcmp(g_published.name, name) == 0 &&
+                           g_published.version == version;
+        return match ? g_published.iface : nullptr;
+    }
+
+    using ProbeFn = int __cdecl(int);
+    int __cdecl ChainEnd(int v) { return v + 1; }
+    const char* g_attachedName = nullptr;
+    int         g_attachedPriority = -1;
+
+    int __cdecl FakeHookAttachByName(const char* pointName, void* detour, void** original, int priority)
+    {
+        if (!pointName || std::strcmp(pointName, "Probe.Point") != 0) return 0;
+        g_attachedName     = pointName;
+        g_attachedPriority = priority;
+        (void)detour;
+        *original = reinterpret_cast<void*>(&ChainEnd);
+        return 1;
+    }
+
+    struct FakeService { uint32_t structSize; int value; };
 
     class Both final : public wxl::WorldScript, public wxl::RenderScript
     {
@@ -71,10 +104,12 @@ int main()
     WXL_Api api{};
     api.structSize   = sizeof api;
     api.apiVersion   = WXL_API_VERSION;
-    api.Log          = &FakeLog;
-    api.Subscribe    = &FakeSubscribe;
-    api.Emit         = &FakeEmit;
-    api.GetInterface = &FakeGetInterface;
+    api.Log              = &FakeLog;
+    api.Subscribe        = &FakeSubscribe;
+    api.Emit             = &FakeEmit;
+    api.GetInterface     = &FakeGetInterface;
+    api.PublishInterface = &FakePublishInterface;
+    api.HookAttachByName = &FakeHookAttachByName;
 
     // Added before Bind: waits, then is subscribed by Bind.
     Both* early = new Both();
@@ -153,6 +188,27 @@ int main()
     wxl::Wmo noWmo;
     wxl::WmoGroup noWmoGroup;
     CHECK(!noModel && !noWmo && !noWmoGroup);
+
+    // Hook: an unknown point fails and leaves the chain link null; a known one fills it, and calling
+    // the hook passes through to what the core handed back.
+    wxl::Hook<ProbeFn> hook;
+    CHECK(!hook && !hook.Original());
+    CHECK(!hook.Attach("Probe.Unknown", &ChainEnd));
+    CHECK(!hook);
+    CHECK(hook.Attach("Probe.Point", &ChainEnd, 3));
+    CHECK(hook && hook.Original() == &ChainEnd);
+    CHECK(std::strcmp(g_attachedName, "Probe.Point") == 0 && g_attachedPriority == 3);
+    CHECK(hook(41) == 42);
+
+    // Service: unresolved until something publishes the exact name and version, then cached.
+    static const FakeService s_service{ sizeof(FakeService), 7 };
+    wxl::Service<FakeService> wrongVersion("probe.service", 2);
+    wxl::Service<FakeService> service("probe.service", 1);
+    CHECK(!service && service.Get() == nullptr);
+    CHECK(wxl::Publish("probe.service", 1, &s_service));
+    CHECK(service && service->value == 7);
+    CHECK(!wrongVersion);
+    CHECK(std::strcmp(service.Name(), "probe.service") == 0 && service.Version() == 1);
 
     std::printf("%d failure(s)\n", g_failures);
     return g_failures ? 1 : 0;

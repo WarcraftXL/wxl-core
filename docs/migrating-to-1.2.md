@@ -113,3 +113,22 @@ and its duplicate `EnterMap` is gone (the one in `World.hpp` is the same functio
 (`Player::Active().Position()`, `unit.IsHostileTo(other)`, `Object::FromGuid(guid)`). Include the
 most derived type you need; `Player.hpp` pulls in `Unit.hpp` and `Object.hpp`. The free functions
 stay.
+
+## Service headers moved out of the core
+
+`AppearanceApi.h`, `Db2Api.h`, `LightApi.h` and `ModelDataApi.h` left `include/wxl/`: they are not
+core contracts, they are what `wxl-db2` publishes, so they now live in that extension's own repo,
+under `src/api/`. `M2DrawApi.h` left the same way, into `wxl-modern-m2`'s `src/render/`. Nothing in
+the core publishes or consumes any of the five, so this only affects an extension that included one
+of them directly.
+
+- Replace `#include "wxl/Db2Api.h"` (or `AppearanceApi.h`, `LightApi.h`, `ModelDataApi.h`) by a path
+  into `wxl-db2`'s own `src/api/`, relative to your file.
+- Replace `#include "wxl/M2DrawApi.h"` by a path into `wxl-modern-m2`'s `src/render/`.
+- `FdidApi.h`, `StorageApi.h`, `M2ArenaApi.h` and `PluginApi.h` stay in `include/wxl/`: the first is
+  consumed by more than one extension and the other three are published by the core itself, not by
+  an extension, so they are genuinely core contracts.
+- `InterfaceApi.h`, `JsonApi.h`, `LoadPoolApi.h`, `LodApi.h` and `ModernBlpApi.h` also stay for now:
+  each names an owning extension (`wxl-interface-reforged`, `wxl-json`, `wxl-engine-reforged`,
+  `wxl-modern-engine`, `wxl-modern-blp`) that is not reachable as a client extension to move the
+  header into.

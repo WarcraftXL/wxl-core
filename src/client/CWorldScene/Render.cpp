@@ -33,9 +33,9 @@
 // DrawIndexedPrimitive is NOT swapped here: that vtable slot, and the one-shot draw interceptor built
 // on it, belong to wxl-m2 (its per-batch OnM2BatchDraw/OnRibbonDraw need the same slot; a second core
 // swap on top would just fight it for the same vtable entry). wxl-m2 re-applies its own swap on the
-// same per-device-recreate cadence this file uses for its three, and publishes "wxl.m2draw" for any
-// other extension (wxl-wmo's four-layer material) that needs to bracket one native draw -- see
-// include/wxl/M2DrawApi.h.
+// same per-device-recreate cadence this file uses for its three, and publishes "wxl.m2draw" (its
+// contract lives in wxl-modern-m2's own repo, render/M2DrawApi.h) for any other extension
+// (wxl-wmo's four-layer material) that needs to bracket one native draw.
 namespace
 {
     namespace off = wxl::offsets::engine::gx;

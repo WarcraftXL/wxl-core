@@ -5,9 +5,33 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WarcraftXL API</title>
 <link rel="stylesheet" href="style.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+// Names the style.css palette as Tailwind colours, so bg-side, text-muted and border-line
+// read the custom properties and follow the prefers-color-scheme override on their own.
+// Preflight stays off: style.css is the base layer, Tailwind only adds utilities.
+window.tailwind = window.tailwind || {};
+window.tailwind.config = {
+  darkMode: "media",
+  corePlugins: { preflight: false },
+  theme: {
+    extend: {
+      colors: {
+        bg: "var(--bg)", fg: "var(--fg)", muted: "var(--muted)", side: "var(--side)",
+        line: "var(--line)", accent: "var(--accent)", hover: "var(--hover)",
+        active: "var(--active)", code: "var(--code)", badge: "var(--badge)"
+      },
+      fontFamily: {
+        sans: ["system-ui", "-apple-system", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"],
+        mono: ["ui-monospace", "Cascadia Mono", "Consolas", "DejaVu Sans Mono", "monospace"]
+      }
+    }
+  }
+};
+</script>
 </head>
-<body>
-<div id="app"></div>
+<body class="bg-bg text-fg font-sans text-[14px] leading-[1.6]">
+<div id="app" class="flex h-screen min-w-[720px]"></div>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>

@@ -23,7 +23,8 @@
 #include "offsets/game/World.hpp"
 
 #include <windows.h>
-#include <intrin.h>
+
+#include "wxl/Common.h"
 
 #include <cstdint>
 #include <cstring>
@@ -215,7 +216,7 @@ namespace
         {
             adrain::Wr(adrain::kWaitGuard, before);
             WLOG_WARN("AsyncFileReadWait: recovered a leaked reentrancy guard (obj=%p, caller=%p) -- "
-                      "native early-return path skipped its own decrement", obj, _ReturnAddress());
+                      "native early-return path skipped its own decrement", obj, WXL_RETURN_ADDRESS());
         }
     }
 

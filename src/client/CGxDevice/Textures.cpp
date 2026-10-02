@@ -25,6 +25,8 @@
 
 #include <windows.h>
 
+#include "wxl/Common.hpp"
+
 #include <atomic>
 #include <cstdint>
 #include <cstring>
@@ -44,12 +46,12 @@ namespace
     // during world entry. Letting that AV escape kills the client from inside the texture completion callback.
     bool SafeTextureUpdate(void* tex, int x, int y, int x2, int y2, int flag) noexcept
     {
-        __try
+        WXL_SEH_TRY(wxl::seh::Catch::Any)
         {
             g_origTexUpdate(tex, x, y, x2, y2, flag);
             return true;
         }
-        __except (EXCEPTION_EXECUTE_HANDLER)
+        WXL_SEH_EXCEPT
         {
             return false;
         }

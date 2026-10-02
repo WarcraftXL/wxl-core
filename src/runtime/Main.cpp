@@ -16,6 +16,8 @@
 
 #include <windows.h>
 
+#include "wxl/Common.h"
+
 #include "engine/hook/Hook.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/storage/StorageHook.hpp"
@@ -26,7 +28,7 @@
 /**
  * @brief IAT anchor; the patcher imports this symbol so the loader maps the DLL.
  */
-extern "C" __declspec(dllexport) void WarcraftXL() {}
+extern "C" WXL_EXPORT void WarcraftXL() {}
 
 namespace
 {

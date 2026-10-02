@@ -20,6 +20,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "wxl/Common.h"
+
 // The only file shared verbatim between the core and an extension. The SDK (wxl::game) is
 // header-only and compiles into the extension, which reads the fixed-base client image directly, so
 // what crosses here is limited to what the core has to arbitrate: hooks, events, log.
@@ -266,7 +268,7 @@ typedef int(__cdecl* WXL_LoadFn)(const WXL_Api* api);
  * @brief First entry point: describes the extension. Must have no side effects.
  * @return the extension's info, or NULL to decline being loaded.
  */
-__declspec(dllexport) const WXL_PluginInfo* __cdecl WXL_Query(void);
+WXL_EXPORT const WXL_PluginInfo* __cdecl WXL_Query(void);
 
 /**
  * @brief Second entry point: the extension sets itself up.
@@ -280,7 +282,7 @@ __declspec(dllexport) const WXL_PluginInfo* __cdecl WXL_Query(void);
  * @param api  the core's service table, valid for the process lifetime.
  * @return non-zero on success; zero to abort this extension's load.
  */
-__declspec(dllexport) int __cdecl WXL_Load(const WXL_Api* api);
+WXL_EXPORT int __cdecl WXL_Load(const WXL_Api* api);
 
 #endif // WXL_EXTENSION
 

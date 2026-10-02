@@ -11,13 +11,13 @@ target_compile_definitions(wxl_common PRIVATE ${WXL_DEFS})
 # --- WarcraftXL.dll = engine + features + assets pipelines ------------------------------------------
 # Automatic, recursive source discovery (no hand-written paths). CONFIGURE_DEPENDS re-globs at build
 # time, so dropping a file (or a whole script) needs no edit here. The DLL excludes what other
-# targets own: common (wxl_common), the patcher, the proxy (engine/gpu), and the assets halves that
+# targets own: common (wxl_common), the patcher, the probes, the proxy (engine/gpu), and the assets halves that
 # belong to exactly one extension (models/m2, models/m3, textures/blp, textures/dds) -- none of them
 # has a consumer in the plain DLL, so excluding them here keeps that true instead of shipping four
 # unused cross-target .cpp files inside WarcraftXL.dll by glob accident.
 file(GLOB_RECURSE WXL_CORE_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 list(FILTER WXL_CORE_SRC EXCLUDE REGEX
-     "/src/common/|/src/patcher/|/src/engine/gpu/|/src/engine/assets/shared/(models/m2|models/m3|textures/blp|textures/dds)/")
+     "/src/common/|/src/patcher/|/src/probe/|/src/engine/gpu/|/src/engine/assets/shared/(models/m2|models/m3|textures/blp|textures/dds)/")
 
 add_library(WarcraftXL SHARED ${WXL_CORE_SRC})
 set_target_properties(WarcraftXL PROPERTIES OUTPUT_NAME "WarcraftXL" PREFIX "")
@@ -33,4 +33,5 @@ source_group(TREE "${CMAKE_SOURCE_DIR}" FILES ${WXL_CORE_SRC})
 wxl_deploy(WarcraftXL WarcraftXL.dll)
 
 add_subdirectory(patcher)
+add_subdirectory(probe)
 add_subdirectory(engine/gpu)

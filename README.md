@@ -90,6 +90,16 @@ compiles. Then:
 cmake -S . -B build/mingw-x86 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain/mingw-i686.cmake   # by hand
 ```
 
+## API reference
+
+```sh
+python3 scripts/docgen/generate.py    # writes docs/site/, open docs/site/index.html
+```
+
+Builds a local, offline reference from the doc comments already on the public headers (events,
+script hooks, the object handles, the game bindings). Regenerate it after changing one of those
+comments; nothing under `docs/site/` is committed.
+
 ## Install
 
 1. Place `WarcraftXL.dll` next to `Wow.exe` and load it into the client (import-table entry / loader).

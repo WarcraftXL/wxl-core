@@ -1,0 +1,88 @@
+/* WarcraftXL API reference: plain two-pane layout, light by default, dark on request. */
+:root {
+  --bg: #ffffff;
+  --fg: #1d2129;
+  --muted: #5f6672;
+  --side: #f5f6f8;
+  --line: #dde0e5;
+  --accent: #2d5fb8;
+  --hover: #e8ecf3;
+  --active: #dbe5f7;
+  --code: #f2f4f7;
+  --badge: #e4e7ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17191d;
+    --fg: #dde1e7;
+    --muted: #949ba7;
+    --side: #1e2126;
+    --line: #2f343b;
+    --accent: #7ea6ec;
+    --hover: #262a31;
+    --active: #2b3647;
+    --code: #22262c;
+    --badge: #2f343b;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+code, pre { font-family: ui-monospace, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+#app { display: flex; height: 100vh; min-width: 720px; }
+
+.side {
+  width: 320px; min-width: 240px; flex: none;
+  display: flex; flex-direction: column;
+  background: var(--side); border-right: 1px solid var(--line);
+}
+.side-head { padding: 12px; border-bottom: 1px solid var(--line); }
+.side-head h1 { font-size: 15px; margin: 0 0 8px; }
+.side-head input {
+  width: 100%; padding: 6px 8px; font: inherit; color: var(--fg);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+}
+.tree { flex: 1; overflow: auto; padding: 6px 0 24px; }
+.tree ul { list-style: none; margin: 0; padding: 0; }
+.tree ul ul { padding-left: 14px; }
+.tree li.hidden { display: none; }
+.tree li.closed > ul { display: none; }
+.row {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.row:hover { background: var(--hover); }
+.row.active { background: var(--active); }
+.twisty { width: 12px; flex: none; color: var(--muted); font-size: 10px; text-align: center; }
+.row .label { overflow: hidden; text-overflow: ellipsis; }
+.row.group > .label { font-weight: 600; }
+.row .kind { margin-left: auto; color: var(--muted); font-size: 11px; }
+
+.main { flex: 1; overflow: auto; padding: 24px 36px 64px; }
+.main h2 { margin: 0 0 4px; font-size: 22px; word-break: break-word; }
+.main h3 { margin: 24px 0 8px; font-size: 15px; }
+.meta { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+.badge {
+  display: inline-block; padding: 0 6px; margin-right: 6px; border-radius: 3px;
+  background: var(--badge); color: var(--fg); font-size: 11px; font-weight: 600; text-transform: uppercase;
+}
+.desc p { margin: 0 0 10px; max-width: 900px; }
+pre.sig {
+  background: var(--code); border: 1px solid var(--line); border-radius: 4px;
+  padding: 10px 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+}
+p code, td code, li code { background: var(--code); padding: 0 3px; border-radius: 3px; }
+table { border-collapse: collapse; width: 100%; max-width: 1000px; }
+th, td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td.t, td.n { white-space: nowrap; }
+td.t code, td.n code { background: none; padding: 0; }
+.overview td:first-child { width: 1%; white-space: nowrap; }
+.empty { color: var(--muted); font-style: italic; }

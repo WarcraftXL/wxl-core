@@ -81,6 +81,10 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kApiFlag228 = 0x228;
     constexpr size_t kApiFlag22C = 0x22C;
 
+    // The lowest mip level the device uses, which DeviceSetBaseMipLevel sets: a texture's upload skips
+    // every level above it, so its image's level 0 is this level of the chain.
+    constexpr size_t kBaseMipLevel = 0x350;
+
     // Gamma ramps, 3 x 256 WORD. The live one is what DeviceSetGamma writes; the desktop one is
     // saved at create so it can be put back.
     constexpr size_t kGammaRamp        = 0x354;

@@ -257,3 +257,25 @@ of them directly.
   each names an owning extension (`wxl-interface-reforged`, `wxl-json`, `wxl-engine-reforged`,
   `wxl-modern-engine`, `wxl-modern-blp`) that is not reachable as a client extension to move the
   header into.
+
+## The graphics-device seam is back (nothing to do unless you write a backend)
+
+`wxl/GraphicsDeviceApi.h` returns, with the two headers a backend needs beside it:
+
+- `wxl/offsets/engine/GxDevice.hpp` — the device object as a backend implements it: the 84-slot
+  vtable's object fields, the caps block, the `CGxFormat`, and the pool, buffer, texture and shader
+  records. It defers to `wxl/offsets/engine/Gx.hpp` for every address that header already owns and
+  `static_assert`s the two agree, so the overlap cannot drift.
+- `wxl/game/GxDevice.hpp` — the SDK side, and the one a backend includes. It names those fields
+  (`Field`, `HasContext`), reads the render-state table through its pointer (`RenderState`,
+  `MasterEnabled`), reaches the matrix stacks and the vertex-attribute slots, and wraps the engine
+  functions every stock backend shares (`RegisterWindowClass`, `CreateGameWindow`, `WaitForFpsCap`,
+  `DestroyBase`). Including it keeps a backend on the SDK side of the boundary check.
+
+An extension registers through `RegisterFactory` and gets handed the client's `GxDevCreate`. The core
+publishes the device where the engine reads it and then calls `DeviceCreate`, in that order, as
+`GxDevCreate` itself does; a device that fails to create is deleted and the engine builds its stock
+backend, so a backend that cannot start is not a failure to launch.
+
+`Gx.DevCreate` is the new hook point behind it. The core owns a detour there; attach to it only to
+observe which API the client asked for, never to supply a device — that is what the service is for.

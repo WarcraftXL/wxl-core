@@ -25,6 +25,7 @@
 #include "wxl/offsets/engine/Camera.hpp"
 #include "wxl/offsets/engine/Frame.hpp"
 #include "wxl/offsets/engine/Gx.hpp"
+#include "wxl/offsets/engine/GxDevice.hpp"
 #include "wxl/offsets/engine/Io.hpp"
 #include "wxl/offsets/engine/Liquid.hpp"
 #include "wxl/offsets/engine/Lua.hpp"
@@ -59,6 +60,7 @@ namespace wxl::runtime::hookpoints
         namespace frm    = wxl::offsets::engine::frame;
         namespace grass  = wxl::offsets::game::groundeffect;
         namespace gxoff  = wxl::offsets::engine::gx;
+        namespace devoff = wxl::offsets::engine::gxdevice;
         namespace io     = wxl::offsets::engine::io;
         namespace liq    = wxl::offsets::engine::liquid;
         namespace lua    = wxl::offsets::engine::lua;

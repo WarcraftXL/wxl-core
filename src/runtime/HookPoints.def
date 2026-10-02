@@ -72,6 +72,9 @@ WXL_HOOK_POINT("Mem.M2SceneAdvanceTime",                      mem::kM2SceneAdvan
 WXL_HOOK_POINT("Mem.TextureCacheUpdate",                      mem::kTextureCacheUpdate)
 
 // --- graphics device and textures --------------------------------------------------------
+// The device factory. The core owns a detour here to offer the backend an extension registered
+// through wxl.graphics.device; attach to it only to observe which API the client asked for.
+WXL_HOOK_POINT("Gx.DevCreate",                                devoff::kDevCreate)
 WXL_HOOK_POINT("Gx.SetDefaultWindow",                         gxoff::kDeviceSetDefWindow)
 WXL_HOOK_POINT("Gx.SceneClear",                               gxoff::kGxSceneClear)
 WXL_HOOK_POINT("Gx.ShaderUpdateProjMatrix",                   gxoff::kShaderUpdateProjMatrix)

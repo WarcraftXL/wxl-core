@@ -84,6 +84,19 @@ Steps:
 
 A script receives every hook of its type; an empty default costs one virtual call per event.
 
+## Three hooks the core now raises (nothing to do)
+
+`OnWorldRender`, `OnWmoRootLoad` and `OnWmoGroupLoad` were in the event table and in their script
+types but nothing ever emitted them, so overriding them did nothing. The core raises all three now.
+No signature changed, so an override written against them keeps compiling and starts being called.
+
+- `RenderScript::OnWorldRender` fires as the world draw pass opens, from the same detour that
+  already raised `OnWorldSceneEnd` on the way out. The pair now brackets the pass.
+- `AssetScript::OnWmoRootLoad` and `OnWmoGroupLoad` fire while the buffer still holds the bytes the
+  read produced, before the native walker parses it — the window the args always described. The
+  group hook sits on the reader rather than the read-completion callback, so a group loaded
+  synchronously is published too.
+
 ## The SDK lives under `include/wxl/`
 
 The bindings (`src/game/*.hpp`), the offsets (`src/offsets/`) and the M2 format contract moved:

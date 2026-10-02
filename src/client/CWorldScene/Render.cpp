@@ -105,7 +105,8 @@ namespace
     }
 
     /**
-     * @brief Detours the world scene pass, emitting OnWorldSceneEnd once it has drawn.
+     * @brief Detours the world scene pass, emitting OnWorldRender as it opens and OnWorldSceneEnd
+     *        once it has drawn.
      *
      * Its caller runs this, then the world text batch, then puts back the projection and view it saved
      * before the pass. Emitting on the way out of the pass therefore lands in the one window where the
@@ -124,6 +125,11 @@ namespace
         IDirect3DSurface9* sceneDepth = nullptr;
         if (IDirect3DDevice9* d = static_cast<IDirect3DDevice9*>(gx::RawDevice()))
             d->GetDepthStencilSurface(&sceneDepth);
+
+        {
+            ev::WorldRenderArgs a{ gx::RawDevice() };
+            ev::Emit<ev::Event::OnWorldRender>(a);
+        }
 
         g_origWorldScene(worldFrame, edx);
 

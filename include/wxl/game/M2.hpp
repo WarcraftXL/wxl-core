@@ -217,7 +217,7 @@ namespace wxl::game::m2
      */
     inline void* GetRenderCtx(void* cmo, void* keyBuf)
     {
-        return Native<off::M2_GetRenderCtxFn>(off::kCreateSceneModel)(cmo, nullptr, keyBuf, 0);
+        return Native<off::M2_CreateSceneModelFn>(off::kCreateSceneModel)(cmo, nullptr, keyBuf, 0);
     }
 
     /**

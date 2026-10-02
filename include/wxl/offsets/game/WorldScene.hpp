@@ -18,14 +18,16 @@
 
 #include <cstdint>
 
+#include "wxl/offsets/game/WMO.hpp"
+
 // INTERNAL to the core. The engine resolves which WMO group(s) the render CAMERA currently sits in,
 // every frame, purely from camera position (never the character's).
 namespace wxl::offsets::game::worldscene
 {
-    // Primary resolved viewer group (0 = camera outside any WMO group; otherwise the group the camera's
-    // vertical containment ray resolved into). Read by the scene render to pick the outdoor / indoor
-    // branch.
-    constexpr uintptr_t kViewerGroupId = 0x00CD87A4;
+    // Primary resolved viewer map-object instance (0 = camera outside any WMO; otherwise the instance
+    // the camera's vertical containment ray resolved into). Read by the scene render to pick the
+    // outdoor / indoor branch.
+    constexpr uintptr_t kViewerGroupId = wmo::kCurrentInteriorInstance; // alias of wmo::kCurrentInteriorInstance
     // Second-candidate flag: true when a second, overlapping candidate group was also found this frame
     // (a boolean, not a counter -- the resolver's output arrays hold at most 2 slots).
     constexpr uintptr_t kViewerSecondGroupFlag = 0x00CD87A0;
@@ -36,7 +38,7 @@ namespace wxl::offsets::game::worldscene
     // object-identity or size-class guard: any group's stamp can occlude any other tested afterward,
     // regardless of relative size -- on a dense cluster of similarly-sized small props this spuriously
     // occludes neighbors that should both be visible.
-    constexpr uintptr_t kGroupClipStamp = 0x007CC880;
+    constexpr uintptr_t kGroupClipStamp = wmo::kAddOccluderEdge; // alias of wmo::kAddOccluderEdge
     using GroupClipStampFn = void(__fastcall*)(void* groupEntry);
     // The group-entry's own world-space AABB min/max corners sit inline at its head (3 floats each).
     constexpr size_t kOffGroupBboxMin = 0x00;
@@ -59,18 +61,19 @@ namespace wxl::offsets::game::worldscene
     // __thiscall(this=sharedModel, groupIndex, forceFlag) -> group runtime object or null. this is
     // *(defInstance + wmo::kOffInstanceRoot); forceFlag=1 returns the group object even if its own
     // "loaded" flag isn't set yet.
-    constexpr uintptr_t kGetGroup = 0x007AEA80;
+    constexpr uintptr_t kGetGroup = wmo::kGroupResidentAccessor; // alias of wmo::kGroupResidentAccessor
     using GetGroupFn = void*(__thiscall*)(void* sharedModel, int groupIndex, int forceFlag);
 
     // __thiscall(this=groupObject, raySegmentLocal[2], inOutMaxFraction, 0, 0, scratchByte, param7) ->
     // bool. rayLocal is in the WMO instance's LOCAL space (transform via kMulVecMatrix and
     // wmo::kOffInstanceCollisionMatrix first). Returns true AND inOutMaxFraction shrunk below its input
     // value when the ray hit real geometry within that fraction.
-    constexpr uintptr_t kGetTris = 0x007CB0C0;
+    constexpr uintptr_t kGetTris = wmo::kBspRaycastRefine; // alias of wmo::kBspRaycastRefine
     using GetTrisFn = bool(__thiscall*)(void* groupObject, const float raySegmentLocal[6],
                                          float* inOutMaxFraction, int param4, int param5,
                                          uint8_t* scratchByte, int param7);
 
+    // operator*(C3Vector, C44Matrix).
     // __cdecl(C3Vector* out, const C3Vector* v, const float m[16]) -> out = v * m (row-vector
     // convention). The engine's own world<->local transform helper, reused as-is rather than
     // reimplemented.

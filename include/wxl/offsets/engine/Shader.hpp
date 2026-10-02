@@ -87,7 +87,7 @@ namespace wxl::offsets::engine::shader
     // --- selection-state globals (the live inputs the own stack reads instead of a positional slot) --
     constexpr uintptr_t kShadowTier          = 0x00D43010; // shadow tier, clamped 0..2
     constexpr uintptr_t kShadowGroup         = 0x00D43014; // pixel shadow group
-    constexpr uintptr_t kProgrammablePathFlag = 0x00D43020; // master flag: programmable path active
+    constexpr uintptr_t kProgrammablePathFlag = 0x00D43020; // CShaderEffect::s_enableShaders: programmable path active
     constexpr uintptr_t kActiveCollection    = 0x00D43024; // active effect collection (set by activate)
     constexpr uintptr_t kLightBit            = 0x00CFBEAC; // light/fog bit (0 or 1)
     constexpr uintptr_t kSubIndex            = 0x00CFBEB4; // permutation sub-index 0..14
@@ -106,7 +106,7 @@ namespace wxl::offsets::engine::shader
     // So a direct device set from a detour is overwritten by that flush (it re-applies the cached native
     // slot, which is null for a rejected-version modern effect -> null pixel shader -> black). The own
     // stack must therefore write its OWN wrapper into the same cache via the state setter below.
-    constexpr uintptr_t kGxStateSet      = 0x00685F50; // __thiscall(this=gx device, stateIdx, value)
+    constexpr uintptr_t kGxStateSet      = 0x00685F50; // CGxDevice::RsSet, __thiscall(this=gx device, stateIdx, value)
     // Marks one GxState slot dirty so the next flush re-applies its CACHED value: the coherent way to
     // hand a stage back to the engine after a raw device bind bypassed the cache for one draw.
     constexpr uintptr_t kGxStateDirty    = 0x00685970; // __thiscall(this=gx device, stateIdx)

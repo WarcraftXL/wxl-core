@@ -19,6 +19,13 @@
 #include <cstdint>
 #include <cstddef>
 
+#include "wxl/offsets/engine/Gx.hpp"
+#include "wxl/offsets/engine/Mem.hpp"
+#include "wxl/offsets/engine/Shader.hpp"
+#include "wxl/offsets/engine/Sky.hpp"
+#include "wxl/offsets/game/ADT.hpp"
+#include "wxl/offsets/game/WorldScene.hpp"
+
 // INTERNAL to the core. Client addresses and runtime object field offsets. This is the private
 // SOURCE the game-binding catalog is curated from; modules never include it, they call wxl::game.
 namespace wxl::offsets::game::m2
@@ -87,7 +94,7 @@ namespace wxl::offsets::game::m2
     // +0x2C). A native reader replicating kInit's tail MUST use this exact allocator so the model
     // destructor's matching free call stays valid. Call-site constants replicated from kInit:
     // name ".\\M2Shared.cpp", line 0x2DC, flags 8.
-    constexpr uintptr_t kSMemAlloc = 0x0076E540;
+    constexpr uintptr_t kSMemAlloc = engine::mem::kAlloc; // alias of engine::mem::kAlloc
     using SMemAllocFn = void*(__stdcall*)(uint32_t size, const char* name, uint32_t line, uint32_t flags);
     constexpr size_t   kOffModelExtSeqCount  = 0x24; // uint32: sequences whose data streams from .anim
     constexpr size_t   kOffModelExtSeqArray  = 0x28; // -> allocator-owned u32 array (count * 4)
@@ -106,8 +113,8 @@ namespace wxl::offsets::game::m2
     // which is what lets the native
     // MD21 reader drive the stock readers over a modern body. Cameras (0x74 vs 0x64) and particle
     // emitters (0x1EC vs 0x1DC) differ in stride and are NOT listed: the native reader must not
-    // call 0x839EF0 / 0x83AF90 on a modern body. All prologues byte-verified against Wow.exe
-    // (55 8B EC + "83 3D D8 59 AF 00 FF" cmp of the rebase global).
+    // call 0x839EF0 / 0x83AF90 on a modern body. Every prologue is 55 8B EC followed by
+    // "83 3D D8 59 AF 00 FF" (cmp of the rebase global).
     constexpr uintptr_t kReadVertices     = 0x00835AE0; // stride 0x30
     constexpr uintptr_t kReadByteArray    = 0x00835B80; // stride 1 (name)
     constexpr uintptr_t kReadVector3      = 0x00835BD0; // stride 0xC (bounding vertices/normals)
@@ -192,12 +199,12 @@ namespace wxl::offsets::game::m2
     using Gx_ShaderConstUnlockFn = void(__stdcall*)(int which, unsigned firstConst, int constCount);
     // Vertex-shader constant block base (the device's constant-lock call for slot 0 is a pure address
     // lookup returning this) and the bone-palette register c31 = base + 31*16.
-    constexpr uintptr_t kVsConstBlock = 0x00C5EFE8;
+    constexpr uintptr_t kVsConstBlock = engine::gx::kVsConstCache; // alias of engine::gx::kVsConstCache
     constexpr uintptr_t kVsConstC31   = kVsConstBlock + 0x1F0;
     // Global shader-enable flag. Written once at shader-system init from the model cache flags & 8, so
     // its value is 8 or 0 -- test for NON-ZERO, never == 1. Zero means the CPU pre-transform path,
     // where the shadow vertices carry no bone data and the palette fix does not apply.
-    constexpr uintptr_t kEnableShaders = 0x00D43020;
+    constexpr uintptr_t kEnableShaders = engine::shader::kProgrammablePathFlag; // alias of engine::shader::kProgrammablePathFlag
     // 4x4 matrix multiply: __cdecl mul(out, a, b) -> out = a*b, row-vector convention (v' = v*M).
     constexpr uintptr_t kMatrixMul = 0x004C1F00;
     using C44_MulFn = float*(__cdecl*)(void* out, const void* a, const void* b);
@@ -215,9 +222,9 @@ namespace wxl::offsets::game::m2
     //
     // NOT APPLIED as patches. The native reader normalizes every emitter to 0x1DC at load, so no site
     // in the binary ever steps a 0x1EC record and all nine keep their stock immediate. The table is
-    // curated because it is the complete, verified answer to "where does the binary hardcode the
-    // emitter stride" (verified by scanning all of .text for the dword, not just these instruction
-    // forms -- there is no tenth), which any future emitter-layout work needs.
+    // curated because it is the complete answer to "where does the binary hardcode the emitter
+    // stride" (.text holds no tenth occurrence of the dword, in any instruction form), which any
+    // future emitter-layout work needs.
     //
     // Recorded with each site: how the model header is reachable there, and what the original
     // instruction did -- the two facts a stride redirect would need. Flags are DEAD at all nine
@@ -403,18 +410,18 @@ namespace wxl::offsets::game::m2
     using M2_AnimLoadCompleteFn = void(__cdecl*)(void* node);
     // External-anim loader (model, seqIdx): resolves the sequence alias chain, builds the path, opens
     // the file, allocates a buffer, and schedules the async read whose completion rebases the tracks.
-    constexpr uintptr_t kSequenceLoad = 0x0083DA10;
+    constexpr uintptr_t kSequenceLoad = kLoadLowPrioritySequence; // alias of kLoadLowPrioritySequence
     // .anim filename builder (pathStem, id, subId, outBuf): copies the stem, strips the extension,
     // appends the id-subId anim suffix.
     constexpr uintptr_t kBuildAnimPath = 0x00835A20;
     // Per-sequence track de-relocator (model, seqIdx, buffer, size): validates the buffer and rebases
     // sequence seqIdx's track inner slots against it, then updates the sequence flags.
-    constexpr uintptr_t kPerSeqDeReloc = 0x0083C6E0;
+    constexpr uintptr_t kPerSeqDeReloc = kInitLowPrioritySequence; // alias of kInitLowPrioritySequence
     // M2 buffer allocator (size, name, line): allocates size+0x10, returns a 16-aligned pointer carrying a
     // back-shift byte at [ptr-1]. This is the allocator the .m2 load buffer (model+0x150) uses, so a
     // replacement buffer must come from here for the model destructor's matching free to be valid.
-    constexpr uintptr_t kAnimBufferAlloc = 0x0083DE50;
-    constexpr uintptr_t kBufferAlloc     = 0x0083DE50; // alias: same allocator, used for buffer swaps
+    constexpr uintptr_t kBufferAlloc     = 0x0083DE50; // SMemAlignedAlloc
+    constexpr uintptr_t kAnimBufferAlloc = kBufferAlloc; // alias of kBufferAlloc
     constexpr uintptr_t kBufferFree      = 0x0083DE90; // free a kBufferAlloc pointer (recovers base via [ptr-1])
     using M2_BufferAllocFn = void*(__cdecl*)(uint32_t size, const char* tag, int line);
     using M2_BufferFreeFn  = void (__cdecl*)(void* ptr);
@@ -426,9 +433,7 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffNodeRecord   = 0x08;
 
     // --- per-batch alpha ---
-    // Shared per-batch alpha/material/cull setter: chooses the alpha-test reference from the blend mode
-    // and pushes it to the device.
-    constexpr uintptr_t kSetupBatchAlpha = 0x0081FE90;
+    // The shared per-batch alpha/material/cull setter is kSetupMaterial (alias kSetupBatchAlpha) below.
     constexpr uintptr_t kSortOpaqueGeoBatches = 0x0081EAD0;
     // Pushes the alpha-test reference to the device.
     constexpr uintptr_t kPushAlphaRef = 0x00873BA0;
@@ -458,8 +463,8 @@ namespace wxl::offsets::game::m2
     // Call-only shape shared by kBuildBonePalette/kBuildBonePaletteSimple: thiscall (ecx = instance),
     // sceneCtx is the scene's own per-frame camera-relative context matrix (kOffSceneAnimateCtx),
     // scale3/translate3 are always {1,1,1}/{0,0,0} at every native call site, the two trailing floats
-    // always 1.0f -- verified across all six native call sites (both functions, all three drivers:
-    // the scene's threaded and non-threaded animate loops, and its animate-thread entry point).
+    // always 1.0f at every native call site (both functions, all three drivers: the scene's threaded
+    // and non-threaded animate loops, and its animate-thread entry point).
     using M2_AnimateMTFn = void(__thiscall*)(void* instance, void* sceneCtx, float* scale3,
                                              float* translate3, float unk1, float unk2);
     constexpr uintptr_t kRenderBatchShadowMap = 0x00829BA0;
@@ -469,21 +474,20 @@ namespace wxl::offsets::game::m2
     // 3-dword records, stride kShadowRunStride, one record per co-instance slot. A run of N
     // co-instances occupies N CONSECUTIVE records starting at drawIndex: record[i] = {0: instance
     // pointer, 1: unused by this read, 2: requested co-instance count -- only the head record
-    // (i == drawIndex) carries a meaningful count}. Confirmed via disasm at both ends:
+    // (i == drawIndex) carries a meaningful count}. Both ends read it:
     // RenderBatchShadowMap itself reads listData[drawIndex*3+2] before calling AllocInstances
     // (0x00829c1b), and its caller RenderModelBatchListShadowMap re-reads the SAME field right after
     // RenderBatchShadowMap returns (0x00829f18) to advance its own run cursor -- the exact
     // DrawBatchDoodad / M2Element+0x1C shape (kM2ElementRunLengthField, above), so a splitting hook
     // here must restore this field before returning, for the same reason. `instance`, `skinSection`,
-    // `batchMode`, `skinBatch`, `previousSection` are all confirmed shared/fixed for the whole run
+    // `batchMode`, `skinBatch`, `previousSection` are all shared/fixed for the whole run
     // (instance->model's CM2Shared, derived from instance+0x2C, never varies per co-instance slot;
     // boneCount comes from the fixed skinSection) -- only drawIndex needs to change per sub-call.
     constexpr size_t kShadowRunStride     = 3; // dwords per co-instance run record
     constexpr size_t kShadowRunCountField = 2; // dword offset of the "requested count" field
 
     // AnimateMT's own particle-emitter tick, called unconditionally as a sibling step of the
-    // bone-palette compose (not from any other site -- confirmed via callgraph, its only caller is
-    // AnimateMT itself). Per emitter: evaluates the emitter's own file-side tracks (enabled/rate/
+    // bone-palette compose (its only caller is AnimateMT itself). Per emitter: evaluates the emitter's own file-side tracks (enabled/rate/
     // color/etc.) through FUN_0082b270 (bool tracks) / FUN_0082b340 (float tracks), each of which
     // blends against the attachment bone's CURRENT sequence-assignment state -- reading only
     // boneStates[bone].{blendWeight, blendSeq, assignedSeq, animIndex} (kOffRtBoneBlendWeight and
@@ -555,11 +559,11 @@ namespace wxl::offsets::game::m2
     // Return addresses of the scene's per-frame animate entry's (0x00821A20) two calls to
     // IsDrawable(0,0), inside the per-frame element-build drain over the doodad/element queue
     // (scene+0x2C). The world scene shares this queue between static doodads AND live units (players,
-    // NPCs, mounts, spell visuals) -- confirmed: all instance creation funnels through the same scene
+    // NPCs, mounts, spell visuals) -- all instance creation funnels through the same scene
     // creation entry point on the world scene's single M2-scene instance -- so a screen-size cull
     // hooked here must ALSO gate on kOffInstOwnerFlags bit 0x20 (doodad-only, never set by any
-    // live-instance creation path) before ever downgrading a TRUE readiness result to FALSE. Confirmed
-    // by disassembly: both sites are `call kIsDrawable`, 5 bytes, return address = call site + 5.
+    // live-instance creation path) before ever downgrading a TRUE readiness result to FALSE. Both
+    // sites are a 5-byte `call kIsDrawable`, so return address = call site + 5.
     constexpr uintptr_t kDoodadDrainRetA = 0x00821C77;
     constexpr uintptr_t kDoodadDrainRetB = 0x00822AB5;
 
@@ -568,9 +572,9 @@ namespace wxl::offsets::game::m2
     // batch-doodad draw path (shared alpha per whole batch) instead of a single non-instanced draw
     // (its own material-setup call, hence its own alpha) -- the lever a screen-size fade needs to
     // force a fading doodad onto the single-draw path so it can be given its own alpha independent of
-    // the rest of its batch. Two callers confirmed by disassembly (the scene's per-frame animate entry
-    // ~0x0082204A, the batch-doodad-compatible-count pass ~0x00827F3B); both call sites verified to
-    // enter at x87 depth 0, so this has no FPU hazard to worry about in a detour.
+    // the rest of its batch. Two callers (the scene's per-frame animate entry ~0x0082204A, the
+    // batch-doodad-compatible-count pass ~0x00827F3B); both enter at x87 depth 0, so a detour has no
+    // FPU hazard.
     constexpr uintptr_t kIsBatchDoodadCompatible = 0x00824550;
     using M2_IsBatchDoodadCompatibleFn = int(__fastcall*)(void* instance, void* edx, uint8_t* submeshFlags);
 
@@ -578,20 +582,21 @@ namespace wxl::offsets::game::m2
     // is a scene-render-shaped draw-context object, forwarded unchanged from the caller's own `this`
     // (the batch/batch-doodad/ribbon draw entries etc.) -- NOT an M2Instance/M2Model. Reads the current
     // draw element pointer at this+0x50 and the current M2 instance pointer at this+0x60 (both
-    // confirmed by disassembly, read-only within this function), then hands {r,g,b,alpha} to the
+    // read-only within this function), then hands {r,g,b,alpha} to the
     // shader's diffuse setter. The alpha it reads is at *(this+0x50) + 0xC (element+0xC): the model's
     // own native alpha (instance global alpha x color-track x weight-track -- death/spawn/spell
-    // fades), computed independently of any visibility/distance test. Verified x87-depth-0 on entry
-    // and on all three return paths -- safe to call original from a detour with no FPU save/restore
-    // needed.
+    // fades), computed independently of any visibility/distance test. x87 depth is 0 on entry and on
+    // all three return paths, so a detour may call the original with no FPU save/restore.
     constexpr uintptr_t kSetupMaterial = 0x0081FE90;
     using M2_SetupMaterialFn = void(__fastcall*)(void* renderCtx, void* edx);
+    // Shared per-batch alpha/material/cull setter: chooses the alpha-test reference from the blend mode
+    // and pushes it to the device.
+    constexpr uintptr_t kSetupBatchAlpha = kSetupMaterial; // alias of kSetupMaterial
     constexpr size_t kOffRenderCtxElement  = 0x50; // -> current M2Element (see kOffElementAlpha)
     constexpr size_t kOffRenderCtxInstance = 0x60; // -> current M2Instance
     constexpr size_t kOffElementAlpha      = 0x0C; // float, consumed by kSetupMaterial's diffuse setup
-    // The element's own position within its skin's batch array -- confirmed by the draw dispatcher's
-    // own (disabled) diagnostic log call, which formats this exact field as "index=%d" right before
-    // the batch draws. Stable for the batch's lifetime; matches the index a skin-finalize pass used
+    // The element's own position within its skin's batch array (the draw dispatcher's disabled
+    // diagnostic log prints it as "index=%d" right before the batch draws). Stable for the batch's lifetime; matches the index a skin-finalize pass used
     // when it built any of its own per-batch-index side tables, so a finalize-time batch tag can be
     // looked up again here at draw time with no extra bookkeeping.
     constexpr size_t kOffElementBatchIndex = 0x18;
@@ -621,7 +626,7 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kMatrixMulAssign = 0x004C2370;
     using C44_MulAssignFn = void(__thiscall*)(void* mat, const void* other);
     // Affine point transform: out = vec * mat, including the translation row. cdecl, returns out.
-    constexpr uintptr_t kVec3Transform = 0x004C21B0;
+    constexpr uintptr_t kVec3Transform = worldscene::kMulVecMatrix; // alias of worldscene::kMulVecMatrix
     using C3_TransformFn = float*(__cdecl*)(float* out, const float* vec3, const void* mat);
     // In-place 3-component normalize.
     constexpr uintptr_t kVec3Normalize = 0x004C3600;
@@ -638,9 +643,9 @@ namespace wxl::offsets::game::m2
     // Ribbon emitter draw (emitter, stateBlock): builds the strip and binds one texture per layer.
     constexpr uintptr_t kRibbonDraw = 0x00980B70;
     // Resolve a texture handle to the internal texture object the sampler bind expects.
-    constexpr uintptr_t kTexResolve = 0x004B6CB0;
+    constexpr uintptr_t kTexResolve = engine::sky::kTextureGetGxTex; // alias of engine::sky::kTextureGetGxTex
     // Bind a texture to a sampler selector (device, selector, resolvedTexture).
-    constexpr uintptr_t kSamplerBind = 0x00685F50;
+    constexpr uintptr_t kSamplerBind = engine::shader::kGxStateSet; // alias of engine::shader::kGxStateSet
     // Sampler selectors for the engine bind path: s0 = 0x15, consecutive. The native ribbon loop binds
     // only s0; the extra layers of a multi-texture ribbon are bound to s1/s2 so they survive one pass.
     constexpr uint32_t kSamplerSelS1 = 0x16;
@@ -653,9 +658,6 @@ namespace wxl::offsets::game::m2
     // its own mapping and release what it no longer needs. A failed load falls back to the engine's
     // placeholder model rather than returning null.
     constexpr uintptr_t kCreateSceneModel   = 0x0081F8F0;
-    // Deprecated spelling: the old name read as get-or-create, which this is not. Kept so no
-    // published name disappears.
-    constexpr uintptr_t kGetRenderCtx       = kCreateSceneModel;
     // AttachToScene(renderCtx, subObj, slot): attaches a collection-M2 render context to a scene slot
     // on the parent CharModelObject render context.
     constexpr uintptr_t kAttachToScene      = 0x00831630;
@@ -678,12 +680,9 @@ namespace wxl::offsets::game::m2
     // SetBoneSequence(slot, seqId, prevSeqId, prevSubSeqId, blendTime, loop, primary). __thiscall,
     // ECX=the M2 instance, 7 stack params (ret 0x1c = 28 bytes). 67 real callers spanning character
     // creation/selection, hand micro-animations, and general gameplay code -- the client's
-    // general-purpose "play sequence X on this model" entry point (also tentatively named
-    // CM2Model__SetBoneSequence from an earlier high-confidence import; well corroborated by
-    // call-site breadth), not something narrow to doodad respawn.
+    // general-purpose "play sequence X on this model" entry point (CM2Model__SetBoneSequence), not
+    // something narrow to doodad respawn.
     //
-    // Param order confirmed 2026-08-18 (wxl-equip-extension WXL-32/33) -- the original guess above
-    // ("seqId, subSeqId, ...") had the first two backwards:
     //   - slot (Param1): a SLOT selector, -1 = primary. Same concept GetBoneSequenceId's own `slot`
     //     param uses. NOT part of the sequence id. Selects WHICH BONE this call targets -- it's the
     //     model's own key_bone_id (see kOffHdrKeyBoneCount/kOffHdrKeyBoneArray, i.e. keyBoneLookup,
@@ -692,34 +691,31 @@ namespace wxl::offsets::game::m2
     //     bone on this model"). Entirely different axis from the primary/secondary split below
     //     (which one of the RESOLVED bone's own two sequence slots gets written) -- "primary" is
     //     unfortunately overloaded between the two, see that param for the disambiguation.
-    //   - seqId (Param2): the actual sequence id being requested. Confirmed two independent ways:
-    //     (a) this function's own entry logic checks THIS param against -1 to decide whether to
-    //     early-out into UnsetBoneSequence; (b) traced through kResolveSequenceFallback into
-    //     GetSequenceIndexByAnimId_Variation (0x8260c0), whose linear-scan path compares THIS exact
-    //     value against each sequence record's seqId field (M2SequenceRec, below).
+    //   - seqId (Param2): the actual sequence id being requested. -1 early-outs into
+    //     UnsetBoneSequence; otherwise it goes through kResolveSequenceFallback into
+    //     GetSequenceIndexByAnimId_Variation (0x8260c0), whose linear-scan path compares it against
+    //     each sequence record's seqId field (M2SequenceRec, below).
     //   - Internally resolves seqId via GetSequenceIndexByAnimId_Variation, with
-    //     kResolveSequenceFallback consulted first -- confirmed to mean a sequence the target model
-    //     doesn't define degrades gracefully (alias-chain resolution) rather than failing outright,
-    //     verified against real content (WXL-33/34).
-    //   - primary (Param7, renamed 2026-08-19 -- was guessed "reset"): NOT a reset flag. Confirmed via
-    //     disassembly to be a dispatch switch, per the resolved bone (see slot above), between this
+    //     kResolveSequenceFallback consulted first, so a sequence the target model doesn't define
+    //     degrades gracefully (alias-chain resolution) rather than failing outright.
+    //   - primary (Param7): NOT a reset flag. A dispatch switch, per the resolved bone (see slot
+    //     above), between this
     //     function's own two already-named callees: true tail-calls kSetPrimaryBoneSequence
     //     (0x00826C40) and writes seqId straight into that bone's kOffRtBonePendingSeq field (the
     //     same field GetBoneSequenceId reads back); false tail-calls kSetSecondaryBoneSequence
     //     (0x00826DD0) instead, which drives the bone's separate upper-body/layered slot (per its own
     //     existing doc comment below) via different RuntimeBone fields (0x9C/0xA0/0xA4, not yet
-    //     individually confirmed/named, plus a further shared-setup call into kSetupBoneSequence,
-    //     0x00826B00). GetBoneSequenceId has NO path to read whatever the false/secondary branch
-    //     sets -- confirmed as the root cause of a real observed bug: an emote that plays through the
-    //     secondary slot (e.g. an upper-body-only emote played while the legs keep running on
+    //     named, plus a further shared-setup call into kSetupBoneSequence, 0x00826B00).
+    //     GetBoneSequenceId has NO path to read whatever the false/secondary branch sets: an emote
+    //     that plays through the secondary slot (e.g. an upper-body-only emote played while the legs keep running on
     //     whatever the primary slot already had) is completely invisible to any code that only polls
     //     GetBoneSequenceId, even though it is genuinely playing. Whether the bone-selecting slot
     //     param (Param1) and this primary/secondary split compose freely (i.e. whether non-root bones
     //     also carry their own independent primary+secondary pair), and how to read the secondary
-    //     sequence back at all, is open -- see the wxl-equip-extension ticket tracking this.
-    //   - prevSeqId/prevSubSeqId/blendTime/loop -- still only best-guess from the one known real call
-    //     site (a doodad respawn: SetBoneSequence(-1, 0, -1, 0, 1.0f, 1, 1), i.e. slot=-1, seqId=0/
-    //     Stand, primary=1). NOT independently confirmed the way slot/seqId/primary now are.
+    //     sequence back at all, is open.
+    //   - prevSeqId/prevSubSeqId/blendTime/loop -- best guesses from one real call site (a doodad
+    //     respawn: SetBoneSequence(-1, 0, -1, 0, 1.0f, 1, 1), i.e. slot=-1, seqId=0/Stand,
+    //     primary=1); unlike slot/seqId/primary, their roles are not established.
     constexpr uintptr_t kSetBoneSequence = 0x00832AB0;
     using M2_SetBoneSequenceFn = void(__fastcall*)(void* instance, void* edx, uint32_t slot,
                                                      uint32_t seqId, uint32_t prevSeqId,
@@ -733,22 +729,19 @@ namespace wxl::offsets::game::m2
     // site as 3 plain stack args with the ECX/EDX slots unused (see the Fn typedef below), not the
     // instance-in-ECX pattern used elsewhere in this file.
     //
-    // Confirmed 2026-08-18 (WXL-32/33/34) via direct disassembly: when the model has no hash table
-    // (header+0x24 == 0 -- the case for small/custom models), does a straight linear scan over the
-    // sequence array (base header->seqPtr, stride kSeqStride), comparing each record's seqId field
-    // (M2SequenceRec::seqId, below) against the requested id -- this is the actual trace that
-    // confirmed seqId's own record offset. Also separately walks each record's nextAnimation field
-    // in a variationSkip-bounded loop while resolving a *variation* request -- this is what
-    // confirmed nextAnimation's offset and chain-index role.
+    // When the model has no hash table (header+0x24 == 0 -- the case for small/custom models), does
+    // a straight linear scan over the sequence array (base header->seqPtr, stride kSeqStride),
+    // comparing each record's seqId field (M2SequenceRec::seqId, below) against the requested id.
+    // A *variation* request walks each record's nextAnimation field in a variationSkip-bounded loop.
     constexpr uintptr_t kGetSequenceIndexByAnimIdVariation = 0x008260C0;
     using M2_GetSequenceIndexByAnimIdVariationFn = uint16_t(__fastcall*)(
         void* ecxUnused, void* edxUnused, void* header, uint32_t seqId, uint32_t variationSkip);
     // BindTexSlot(renderCtx, modelPtr): binds the M2 model resource to texture slot key 2 (main texture).
     constexpr uintptr_t kBindTexSlot        = 0x00825260;
     // LoadResource(path, flags): loads a texture/resource by virtual path through the texture-create path.
-    constexpr uintptr_t kLoadResource       = 0x004B9760;
+    constexpr uintptr_t kLoadResource       = engine::gx::kTextureCreate; // alias of engine::gx::kTextureCreate
     // ReleaseResource(resource): releases a resource handle returned by LoadResource.
-    constexpr uintptr_t kReleaseResource    = 0x0047BF30;
+    constexpr uintptr_t kReleaseResource    = adt::kTextureRelease; // alias of adt::kTextureRelease
 
     // --- character-model slot hooks ---
     // Per-render-ctx per-frame update: fires once per visible M2 instance per frame, recursively
@@ -767,9 +760,8 @@ namespace wxl::offsets::game::m2
     // Bit 0x1: set on a PARENT instance, its children derive their own view distance instead of
     //   inheriting the parent's (read by the palette build's distance step).
     // Bit 0x20: native semantics are "defer the post-load sizing pass to the first live pass" (a
-    //   lazy-init flag), but empirically it is set ONLY by the map's doodad-placement creation family
-    //   across all 50 scene model-creation call sites in the client -- never by unit/mount/missile/
-    //   spell-visual/UI creation paths. Used as the doodad-vs-live-instance discriminator for the
+    //   lazy-init flag), but it is set ONLY by the map's doodad-placement creation family -- never by
+    //   unit/mount/missile/spell-visual/UI creation paths. Used as the doodad-vs-live-instance discriminator for the
     //   screen-size cull since the client's world scene drains doodads and live units through the
     //   same per-frame element-build queue.
     constexpr size_t kOffInstOwnerFlags     = 0x04;
@@ -885,8 +877,6 @@ namespace wxl::offsets::game::m2
     // (cf. the batch-doodads CVar). NOTHING here is level-of-detail: the target build has no per-frame
     // M2 LOD at all.
     constexpr size_t kOffSharedMaxInstances = 0x194;
-    // Deprecated spelling kept so no published name disappears; the "LodMultiplier" reading was wrong.
-    constexpr size_t kOffModelLodMultiplier = kOffSharedMaxInstances;
 
     // --- parsed file-header fields ---
     constexpr size_t kOffHdrGlobalFlags    = 0x10; // bit 0x20 = model carries physics
@@ -897,22 +887,15 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffHdrSeqPtr         = 0x20; // -> sequence records (stride kSeqStride)
     constexpr size_t kSeqStride            = 0x40;
     constexpr size_t kOffSeqFlags          = 0x0C; // bit 0x1 = plays once to its end, then holds
-    // Full sequence-record layout confirmed 2026-08-18 (wxl-equip-extension WXL-34): a live
-    // in-memory record for a real loaded model (helm_robe_raidwarlock_f_01_gnf.m2) diffed
-    // byte-for-byte IDENTICAL against that same model's own .m2 file at its own on-disk sequence
-    // array offset. This record type carries no pointers/arrays needing load-time fixup, so the
-    // file format (community-documented, see wowdev.wiki's M2 "sequences" chunk) applies unchanged
-    // to the parsed runtime array -- every offset below is a confirmed BYTE POSITION. Independently
-    // re-derived from this project's own disassembly (not just carried over from the file-format
-    // doc): kOffSeqId (GetSequenceIndexByAnimId_Variation's match key), kOffSeqLength (read+
-    // returned by GetSequenceInfo; WXL-34's live duration-gated playback also functionally confirms
-    // milliseconds), kOffSeqFlags above (bit 0x40 = alias -- verified against real content: a
-    // record with the bit set has its kOffSeqAliasNext pointing at a record without it, a real
-    // terminus), kOffSeqBBoxMin/Max/Radius (GetSequenceInfo's bounding-sphere center/radius calc),
-    // and kOffSeqNextAnimation (the variation-chain index GetSequenceIndexByAnimId_Variation
-    // walks). kOffSeqSubId/Frequency/RangeMin/RangeMax/BlendTime/AliasNext carry the
-    // community-documented field names for their now-confirmed positions, not independently
-    // re-traced through this project's own disassembly.
+    // Sequence record: the in-memory record is byte-identical to the .m2 file's sequence array (it
+    // carries no pointers/arrays needing load-time fixup), so the file format (wowdev.wiki's M2
+    // "sequences" chunk) applies unchanged to the parsed runtime array. kOffSeqId is
+    // GetSequenceIndexByAnimId_Variation's match key; kOffSeqLength is in milliseconds (returned by
+    // GetSequenceInfo); kOffSeqFlags above has bit 0x40 = alias, whose kOffSeqAliasNext points at a
+    // record without the bit (the terminus); kOffSeqBBoxMin/Max/Radius feed GetSequenceInfo's
+    // bounding sphere; kOffSeqNextAnimation is the variation-chain index
+    // GetSequenceIndexByAnimId_Variation walks. kOffSeqSubId/Frequency/RangeMin/RangeMax/BlendTime/
+    // AliasNext carry the community-documented field names; their roles are not traced in the client.
     constexpr size_t kOffSeqId             = 0x00; // uint16: the value SetBoneSequence/lookup functions match against
     constexpr size_t kOffSeqSubId          = 0x02; // uint16
     constexpr size_t kOffSeqLength         = 0x04; // uint32, milliseconds
@@ -928,16 +911,13 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffSeqAliasNext      = 0x3E; // uint16: alias-chain target when kOffSeqFlags bit 0x40 is set
     constexpr size_t kOffHdrBoneCount      = 0x2C;
     constexpr size_t kOffHdrBoneArray      = 0x30; // -> bone records (post-fixup data ptr)
-    // keyBoneLookup (confirmed 2026-08-19, wxl-equip-extension WXL-38): the table SetBoneSequence/
-    // GetBoneSequenceId's own `slot` param resolves through when slot != -1 (matches the community-
-    // documented key_bone_lookup[] -- ArmL=0, ArmR=1, ..., Root=26, etc.; -1 = "no bone" per entry,
-    // NOT the same -1 as the slot param's own "skip the lookup, use bone 0 directly" shortcut).
-    // Confirmed via a live-memory-vs-file byte diff against a real player model (count=27, matching
-    // the community doc's own stated WotLK count exactly, every entry a sane in-range bone index) --
-    // NOT the same table as kOffHdrBoneIdxLutCount/Ptr below (0xF8/0xFC, already in core, used for
-    // equipment-to-character bone REMATCHING by BuildBoneRemap): the two were cross-checked against
-    // the same real model file and are genuinely different arrays (27 sparse entries vs 55 with a
-    // markedly different id-to-bone pattern), not two names for the same data.
+    // keyBoneLookup: the table SetBoneSequence/GetBoneSequenceId's own `slot` param resolves through
+    // when slot != -1 (the community-documented key_bone_lookup[] -- ArmL=0, ArmR=1, ..., Root=26,
+    // 27 entries in WotLK; -1 = "no bone" per entry, NOT the same -1 as the slot param's own "skip the
+    // lookup, use bone 0 directly" shortcut). NOT the same table as kOffHdrBoneIdxLutCount/Ptr below
+    // (0xF8/0xFC, used for equipment-to-character bone REMATCHING by BuildBoneRemap): the two are
+    // different arrays (27 sparse entries vs 55 with a different id-to-bone pattern), not two names
+    // for the same data.
     constexpr size_t kOffHdrKeyBoneCount   = 0x34;
     constexpr size_t kOffHdrKeyBoneArray   = 0x38; // -> int16 array, -1 = this model has no such key bone
     constexpr size_t kOffHdrAttachCount    = 0xF0; // attachment records
@@ -984,10 +964,8 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffRtBoneProcMatrix   = 0x88; // -> externally driven per-frame matrix (null = none)
     constexpr size_t kOffRtBoneFlagMask     = 0x8C; // uint32: runtime bone-flag override mask
     constexpr size_t kOffRtBonePendingSeq   = 0x90; // uint32: pending sequence bookkeeping (0xFFFFFFFF idle)
-    // Confirmed 2026-08-19 (wxl-equip-extension WXL-38): SetBoneSequence's primary write path
-    // (kSetBoneSequence's own `primary=1` branch) writes here alongside kOffRtBonePendingSeq in the
-    // same instruction sequence -- `mov [edi+0x90], eax` (seqId) immediately followed by
-    // `mov word ptr [edi+0x94], cx` (Param3, this project's own `prevSeqId`).
+    // SetBoneSequence's primary write path (kSetBoneSequence's `primary=1` branch) writes Param3
+    // (`prevSeqId`) here right after writing seqId to kOffRtBonePendingSeq.
     constexpr size_t kOffRtBonePrevSeqId    = 0x94; // uint16: SetBoneSequence's own prevSeqId param, as last written
     constexpr size_t kOffRtBoneBlendWeight  = 0xA8; // float: current blend weight (0 = none)
 
@@ -997,8 +975,8 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffCmoSceneNode = 0x38; // -> SceneNode (the root scene node for this character)
     // Per-internal-model-slot cached item display id (uint32[0xC], slots 0..0xB), written by
     // CharModelSlotDispatch on every real equip/clear event: it stores *itemDataPtr (the display id
-    // itself, not the raw pointer) at [this + kOffCmoSlotItemId + modelSlot*4]. Confirmed via
-    // disassembly 2026-08-16. Reading this directly for a freshly-resolved, live cmo gives the
+    // itself, not the raw pointer) at [this + kOffCmoSlotItemId + modelSlot*4]. Reading this
+    // directly for a freshly-resolved, live cmo gives the
     // CURRENT persisted display id for that slot with no caching/staleness window at all -- the
     // native engine keeps it current on every real event regardless of any extension.
     constexpr size_t kOffCmoSlotItemId = 0x428;
@@ -1091,8 +1069,7 @@ namespace wxl::offsets::game::m2
         uint8_t  _pad00[kOffInstOwnerFlags];
         uint32_t ownerFlags;       // kOffInstOwnerFlags (bit 0x20 = created via the map's doodad-
                                     // placement creation family -- exclusive to ADT/WMO-placed static
-                                    // doodads, confirmed across all 50 scene model-creation call sites
-                                    // in the client; never set by unit/mount/missile/spell-visual/UI
+                                    // doodads; never set by unit/mount/missile/spell-visual/UI
                                     // creation paths)
         uint8_t  _pad04[kOffInstInitFlags - (kOffInstOwnerFlags + sizeof(uint32_t))];
         uint32_t initFlags;        // kOffInstInitFlags (kInstFlag* bits)
@@ -1278,11 +1255,9 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2Attachment, pos)  == kOffAttachPos,  "M2Attachment.pos");
     static_assert(sizeof(M2Attachment) == kAttachStride, "M2Attachment size");
 
-    /** @brief Sequence record (stride kSeqStride = 0x40). Every field's byte position is confirmed
-     *         -- see the comment on kOffSeqId above for how. seqId/length/flags/bboxMin/bboxMax/
-     *         bboxRadius/nextAnimation were independently re-derived from this project's own
-     *         disassembly; subId/frequency/rangeMin/rangeMax/blendTime/aliasNext carry the
-     *         community-documented field names for their confirmed positions. */
+    /** @brief Sequence record (stride kSeqStride = 0x40), byte-identical to the file's (see the
+     *         comment above kOffSeqId). subId/frequency/rangeMin/rangeMax/blendTime/aliasNext carry
+     *         the community-documented field names; their roles are not traced in the client. */
     struct M2SequenceRec
     {
         uint16_t seqId;            // kOffSeqId -- the value SetBoneSequence/lookup functions match against
@@ -1420,8 +1395,6 @@ namespace wxl::offsets::game::m2
     // trampoline routes the model into the this-register.
     using M2_InitFn         = int(__fastcall*)(void* model);
     using M2_FinalizeSkinFn = void(__fastcall*)(void* model);
-    // Anim read-completion callback (node on stack).
-    using M2_AnimLoadCompleteFn = void(__cdecl*)(void* node);
     // Per-batch alpha setter: native this-in-ECX.
     using M2_SetupBatchAlphaFn = void(__fastcall*)(void* drawContext);
     using M2_SortOpaqueGeoBatchesFn = int(__cdecl*)(void* lhs, void* rhs);
@@ -1439,14 +1412,12 @@ namespace wxl::offsets::game::m2
     // --- attachment / resource signatures ---
     // CreateSceneModel(scene, edx, path, 0): ret 8 (2 stack args: path + trailing zero).
     using M2_CreateSceneModelFn = void*(__fastcall*)(void* scene, void* edx, void* path, uint32_t zero);
-    // Deprecated spelling, kept so no published name disappears.
+    // Deprecated spelling, kept so no published name disappears: use M2_CreateSceneModelFn.
     using M2_GetRenderCtxFn     = M2_CreateSceneModelFn;
     // AttachToScene(renderCtx, edx, subObj, slot, 0, 0): ret 16 (4 stack args: subObj, slot, 0, 0).
     using M2_AttachToSceneFn    = void (__fastcall*)(void* renderCtx, void* edx, void* subObj, uint32_t slot, uint32_t zero1, uint32_t zero2);
     // DetachSlot(subObj, edx, slot): detaches the M2 from a scene slot, releasing its render ctx.
     using M2_DetachSlotFn       = void (__fastcall*)(void* subObj, void* edx, uint32_t slot);
-    // ReleaseRenderCtx(renderCtx, edx): releases a render context.
-    using M2_ReleaseRenderCtxFn = void (__fastcall*)(void* renderCtx, void* edx);
     // BindTexSlot(renderCtx, edx, key, modelPtr): ret 8 (key=2, then modelPtr on stack).
     using M2_BindTexSlotFn      = void (__fastcall*)(void* renderCtx, void* edx, uint32_t key, void* modelPtr);
     // LoadResource(path, flags, statusOut, flags2): same call shape as Gx::TextureCreate.
@@ -1534,7 +1505,7 @@ namespace wxl::offsets::game::m2
     //
     /// Accepts (table, race, sex, sectionType, variation, colour, outFound) and returns the section
     /// record, or null. sectionType is bounded to 0..4 and indexes [race][sex][type].
-    constexpr uintptr_t kCharGetSectionsRecord             = 0x004F3BA0;
+    constexpr uintptr_t kCharGetSectionsRecord             = 0x004F3BA0; // ComponentGetSectionsRecord
     /// The table those two index, one entry per (race, sex, sectionType). Built at load, so it reads
     /// as zeroes in the image and only means anything on a running client.
     constexpr uintptr_t kCharVariationArray                = 0x00B6B864;
@@ -1657,12 +1628,12 @@ namespace wxl::offsets::game::m2
     /// composes. The rectangle visible at the section walks' call sites belongs to the update below,
     /// whose arguments are pushed first and cleaned separately -- `add esp, 0x0C` for this call and
     /// `add esp, 0x18` for that one. A decompiler folds the two argument lists into this one.
-    constexpr uintptr_t kTextureGetGxTex                   = 0x004B6CB0;
+    constexpr uintptr_t kTextureGetGxTex                   = engine::sky::kTextureGetGxTex; // alias of engine::sky::kTextureGetGxTex
     /// Marks a rectangle of that texture for upload to the card. __cdecl, 6 stack args,
     /// caller-cleaned: (gxTex, left, top, right, bottom, immediate), stored as
     /// {top, left, bottom, right} and handed to the device. A dirty region is named as
     /// (x, y, x + w, y + h); a full rebuild as (0, 0, resolution, resolution).
-    constexpr uintptr_t kGxTexUpdate                       = 0x00681F20;
+    constexpr uintptr_t kGxTexUpdate                       = engine::gx::kTextureUpdate; // alias of engine::gx::kTextureUpdate
     /// Texture cache entry. The six bytes from kOffTexEntryWidth are also what both copies receive as
     /// their "description" argument, laid out exactly as they are here.
     /// Opens the source's file and starts reading it. Creating the cache entry does NOT do this: the
@@ -1935,10 +1906,9 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kGetBoneSequenceInfo               = 0x008266B0;
     /// The cheapest query for what a model is playing right now, the natural anchor for an animation-
     /// state event. __thiscall, 1 stack arg.
-    /// GetBoneSequenceId(slot) -> seqId, slot=-1 = primary. Confirmed alongside SetBoneSequence's
-    /// own slot param, which mirrors this same concept (WXL-32/33, wxl-equip-extension) -- slot is
-    /// a key_bone_id resolved through kOffHdrKeyBoneCount/kOffHdrKeyBoneArray (keyBoneLookup), same
-    /// as SetBoneSequence's own slot param; returns kOffRtBonePendingSeq for the resolved bone.
+    /// GetBoneSequenceId(slot) -> seqId, slot=-1 = primary. slot is a key_bone_id resolved through
+    /// kOffHdrKeyBoneCount/kOffHdrKeyBoneArray (keyBoneLookup), same as SetBoneSequence's own slot
+    /// param; returns kOffRtBonePendingSeq for the resolved bone.
     constexpr uintptr_t kGetBoneSequenceId                 = 0x008267E0;
     using M2_GetBoneSequenceIdFn = uint32_t(__fastcall*)(void* instance, void* edx, uint32_t slot);
     /// React when an animation is cut short rather than ending naturally, which stock code gives no
@@ -1949,7 +1919,7 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kSetupBoneSequence                 = 0x00826B00;
     /// Intercept every primary animation start on a model, the main lever for animation remapping or
     /// blending policy. __thiscall, 6 stack args. This is what kSetBoneSequence's own `primary`
-    /// param (confirmed 2026-08-19) tail-calls when true.
+    /// param tail-calls when true.
     constexpr uintptr_t kSetPrimaryBoneSequence            = 0x00826C40;
     /// Same for the secondary (upper-body) slot, which is what drives layered animation. __thiscall, 5
     /// stack args. This is what kSetBoneSequence's own `primary` param tail-calls when false --
@@ -1997,7 +1967,7 @@ namespace wxl::offsets::game::m2
     /// triangles joining unrelated vertices. client/CM2Shared/WideIndices.cpp detours it and refills
     /// the buffer from the widened start, for the sections whose widened start the skin can contain.
     using M2_SetModelIndicesFn = uint32_t(__fastcall*)(void* instance, void* edx);
-    /// The two byte-verified read sites, one complete `movzx r32, word ptr [esi+8]` each (4 bytes) --
+    /// The two read sites, one complete `movzx r32, word ptr [esi+8]` each (4 bytes) --
     /// too short to redirect in place, which is why the fold is done by detouring the whole fill.
     constexpr uintptr_t kSetModelIndicesSrcCopy   = 0x00829091;
     constexpr uintptr_t kSetModelIndicesSrcRebase = 0x008290BC;

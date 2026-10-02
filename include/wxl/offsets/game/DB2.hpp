@@ -18,6 +18,8 @@
 
 #include <cstdint>
 
+#include "wxl/offsets/game/M2.hpp"
+
 // INTERNAL to the core. Data-table runtime offsets. The map-data override rewrites the in-memory map
 // storage built by the engine; the definition overrides target the stock storage object + accessor of
 // each replaced table. Modules never include this; they use wxl::game / wxl::events.
@@ -66,9 +68,9 @@ namespace wxl::offsets::game::db2
         constexpr uintptr_t kStorageObject  = 0x00AD332C; // storage instance
         constexpr uintptr_t kRecordCount    = 0x00AD3334; // recordCount field
         constexpr uintptr_t kRecordData     = 0x00AD3348; // recordData pointer field
-        constexpr uintptr_t kRecordLookup   = 0x004F3BA0; // consumer accessor (hook point)
+        constexpr uintptr_t kRecordLookup   = m2::kCharGetSectionsRecord; // alias of m2::kCharGetSectionsRecord; consumer accessor (hook point)
         constexpr uintptr_t kCacheBuilder   = 0x004F3DD0; // cache builder
-        constexpr uintptr_t kCacheRoot      = 0x00B6B864; // consumer cache root
+        constexpr uintptr_t kCacheRoot      = m2::kCharVariationArray; // alias of m2::kCharVariationArray; consumer cache root
     }
 
     // -------------------------------------------------------------------------
@@ -107,11 +109,7 @@ namespace wxl::offsets::game::db2
     // a POINTER to a NUL-terminated 2-char race code string (e.g. "Hu", "Or") used to build model
     // paths -- dereference it, don't read inline bytes.
     //
-    // Corrected 2026-08-14, twice: first documented as an embedded NUL-terminated char[4] ("Hum",
-    // "Orc") -- wrong on both the width (it's 2 chars) and the "embedded" part. Verified via fresh
-    // disassembly of sub_4e7800 (the native head-model path builder, `CGItemComponentPathBuilder::
-    // BuildItemHeadObjectComponentPath`): `mov eax, [chrRec+0x18]` loads a pointer, then a
-    // byte-copy loop reads `*eax`, `*(eax+1)`, ... until a NUL. So: `*(const char**)(chrRec+0x18)`
+    // The code is 2 chars, not an embedded char[4] ("Hum", "Orc"): `*(const char**)(chrRec+0x18)`
     // gives a normal, already-NUL-terminated C string -- one dereference, not raw bytes at the
     // offset itself.
     // -------------------------------------------------------------------------
@@ -139,9 +137,8 @@ namespace wxl::offsets::game::db2
         using LookupFn = uint32_t (__fastcall*)(void* storageObj, void* edx, uint32_t displayId, void* outBuf);
 
         // Field offsets within the resolved record pointer (byte offsets from the record base).
-        // Corrected 2026-08-14: Model1/Model2 DO include their own extension (".mdx") -- confirmed
-        // in-client (a consumer that appended its own extension without stripping the existing one
-        // produced a double-extensioned path). Previously documented as "no extension" here, wrong.
+        // Model1/Model2 DO include their own extension (".mdx"): a consumer that appends its own
+        // extension without stripping the existing one produces a double-extensioned path.
         constexpr size_t kOffModel1     = 0x04; // char* primary model filename (no path, WITH extension)
         constexpr size_t kOffModel2     = 0x08; // char* secondary model filename (left/right variant)
         constexpr size_t kOffTex1       = 0x0C; // char* primary texture name

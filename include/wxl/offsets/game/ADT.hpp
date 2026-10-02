@@ -19,6 +19,12 @@
 #include <cstdint>
 #include <cstddef>
 
+#include "wxl/offsets/engine/Gx.hpp"
+#include "wxl/offsets/engine/Liquid.hpp"
+#include "wxl/offsets/engine/Shader.hpp"
+#include "wxl/offsets/engine/Sky.hpp"
+#include "wxl/offsets/game/WMO.hpp"
+
 // INTERNAL to the core. Terrain tile/chunk lookups, the tile-slot grid, and runtime in-memory chunk
 // field offsets. Modules never include this; they use wxl::game / wxl::events.
 namespace wxl::offsets::game::adt
@@ -61,12 +67,6 @@ namespace wxl::offsets::game::adt
     // target it; a cancel hook retires the async object at area+0x70 before the free.
     constexpr uintptr_t kTileAreaDestroy = 0x007D6E10;
     using TileAreaDestroyFn = void(__fastcall*)(void* area);
-    // Deprecated aliases (same address/field, kept so no published offset is ever deleted): the old
-    // names wrongly said "chunk"; the object is the tile-area object. kOffChunkAsyncObj duplicates
-    // kOffTileAsyncRead below -- it is the SAME +0x70 field of the SAME tile-area object.
-    constexpr uintptr_t kChunkDestroy = kTileAreaDestroy;    // deprecated: use kTileAreaDestroy
-    using ChunkDestroyFn = TileAreaDestroyFn;                // deprecated: use TileAreaDestroyFn
-    constexpr size_t kOffChunkAsyncObj = 0x70;               // deprecated: use kOffTileAsyncRead
     // Near-tile placed-object counter (chunk, &progress, total) -> count of placed-object children still
     // loading that overlap the chunk box.
     constexpr uintptr_t kNearObjectCount = 0x007B50B0;
@@ -85,7 +85,7 @@ namespace wxl::offsets::game::adt
     // sees every chunk the terrain pass will actually draw this frame, with none of the first call's
     // false positives (chunks the second test still rejects). Declared __fastcall with a dummy edx, this
     // codebase's standard idiom for a hooked thiscall function (see kIsDrawable's own doc comment).
-    constexpr uintptr_t kChunkFrustumCull = 0x009839E0;
+    constexpr uintptr_t kChunkFrustumCull = wmo::kFrustumAabbTest; // alias of wmo::kFrustumAabbTest
     using ChunkFrustumCullFn = int(__fastcall*)(void* frustum, void* edx, const float* bbox);
     // Return address (call site + 5) of the second CFrustum::Cull call described above. At that instant
     // the bbox argument still on the stack IS chunk+kOffChunkBboxSecondary, so chunk = bbox - that offset
@@ -100,7 +100,7 @@ namespace wxl::offsets::game::adt
     // "<Map>_%d_%d.adt" tile name (area+0x48 = first, area+0x4C = second). NOTE the old comment said
     // "X-major (tileX*64 + tileY)": that was correct only under a swapped naming where "tileX" meant
     // the SECOND filename number. Phasing's PhaseHasTile uses the true second*64+first form.
-    constexpr uintptr_t kTileSlots   = 0x00CE48D0;
+    constexpr uintptr_t kTileSlots   = engine::liquid::kMapAreaTable; // alias of engine::liquid::kMapAreaTable
     constexpr uint32_t  kTileGridDim = 64;   // tiles per axis
     constexpr size_t    kTileSlotStride = 0x04;
     // Detailed/streaming-path selector (u32).
@@ -251,14 +251,14 @@ namespace wxl::offsets::game::adt
     // alpha RT (chunkObj+0x84) at stage 0x15+nLayers, and a Terrain1/2/3 pixel shader indexed by nLayers.
     constexpr uintptr_t kSurfaceChunkDrawShader = 0x007D2D70;
     // GPU device singleton; vtable + 0xA8 = the Draw (DrawIndexedPrimitive) method (batch ptr + flag).
-    constexpr uintptr_t kGxDeviceSingleton = 0x00C5DF88;
+    constexpr uintptr_t kGxDeviceSingleton = engine::gx::kGxDevicePtr; // alias of engine::gx::kGxDevicePtr
     constexpr size_t    kGxDeviceDrawVtbl  = 0xA8;
     // Texture object -> GPU handle resolve.
-    constexpr uintptr_t kTexResolve        = 0x004B6CB0;
+    constexpr uintptr_t kTexResolve        = engine::sky::kTextureGetGxTex; // alias of engine::sky::kTextureGetGxTex
     // GxRsSet / SetTexture for a sampler slot (0x15 = diffuse stage, 0x16 = alpha stage).
-    constexpr uintptr_t kSetSamplerTexture = 0x00685F50;
-    // Sampler addr/filter state for the just-bound texture.
-    constexpr uintptr_t kSetSamplerState   = 0x00681450;
+    constexpr uintptr_t kSetSamplerTexture = engine::shader::kGxStateSet; // alias of engine::shader::kGxStateSet
+    // Wrap mode for the just-bound texture.
+    constexpr uintptr_t kSetSamplerState   = engine::gx::kGxTexSetWrap; // alias of engine::gx::kGxTexSetWrap
     // Lazy texture loader for one tex-owner handle slot: slot[+4] = Load(slot[+0]).
     constexpr uintptr_t kLazyLoadTexSlot   = 0x007D6980;
     // Load tile textures: builds the tile tex-owner handle array (area+0x60) from the MTEX name

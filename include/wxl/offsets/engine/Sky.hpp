@@ -18,6 +18,8 @@
 
 #include <cstdint>
 
+#include "wxl/offsets/engine/Gx.hpp"
+
 // INTERNAL to the core. The day-night cloud sheet is not a file: the engine fills a CPU buffer
 // with layered noise a few rows per frame and uploads the touched band to one of a texture pair.
 // Everything here is what a detour on that generator needs to redraw the same band into the same
@@ -66,7 +68,7 @@ namespace wxl::offsets::engine::sky
 
     /// __cdecl(void* gxTex, int x0, int yStart, int width, int yEnd, int immediate).
     /// The generator's own upload call for the band it just drew.
-    constexpr uintptr_t kGxTexUpdate = 0x00681F20;
+    constexpr uintptr_t kGxTexUpdate = gx::kTextureUpdate; // alias of gx::kTextureUpdate
 
     // The clouds object, fields read/written by the generator. Offsets from the object base.
     constexpr uintptr_t kCloudsEnabled     = 0x2C; ///< u32, zero disables the whole update

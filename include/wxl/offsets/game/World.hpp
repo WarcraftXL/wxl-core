@@ -19,6 +19,10 @@
 #include <cstdint>
 #include <cstddef>
 
+#include "wxl/offsets/engine/Liquid.hpp"
+#include "wxl/offsets/engine/Xml.hpp"
+#include "wxl/offsets/game/ADT.hpp"
+
 // INTERNAL to the core. World tick / load-gate entries, async-I/O queue primitives, and the
 // load-state globals. Modules never include this; they use wxl::game / wxl::events.
 namespace wxl::offsets::game::world
@@ -58,7 +62,7 @@ namespace wxl::offsets::game::world
     constexpr uintptr_t kTileDestroy = 0x007C00A0;
     using TileDestroyFn = void(__cdecl*)(void* tile);
     // Async read-completion callback: finalizes the tile, frees the read context, clears the read handle.
-    constexpr uintptr_t kReadComplete = 0x007D7020;
+    constexpr uintptr_t kReadComplete = adt::kTileAreaAsyncLoadCallback; // alias of adt::kTileAreaAsyncLoadCallback
     using ReadCompleteFn = void(__cdecl*)(void* tile);
 
     // Active-tiles list (intrusive TS-list): the head holds the first node value (sentinel = bit0 set);
@@ -66,7 +70,7 @@ namespace wxl::offsets::game::world
     // *(*(u32*)kActiveListLinkBase + 4 + node). Tile grid: 64x64 Tile*, slot = tile[0x4c]*64 + tile[0x48].
     constexpr uintptr_t kActiveListHead     = 0x00ADFBF4;
     constexpr uintptr_t kActiveListLinkBase = 0x00ADFBEC;
-    constexpr uintptr_t kTileGrid           = 0x00CE48D0;
+    constexpr uintptr_t kTileGrid           = engine::liquid::kMapAreaTable; // alias of engine::liquid::kMapAreaTable
     // Tile fields: async read-in-flight handle (0 = idle), open file handle, raw ADT file-buffer ptr
     // (0 = not loaded), and that buffer's byte size (kOffTileFileId is a historical misnomer -- it
     // holds a byte count, not an id). Same tile-area object as ADT.hpp's TileArea struct, which is the
@@ -180,15 +184,16 @@ namespace wxl::offsets::game::world
     using GetScreenCoordinatesFn = int(__fastcall*)(void* worldFrame, void* unusedEdx,
                                                     const float* worldPos, float* outScreen,
                                                     uint32_t* clipFlags);
-    // UI coordinate multipliers used by Blizzard's world-space projection conversion.
-    constexpr uintptr_t kUiTexCoordAlphaMultiplier1 = 0x00AC0CB4;
-    constexpr uintptr_t kUiTexCoordAlphaMultiplier3 = 0x00AC0CBC;
+    // UI coordinate multipliers used by Blizzard's world-space projection conversion: the DDC width
+    // scale and the aspect compensation.
+    constexpr uintptr_t kUiTexCoordAlphaMultiplier1 = engine::xml::kNdcToDdcWidthScale; // alias of engine::xml::kNdcToDdcWidthScale
+    constexpr uintptr_t kUiTexCoordAlphaMultiplier3 = engine::xml::kAspectCompensation; // alias of engine::xml::kAspectCompensation
     // CGWorldFrame::SetupDefaultAction refreshes its hit-test point from the active input
     // object's normalized cursor immediately before calling HitTestPoint.
     constexpr size_t kWorldFrameInput = 0x00A0;
     constexpr size_t kInputCursorNdcX = 0x1224;
     constexpr size_t kInputCursorNdcY = 0x1228;
-    constexpr uintptr_t kDdcWidth  = 0x00AC0CB4;
+    constexpr uintptr_t kDdcWidth  = engine::xml::kNdcToDdcWidthScale; // alias of engine::xml::kNdcToDdcWidthScale
     constexpr uintptr_t kDdcHeight = 0x00AC0CB8;
     // Full cursor pick: sets up the world projection, builds the ray, and intersects, in one call. This is the engine's own per-frame mouseover entry
     // this = world frame; result[0..5] = {objLo, objHi, posX, posY, posZ, t}; returns the hit type.

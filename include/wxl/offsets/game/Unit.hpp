@@ -65,9 +65,8 @@ namespace wxl::offsets::game::unit
     constexpr size_t kHeaderTypeField   = 0x08;  // header -> type mask; what kGetObjectByGuid filters on
     // unit object -> owned CharacterComponent (the equip/model render state CharEquipSlotUpdate and
     // the geoset/attach pipeline operate on; null for non-humanoid units, or a humanoid unit with no
-    // component built yet). Confirmed via disassembly 2026-08-16 at two independent read sites gating
-    // CCharacterComponent__AddItemBySlot. Not the same field as kUnitModelField just above -- 0xB4 and
-    // 0xB4C are easy to misread as the same offset, they are not.
+    // component built yet). Not the same field as kUnitModelField just above: 0xB4 and 0xB4C are easy
+    // to misread as the same offset.
     constexpr size_t kUnitCharacterComponentField = 0xB4C;
 
     // --- virtual slots shared by every object type ---
@@ -76,12 +75,8 @@ namespace wxl::offsets::game::unit
     constexpr size_t kVtNamePosition = 8;  // anchor above the model, where the client hangs the name
     constexpr size_t kVtPosition     = 11; // world position; the base implementation reports the origin
     constexpr size_t kVtRawPosition  = 12;
-    // Orientation, radians counter-clockwise from +X. Confirmed by disassembly 2026-09-11 at two
-    // independent call sites (0x004F6A96 and 0x00522112, the latter on the active player straight out
-    // of kGetObjectByGuid): both load slot 13, call it with this in ECX and nothing on the stack, and
-    // take the result off the FPU stack with fstp, which makes it a float return. Both then feed it
-    // straight to fsincos and store cos into x and sin into y, which is what fixes the convention:
-    // facing 0 points along +X and the angle increases counter-clockwise.
+    // Orientation, radians counter-clockwise from +X: facing 0 points along +X, cos is x and sin is
+    // y. Called with this in ECX and nothing on the stack; returns a float on the FPU stack.
     constexpr size_t kVtFacing       = 13;
 
     // --- type masks ---

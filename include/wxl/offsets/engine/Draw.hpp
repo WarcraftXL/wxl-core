@@ -19,6 +19,8 @@
 #include <cstdint>
 #include <cstddef>
 
+#include "wxl/offsets/game/ADT.hpp"
+
 // INTERNAL to the core. Terrain per-chunk draw entries and the variants the live render-state
 // selector dispatches to.
 namespace wxl::offsets::engine::draw
@@ -27,7 +29,7 @@ namespace wxl::offsets::engine::draw
     // node in the this-register; the last two take it on the stack. Used to discover which variant the
     // live render-state selector dispatches to.
     constexpr uintptr_t kTerrainDrawV1 = 0x007D28B0; // node in this-register
-    constexpr uintptr_t kTerrainDrawV2 = 0x007D2D70; // node in this-register
+    constexpr uintptr_t kTerrainDrawV2 = game::adt::kSurfaceChunkDrawShader; // alias of game::adt::kSurfaceChunkDrawShader; node in this-register
     constexpr uintptr_t kTerrainDrawV3 = 0x007D1AD0; // node on stack
     constexpr uintptr_t kTerrainDrawV4 = 0x007D2520; // node on stack
 

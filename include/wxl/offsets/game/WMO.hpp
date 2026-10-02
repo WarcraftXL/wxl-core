@@ -19,6 +19,8 @@
 #include <cstdint>
 #include <cstddef>
 
+#include "wxl/offsets/engine/Shader.hpp"
+
 // INTERNAL to the core. Map-object engine entries (root/group load, material resolve, visibility) and
 // runtime object fields. Modules never include this; they use wxl::game / wxl::events.
 namespace wxl::offsets::game::wmo
@@ -142,7 +144,7 @@ namespace wxl::offsets::game::wmo
     // Name CreateMaterial substitutes for an empty texture_1, and the global that disables the second
     // texture entirely when the shader pipeline is off.
     constexpr const char kFallbackTextureName[] = "createcrappygreentexture.blp";
-    constexpr uintptr_t kShaderEffectsEnabled = 0x00D43020; // global shader-effects-enabled flag (u32)
+    constexpr uintptr_t kShaderEffectsEnabled = engine::shader::kProgrammablePathFlag; // alias of engine::shader::kProgrammablePathFlag (u32)
 
     // --- MOBA render batch (stride 0x18, based at group+0x0F8, INSIDE the group file buffer) ---
     // The client's own record. A modern file keeps every field EXCEPT the two below.
@@ -218,7 +220,7 @@ namespace wxl::offsets::game::wmo
     // Portal-visibility traversal (model, groupIndex, a, b, out): portal-driven group visibility. It
     // assumes every referenced group object exists.
     constexpr uintptr_t kPortalVisibility = 0x007AF520;
-    // Group-resident accessor (model, groupIndex, force): the join point of the resident-group queries.
+    // CMapObj::GetGroup (model, groupIndex, force): the join point of the resident-group queries.
     // It does not bounds-check groupIndex.
     constexpr uintptr_t kGroupResidentAccessor = 0x007AEA80;
 
@@ -339,13 +341,14 @@ namespace wxl::offsets::game::wmo
 
     // --- visibility-probe entries and globals (cull path) ---
     constexpr uintptr_t kPortalRectAccum   = 0x007A8F20; // (portal, moprRef, portalState, exteriorFlag)
-    constexpr uintptr_t kFrustumAabbTest   = 0x009839E0; // (frustum, bbox); 0=culled, 3=inside
+    constexpr uintptr_t kFrustumAabbTest   = 0x009839E0; // CFrustum::Cull(frustum, bbox); 0=culled, 3=inside
     constexpr uintptr_t kHorizonAabbTest   = 0x0078FDC0; // (bbox, mode); 0=visible, 2=horizon-culled
     constexpr uintptr_t kCameraInGroupTest = 0x007AE880; // (root, camA, camB, groupIndex)
-    constexpr uintptr_t kIndoorFlag        = 0x00CD87A4; // != 0 when camera is in an indoor group
-    // Same global as kIndoorFlag, read as a pointer: the map-object instance the camera is currently
-    // inside (null when outdoors). Its kOffInstanceRoot field points to the root that carries the path.
+    // The map-object instance the camera is currently inside (null when outdoors). Its
+    // kOffInstanceRoot field points to the root that carries the path.
     constexpr uintptr_t kCurrentInteriorInstance = 0x00CD87A4;
+    // Same global read as a flag: != 0 when the camera is in an indoor group.
+    constexpr uintptr_t kIndoorFlag = kCurrentInteriorInstance; // alias of kCurrentInteriorInstance
     // Instance field: pointer to the owning root object (the one with the inline path at kOffNameInline).
     constexpr size_t kOffInstanceRoot = 0xF4;
     // Doodad-set selection on the placed instance: the primary selected set (from MODF+0x3A) and up to 3
@@ -446,7 +449,7 @@ namespace wxl::offsets::game::wmo
     constexpr uint32_t kGroupFlagExteriorPortal = 0x20000000; // condition C
 
     // --- camera-in-group containment (cull path) ---
-    constexpr uintptr_t kBspRaycastRefine = 0x007CB0C0;
+    constexpr uintptr_t kBspRaycastRefine = 0x007CB0C0; // CMapObjGroup::GetTris
     // Group collision fields (group object). MOVI = u16[3] indices per face; MOVT = C3Vector vertices.
     constexpr size_t kOffGroupBsp       = 0x64;  // BSP container (null when the group has no BSP)
     constexpr size_t kOffGroupMovi      = 0xE0;  // triangle vertex indices (u16[3] per face, stride 6)

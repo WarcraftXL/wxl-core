@@ -19,7 +19,8 @@
 
 #pragma once
 
-#include <cstdio>
+#include "common/CfgParse.hpp"
+
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -27,48 +28,37 @@
 
 namespace wxl::ext::config
 {
-    inline bool Truthy(const char* raw, bool fallback)
-    {
-        if (!raw || !raw[0]) return fallback;
-        switch (raw[0])
-        {
-        case '0': case 'n': case 'N': case 'f': case 'F': return false;
-        default: return true;
-        }
-    }
+    /**
+     * Interprets a raw knob value as a boolean: a leading 0, n, N, f or F is false, anything else true.
+     *
+     * @param string raw : the value, may be null
+     * @param bool fallback : the result when raw is null or empty
+     * @return bool value
+     */
+    inline bool Truthy(const char* raw, bool fallback) { return wxl::cfg::Truthy(raw, fallback); }
 
-    /** @brief Parses one extension's .cfg file once; cached per-DLL (each includer gets its own copy). */
+    /**
+     * The extension's .cfg file, parsed once per DLL on the first call; later calls return that
+     * first file whatever path they pass.
+     *
+     * @param string path
+     * @return map entries
+     */
     inline const std::unordered_map<std::string, std::string>& File(const char* path)
     {
-        static const std::unordered_map<std::string, std::string> entries = [&] {
-            std::unordered_map<std::string, std::string> map;
-            FILE* f = nullptr;
-            if (fopen_s(&f, path, "rb") != 0 || !f) return map;
-            char line[512];
-            while (fgets(line, sizeof line, f))
-            {
-                char* text = line;
-                while (*text == ' ' || *text == '\t') ++text;
-                if (*text == '#' || *text == ';' || *text == '\0') continue;
-                char* eq = std::strchr(text, '=');
-                if (!eq) continue;
-                char* keyEnd = eq;
-                while (keyEnd > text && (keyEnd[-1] == ' ' || keyEnd[-1] == '\t')) --keyEnd;
-                char* value = eq + 1;
-                while (*value == ' ' || *value == '\t') ++value;
-                char* valueEnd = value + std::strlen(value);
-                while (valueEnd > value && (valueEnd[-1] == '\n' || valueEnd[-1] == '\r'
-                                         || valueEnd[-1] == ' '  || valueEnd[-1] == '\t')) --valueEnd;
-                if (keyEnd > text)
-                    map.emplace(std::string(text, keyEnd), std::string(value, valueEnd));
-            }
-            fclose(f);
-            return map;
-        }();
+        static const std::unordered_map<std::string, std::string> entries = wxl::cfg::ParseFile(path);
         return entries;
     }
 
-    /** @brief Resolves a knob's raw value: environment first, then cfgPath's .cfg file. */
+    /**
+     * Resolves a knob's raw value: the environment first, then the .cfg file at cfgPath.
+     *
+     * @param string name
+     * @param string buf : receives the NUL-terminated value
+     * @param uint32 cap : capacity of buf
+     * @param string cfgPath
+     * @return bool found
+     */
     inline bool Raw(const char* name, char* buf, size_t cap, const char* cfgPath)
     {
         if (!name || !buf || !cap) return false;

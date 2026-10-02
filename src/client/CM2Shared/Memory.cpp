@@ -19,7 +19,6 @@
 // route large M2 buffers into it (and the standalone-VirtualAlloc fallback) moved to wxl-m2, which
 // reaches this arena through the "wxl.m2arena" interface published below -- see include/wxl/M2ArenaApi.h.
 
-#include "config.hpp"
 #include "engine/hook/Hook.hpp"
 #include "engine/hook/Registry.hpp"
 #include "runtime/Extensions.hpp"

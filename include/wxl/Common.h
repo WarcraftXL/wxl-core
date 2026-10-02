@@ -18,7 +18,7 @@
 #define WXL_COMMON_H
 
 // Plain C, so PluginApi.h and any C extension can include it. The C++ half (the SEH guard and the
-// helpers that need a compiler) is wxl/Common.cpp, which includes this file.
+// helpers that need a compiler) is wxl/Common.hpp, which includes this file.
 //
 // The client is a Windows program: the target is always Windows, whatever the build host (Visual
 // Studio on Windows, clang mingw-w64 on Linux). Every macro below is about the compiler, never the

@@ -19,11 +19,9 @@
 #include <cstdint>
 
 /**
- * @brief One truthiness convention, one bounds convention, for every knob in the project.
- *
- * Replaces the ~10 hand-rolled copies of env parsing (GameHooks, StorageHook, profilers) whose
- * bounds had silently diverged. Values are read at call time; callers
- * that want caching wrap the call in a function-local static, as before.
+ * The configuration knobs: one truthiness convention and one bounds convention for the whole
+ * project. Values are read at call time; a caller that wants caching wraps the call in a
+ * function-local static.
  */
 namespace wxl::config
 {
@@ -74,8 +72,8 @@ namespace wxl::config
     /**
      * @brief Reads a byte size from an MB env var, then a KB env var, then a default.
      *
-     * A candidate outside [minKb, maxKb] (after unit conversion) is REJECTED - the next source is
-     * tried - matching the MB->KB->default cascade used by GameHooks/StorageHook.
+     * A candidate outside [minKb, maxKb] after unit conversion is rejected and the next source is
+     * tried.
      * @param envMb     environment variable holding megabytes, may be null.
      * @param envKb     environment variable holding kilobytes, may be null.
      * @param defBytes  default when both are absent or out of range.

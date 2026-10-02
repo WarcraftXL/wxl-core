@@ -15,6 +15,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "common/Config.hpp"
+#include "common/CfgParse.hpp"
 
 #include <windows.h>
 #include <cstdio>
@@ -27,40 +28,16 @@
 namespace
 {
     /**
-     * @brief The optional user config file, parsed once per process.
+     * The user config file, parsed once per process: WarcraftXL.cfg in the working directory, else
+     * one level up. The environment is consulted before it, sentinel files and defaults after.
      *
-     * Plain "KEY=value" lines, '#' comments, spaces trimmed. Looked up AFTER the environment (an
-     * env var always wins) and BEFORE sentinel files/defaults. Searched in the working directory
-     * (the client root for the DLL/proxy/patcher), then one level up as a fallback for a binary
-     * launched from a subdirectory. Config.wtf stays reserved for real engine CVars.
+     * @return map entries
      */
     const std::unordered_map<std::string, std::string>& CfgFile()
     {
         static const std::unordered_map<std::string, std::string> entries = [] {
-            std::unordered_map<std::string, std::string> map;
-            FILE* f = nullptr;
-            if (fopen_s(&f, "WarcraftXL.cfg", "rb") != 0 || !f)
-                if (fopen_s(&f, "..\\WarcraftXL.cfg", "rb") != 0 || !f)
-                    return map;
-            char line[512];
-            while (fgets(line, sizeof line, f))
-            {
-                char* text = line;
-                while (*text == ' ' || *text == '\t') ++text;
-                if (*text == '#' || *text == ';' || *text == '\0') continue;
-                char* eq = std::strchr(text, '=');
-                if (!eq) continue;
-                char* keyEnd = eq;
-                while (keyEnd > text && (keyEnd[-1] == ' ' || keyEnd[-1] == '\t')) --keyEnd;
-                char* value = eq + 1;
-                while (*value == ' ' || *value == '\t') ++value;
-                char* valueEnd = value + std::strlen(value);
-                while (valueEnd > value && (valueEnd[-1] == '\n' || valueEnd[-1] == '\r'
-                                         || valueEnd[-1] == ' '  || valueEnd[-1] == '\t')) --valueEnd;
-                if (keyEnd > text)
-                    map.emplace(std::string(text, keyEnd), std::string(value, valueEnd));
-            }
-            fclose(f);
+            auto map = wxl::cfg::ParseFile("WarcraftXL.cfg");
+            if (map.empty()) map = wxl::cfg::ParseFile("..\\WarcraftXL.cfg");
             return map;
         }();
         return entries;
@@ -88,9 +65,7 @@ namespace wxl::config
 {
     bool Truthy(const char* raw, bool fallback)
     {
-        if (!raw || !*raw) return fallback;
-        const char c = *raw;
-        return !(c == '0' || c == 'n' || c == 'N' || c == 'f' || c == 'F');
+        return wxl::cfg::Truthy(raw, fallback);
     }
 
     bool Raw(const char* name, char* buf, size_t cap)

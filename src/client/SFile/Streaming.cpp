@@ -15,7 +15,6 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "common/Log.hpp"
-#include "config.hpp"
 #include "engine/hook/Hook.hpp"
 #include "engine/hook/Registry.hpp"
 

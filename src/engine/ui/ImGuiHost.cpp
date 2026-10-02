@@ -27,7 +27,6 @@
 //   Initialisation is lazy and happens on the first OnEndScene, because the device does not exist
 //   when features install. Everything degrades to "no overlay" rather than to a crash.
 
-#include "config.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 #include "engine/ui/ImGuiHost.hpp"
@@ -274,4 +273,5 @@ namespace wxl::ui
     }
 }
 
-WXL_REGISTER_FEATURE("imgui-host", wxl::features::imguiOverlay, InstallImGuiHost)
+// The overlay reads input only while open (F9), so it is always compiled in.
+WXL_REGISTER_FEATURE("imgui-host", true, InstallImGuiHost)

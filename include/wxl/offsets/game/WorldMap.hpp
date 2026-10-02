@@ -21,7 +21,7 @@
 // INTERNAL to the core. The world-map screen: the zone-to-map binding and the two edges it is brought
 // up and torn down on. These are the entries an extension reaches by name through the core's hook-point
 // table (see runtime/HookPoints.cpp); each line states what a detour there controls and the calling
-// convention. No signature typedef is declared: the conventions are confirmed, the parameter types are
+// convention. No signature typedef is declared: the conventions are known, the parameter types are
 // not, and a wrong typedef is worse than none. Modules never include this; they use wxl::game.
 namespace wxl::offsets::game::worldmap
 {

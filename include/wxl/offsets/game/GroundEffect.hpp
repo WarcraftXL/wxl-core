@@ -38,9 +38,50 @@ namespace wxl::offsets::game::groundeffect
     using InitShaderConstantsFn = void(__cdecl*)();
 
     // First free vertex-constant register above the grass block (c0..c22) and the shadow block (c23..c34);
-    // the wind feature uploads c35..c37 here. Verified free on the grass pass (nothing reads >= c35).
+    // the wind feature uploads c35..c37 here. Free on the grass pass: nothing reads >= c35.
     constexpr unsigned kWindFirstReg = 35;
     constexpr unsigned kWindRegCount = 3; // c35 = {phase,windTime,amplitude,0}, c36 = {dir.x,dir.y,bias,scale}, c37 = spatial
+
+    // Ground effects / detail doodads
+    /// Brackets the entire ground-effect draw pass; state set here is the one place that affects every
+    /// clutter instance in the frame. __cdecl, caller-cleaned.
+    constexpr uintptr_t kRenderDetailDoodads               = 0x007984A0;
+    /// Builds the distance alpha-ramp texture that fades clutter out -- detour to change the ground-
+    /// effect fade curve. __cdecl, caller-cleaned.
+    constexpr uintptr_t kCreateDetailDoodadAlphaRamp       = 0x007B11B0;
+    /// Teardown of the detail-doodad model set, symmetric with the model resolve above. __cdecl,
+    /// caller-cleaned.
+    constexpr uintptr_t kDestroyDetailDoodadModels         = 0x007B1380;
+    /// The ground-effect subsystem init (pools, heaps, shader handles) -- a place to enlarge the
+    /// detail-doodad budget before anything allocates. __cdecl, caller-cleaned.
+    constexpr uintptr_t kInitDetailDoodads                 = 0x007B2760;
+    /// Per-frame rebuild of the detail-doodad vertex/index pools, gated on the dirty flag at 0x00D1C4C0
+    /// -- hook to instrument or resize the clutter pools. __cdecl, caller-cleaned.
+    constexpr uintptr_t kUpdateDetailDoodadPools           = 0x007B2A80;
+    /// The ground-effect render state and shader selection block -- the place to substitute a custom
+    /// detail-doodad shader. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSetupDetailDoodadRenderState      = 0x007B2D30;
+    /// The per-detail-doodad asset load, where the model path is built and requested. __thiscall,
+    /// caller-cleaned.
+    constexpr uintptr_t kLoadDetailDoodadData              = 0x007B3050;
+    /// The leaf that places one clutter instance (position, scale, rotation, colour) -- the finest-
+    /// grain hook for ground-effect placement. __thiscall, 7 stack args.
+    constexpr uintptr_t kAddDetailDoodadInstance           = 0x007B31E0;
+    /// Index-to-model resolution for detail doodads -- one detour redirects every ground-effect model
+    /// lookup. __cdecl, caller-cleaned.
+    constexpr uintptr_t kResolveDetailDoodadModel          = 0x007B3530;
+    /// Resolves the doodad model set a chunk's ground effects need -- the seam for substituting modern
+    /// detail-doodad models. __thiscall, caller-cleaned.
+    constexpr uintptr_t kLoadChunkDetailDoodadModels       = 0x007D05F0;
+    /// The whole ground-effect placement for one chunk (GroundEffectTexture/Doodad lookup, density,
+    /// per-cell scatter) -- the hook for custom or denser ground clutter. __thiscall, caller-cleaned.
+    constexpr uintptr_t kBuildChunkDetailDoodads           = 0x007D3390;
+    /// The visibility-driven "spawn this chunk's detail-doodad instance" gate -- hook to control
+    /// ground-effect pop-in per chunk. __thiscall, caller-cleaned.
+    constexpr uintptr_t kEnsureChunkDetailDoodadInst       = 0x007D3FE0;
+    /// Grass/detail draw distance with the engine's own clamp and squared-distance bookkeeping done for
+    /// you - safer than writing the two globals directly. __cdecl, caller-cleaned.
+    constexpr uintptr_t kDetailDoodadDistSet               = 0x00780730;
 
     // --- globals ---
     // Vertex-shader constant block, float4[23] = c0..c22, memset to zero once per grass pass then

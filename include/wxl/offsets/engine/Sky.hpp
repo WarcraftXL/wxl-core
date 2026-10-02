@@ -18,8 +18,6 @@
 
 #include <cstdint>
 
-#include "wxl/offsets/engine/Gx.hpp"
-
 // INTERNAL to the core. The day-night cloud sheet is not a file: the engine fills a CPU buffer
 // with layered noise a few rows per frame and uploads the touched band to one of a texture pair.
 // Everything here is what a detour on that generator needs to redraw the same band into the same
@@ -66,26 +64,24 @@ namespace wxl::offsets::engine::sky
     /// __cdecl(void* htexture, int, int) -> CGxTex*, called as (handle, 1, 0).
     constexpr uintptr_t kTextureGetGxTex = 0x004B6CB0;
 
-    /// __cdecl(void* gxTex, int x0, int yStart, int width, int yEnd, int immediate).
-    /// The generator's own upload call for the band it just drew.
-    constexpr uintptr_t kGxTexUpdate = gx::kTextureUpdate; // alias of gx::kTextureUpdate
+    // The generator uploads the band it just drew through gx::kTextureUpdate.
 
     // The clouds object, fields read/written by the generator. Offsets from the object base.
-    constexpr uintptr_t kCloudsEnabled     = 0x2C; ///< u32, zero disables the whole update
-    constexpr uintptr_t kCloudsCoverage    = 0x08; ///< u8, density threshold subtracted from noise
-    constexpr uintptr_t kCloudsFullRedraw  = 0x0A; ///< u8, set to redo the whole sheet this frame
-    constexpr uintptr_t kCloudsParity      = 0x0B; ///< u8, selects which of the texture pair is drawn to
-    constexpr uintptr_t kCloudsScrollScale = 0x0C; ///< f32, phase -> integer scroll conversion
-    constexpr uintptr_t kCloudsRowsPerFrame= 0x10; ///< u32, band height regenerated per call
-    constexpr uintptr_t kCloudsRowCursor   = 0x14; ///< u32, first row of this call's band
-    constexpr uintptr_t kCloudsWidth       = 0x1C; ///< u32, texels per row (the sheet is square)
-    constexpr uintptr_t kCloudsStrideShift = 0x20; ///< u32, log2 of the buffer row stride in texels
-    constexpr uintptr_t kCloudsLayerCount  = 0x28; ///< u32, noise layers summed by the stock pattern
-    constexpr uintptr_t kCloudsRgba        = 0x38; ///< u8*[w<<shift * 4], the uploaded pixels
-    constexpr uintptr_t kCloudsDensityByte = 0x44; ///< u8*[w<<shift], feeds the bump map and collision
-    constexpr uintptr_t kCloudsScroll      = 0x88; ///< u16, integer scroll derived from the phase
-    constexpr uintptr_t kCloudsPhase       = 0x8C; ///< f32, accumulated animation phase
-    constexpr uintptr_t kCloudsTexturePair = 0x90; ///< HTEXTURE[2], picked by (parity - 1) & 1
+    constexpr uintptr_t kCloudsEnabled     = 0x2C; // u32, zero disables the whole update
+    constexpr uintptr_t kCloudsCoverage    = 0x08; // u8, density threshold subtracted from noise
+    constexpr uintptr_t kCloudsFullRedraw  = 0x0A; // u8, set to redo the whole sheet this frame
+    constexpr uintptr_t kCloudsParity      = 0x0B; // u8, selects which of the texture pair is drawn to
+    constexpr uintptr_t kCloudsScrollScale = 0x0C; // f32, phase -> integer scroll conversion
+    constexpr uintptr_t kCloudsRowsPerFrame= 0x10; // u32, band height regenerated per call
+    constexpr uintptr_t kCloudsRowCursor   = 0x14; // u32, first row of this call's band
+    constexpr uintptr_t kCloudsWidth       = 0x1C; // u32, texels per row (the sheet is square)
+    constexpr uintptr_t kCloudsStrideShift = 0x20; // u32, log2 of the buffer row stride in texels
+    constexpr uintptr_t kCloudsLayerCount  = 0x28; // u32, noise layers summed by the stock pattern
+    constexpr uintptr_t kCloudsRgba        = 0x38; // u8*[w<<shift * 4], the uploaded pixels
+    constexpr uintptr_t kCloudsDensityByte = 0x44; // u8*[w<<shift], feeds the bump map and collision
+    constexpr uintptr_t kCloudsScroll      = 0x88; // u16, integer scroll derived from the phase
+    constexpr uintptr_t kCloudsPhase       = 0x8C; // f32, accumulated animation phase
+    constexpr uintptr_t kCloudsTexturePair = 0x90; // HTEXTURE[2], picked by (parity - 1) & 1
 
     // Day-night, fog and outdoor light
     /// The whole day-night advance in one call - the coarse-grained hook for a custom time-of-day or

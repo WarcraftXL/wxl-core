@@ -23,8 +23,6 @@
 #include "wxl/offsets/engine/Mem.hpp"
 #include "wxl/offsets/engine/Shader.hpp"
 #include "wxl/offsets/engine/Sky.hpp"
-#include "wxl/offsets/game/ADT.hpp"
-#include "wxl/offsets/game/WorldScene.hpp"
 
 // INTERNAL to the core. Client addresses and runtime object field offsets. This is the private
 // SOURCE the game-binding catalog is curated from; modules never include it, they call wxl::game.
@@ -94,7 +92,7 @@ namespace wxl::offsets::game::m2
     // +0x2C). A native reader replicating kInit's tail MUST use this exact allocator so the model
     // destructor's matching free call stays valid. Call-site constants replicated from kInit:
     // name ".\\M2Shared.cpp", line 0x2DC, flags 8.
-    constexpr uintptr_t kSMemAlloc = engine::mem::kAlloc; // alias of engine::mem::kAlloc
+    constexpr uintptr_t kSMemAlloc = engine::mem::kAlloc; // kept: used by extensions/wxl-modern-m2
     using SMemAllocFn = void*(__stdcall*)(uint32_t size, const char* name, uint32_t line, uint32_t flags);
     constexpr size_t   kOffModelExtSeqCount  = 0x24; // uint32: sequences whose data streams from .anim
     constexpr size_t   kOffModelExtSeqArray  = 0x28; // -> allocator-owned u32 array (count * 4)
@@ -137,7 +135,7 @@ namespace wxl::offsets::game::m2
     using M2_HeaderReadFn = int(__cdecl*)(uint8_t* base, uint32_t size, void* header, void* array);
 
     // Load-vs-rebase state global read by every header reader: 0xFFFFFFFF during the load-time walk
-    // (fix outer arrays + in-model inners), a sequence index while kPerSeqDeReloc re-drives one
+    // (fix outer arrays + in-model inners), a sequence index while kInitLowPrioritySequence re-drives one
     // streamed sequence. The native reader runs from the kInit detour where it is always -1; the
     // address is curated for asserts/diagnostics only -- never write it.
     constexpr uintptr_t kSeqRebaseState = 0x00AF59D8;
@@ -197,14 +195,13 @@ namespace wxl::offsets::game::m2
     // so calling it twice over the same range is harmless.
     constexpr uintptr_t kShaderConstUnlock = 0x00683580;
     using Gx_ShaderConstUnlockFn = void(__stdcall*)(int which, unsigned firstConst, int constCount);
-    // Vertex-shader constant block base (the device's constant-lock call for slot 0 is a pure address
-    // lookup returning this) and the bone-palette register c31 = base + 31*16.
-    constexpr uintptr_t kVsConstBlock = engine::gx::kVsConstCache; // alias of engine::gx::kVsConstCache
-    constexpr uintptr_t kVsConstC31   = kVsConstBlock + 0x1F0;
-    // Global shader-enable flag. Written once at shader-system init from the model cache flags & 8, so
-    // its value is 8 or 0 -- test for NON-ZERO, never == 1. Zero means the CPU pre-transform path,
-    // where the shadow vertices carry no bone data and the palette fix does not apply.
-    constexpr uintptr_t kEnableShaders = engine::shader::kProgrammablePathFlag; // alias of engine::shader::kProgrammablePathFlag
+    // Bone-palette register c31 = base + 31*16 of the vertex-shader constant block
+    // (engine::gx::kVsConstCache; the device's constant-lock call for slot 0 returns that address).
+    constexpr uintptr_t kVsConstC31   = engine::gx::kVsConstCache + 0x1F0;
+    // The global shader-enable flag is engine::shader::kProgrammablePathFlag. It is written once at
+    // shader-system init from the model cache flags & 8, so its value is 8 or 0 -- test for NON-ZERO,
+    // never == 1. Zero means the CPU pre-transform path, where the shadow vertices carry no bone data
+    // and the palette fix does not apply.
     // 4x4 matrix multiply: __cdecl mul(out, a, b) -> out = a*b, row-vector convention (v' = v*M).
     constexpr uintptr_t kMatrixMul = 0x004C1F00;
     using C44_MulFn = float*(__cdecl*)(void* out, const void* a, const void* b);
@@ -234,11 +231,11 @@ namespace wxl::offsets::game::m2
     // not one of the 970 modern models sampled sets that bit.
     struct ParticleStrideSite
     {
-        uintptr_t va;        ///< instruction address
-        uint8_t   length;    ///< 6 or 7 bytes; the thunk call is 5, remainder padded with nop
-        uint8_t   headerReg; ///< index into kStrideHeaderSrc below
-        uint8_t   opKind;    ///< index into kStrideOp below
-        int8_t    disp;      ///< frame displacement for the [ebp+disp] forms, else 0
+        uintptr_t va;        // instruction address
+        uint8_t   length;    // 6 or 7 bytes; the thunk call is 5, remainder padded with nop
+        uint8_t   headerReg; // index into kStrideHeaderSrc below
+        uint8_t   opKind;    // index into kStrideOp below
+        int8_t    disp;      // frame displacement for the [ebp+disp] forms, else 0
     };
 
     // Where the MD20 header pointer lives AT each site, and what the original instruction did.
@@ -408,20 +405,19 @@ namespace wxl::offsets::game::m2
     // model destructor frees.
     constexpr uintptr_t kAnimLoadComplete = 0x0083D840;
     using M2_AnimLoadCompleteFn = void(__cdecl*)(void* node);
-    // External-anim loader (model, seqIdx): resolves the sequence alias chain, builds the path, opens
-    // the file, allocates a buffer, and schedules the async read whose completion rebases the tracks.
-    constexpr uintptr_t kSequenceLoad = kLoadLowPrioritySequence; // alias of kLoadLowPrioritySequence
+    // The external-anim loader (model, seqIdx) is kLoadLowPrioritySequence: it resolves the sequence
+    // alias chain, builds the path, opens the file, allocates a buffer, and schedules the async read
+    // whose completion rebases the tracks.
     // .anim filename builder (pathStem, id, subId, outBuf): copies the stem, strips the extension,
     // appends the id-subId anim suffix.
     constexpr uintptr_t kBuildAnimPath = 0x00835A20;
-    // Per-sequence track de-relocator (model, seqIdx, buffer, size): validates the buffer and rebases
-    // sequence seqIdx's track inner slots against it, then updates the sequence flags.
-    constexpr uintptr_t kPerSeqDeReloc = kInitLowPrioritySequence; // alias of kInitLowPrioritySequence
+    // The per-sequence track de-relocator (model, seqIdx, buffer, size) is kInitLowPrioritySequence: it
+    // validates the buffer and rebases sequence seqIdx's track inner slots against it, then updates the
+    // sequence flags.
     // M2 buffer allocator (size, name, line): allocates size+0x10, returns a 16-aligned pointer carrying a
     // back-shift byte at [ptr-1]. This is the allocator the .m2 load buffer (model+0x150) uses, so a
     // replacement buffer must come from here for the model destructor's matching free to be valid.
     constexpr uintptr_t kBufferAlloc     = 0x0083DE50; // SMemAlignedAlloc
-    constexpr uintptr_t kAnimBufferAlloc = kBufferAlloc; // alias of kBufferAlloc
     constexpr uintptr_t kBufferFree      = 0x0083DE90; // free a kBufferAlloc pointer (recovers base via [ptr-1])
     using M2_BufferAllocFn = void*(__cdecl*)(uint32_t size, const char* tag, int line);
     using M2_BufferFreeFn  = void (__cdecl*)(void* ptr);
@@ -433,7 +429,7 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffNodeRecord   = 0x08;
 
     // --- per-batch alpha ---
-    // The shared per-batch alpha/material/cull setter is kSetupMaterial (alias kSetupBatchAlpha) below.
+    // The shared per-batch alpha/material/cull setter is kSetupMaterial below.
     constexpr uintptr_t kSortOpaqueGeoBatches = 0x0081EAD0;
     // Pushes the alpha-test reference to the device.
     constexpr uintptr_t kPushAlphaRef = 0x00873BA0;
@@ -589,9 +585,8 @@ namespace wxl::offsets::game::m2
     // all three return paths, so a detour may call the original with no FPU save/restore.
     constexpr uintptr_t kSetupMaterial = 0x0081FE90;
     using M2_SetupMaterialFn = void(__fastcall*)(void* renderCtx, void* edx);
-    // Shared per-batch alpha/material/cull setter: chooses the alpha-test reference from the blend mode
-    // and pushes it to the device.
-    constexpr uintptr_t kSetupBatchAlpha = kSetupMaterial; // alias of kSetupMaterial
+    // kSetupMaterial is also the shared per-batch alpha/material/cull setter: it chooses the alpha-test
+    // reference from the blend mode and pushes it to the device.
     constexpr size_t kOffRenderCtxElement  = 0x50; // -> current M2Element (see kOffElementAlpha)
     constexpr size_t kOffRenderCtxInstance = 0x60; // -> current M2Instance
     constexpr size_t kOffElementAlpha      = 0x0C; // float, consumed by kSetupMaterial's diffuse setup
@@ -625,9 +620,8 @@ namespace wxl::offsets::game::m2
     // In-place multiply: this = this * other (row-vector convention).
     constexpr uintptr_t kMatrixMulAssign = 0x004C2370;
     using C44_MulAssignFn = void(__thiscall*)(void* mat, const void* other);
-    // Affine point transform: out = vec * mat, including the translation row. cdecl, returns out.
-    constexpr uintptr_t kVec3Transform = worldscene::kMulVecMatrix; // alias of worldscene::kMulVecMatrix
-    using C3_TransformFn = float*(__cdecl*)(float* out, const float* vec3, const void* mat);
+    // The affine point transform (out = vec * mat, including the translation row) is
+    // worldscene::kMulVecMatrix.
     // In-place 3-component normalize.
     constexpr uintptr_t kVec3Normalize = 0x004C3600;
     using C3_NormalizeFn = void(__thiscall*)(float* vec3);
@@ -643,9 +637,9 @@ namespace wxl::offsets::game::m2
     // Ribbon emitter draw (emitter, stateBlock): builds the strip and binds one texture per layer.
     constexpr uintptr_t kRibbonDraw = 0x00980B70;
     // Resolve a texture handle to the internal texture object the sampler bind expects.
-    constexpr uintptr_t kTexResolve = engine::sky::kTextureGetGxTex; // alias of engine::sky::kTextureGetGxTex
+    constexpr uintptr_t kTexResolve = engine::sky::kTextureGetGxTex; // kept: used by extensions/wxl-modern-m2
     // Bind a texture to a sampler selector (device, selector, resolvedTexture).
-    constexpr uintptr_t kSamplerBind = engine::shader::kGxStateSet; // alias of engine::shader::kGxStateSet
+    constexpr uintptr_t kSamplerBind = engine::shader::kGxStateSet; // kept: used by extensions/wxl-modern-m2
     // Sampler selectors for the engine bind path: s0 = 0x15, consecutive. The native ribbon loop binds
     // only s0; the extra layers of a multi-texture ribbon are bound to s1/s2 so they survive one pass.
     constexpr uint32_t kSamplerSelS1 = 0x16;
@@ -738,10 +732,8 @@ namespace wxl::offsets::game::m2
         void* ecxUnused, void* edxUnused, void* header, uint32_t seqId, uint32_t variationSkip);
     // BindTexSlot(renderCtx, modelPtr): binds the M2 model resource to texture slot key 2 (main texture).
     constexpr uintptr_t kBindTexSlot        = 0x00825260;
-    // LoadResource(path, flags): loads a texture/resource by virtual path through the texture-create path.
-    constexpr uintptr_t kLoadResource       = engine::gx::kTextureCreate; // alias of engine::gx::kTextureCreate
-    // ReleaseResource(resource): releases a resource handle returned by LoadResource.
-    constexpr uintptr_t kReleaseResource    = adt::kTextureRelease; // alias of adt::kTextureRelease
+    // Resources load by virtual path through engine::gx::kTextureCreate (M2_LoadResourceFn) and release
+    // through adt::kTextureRelease (M2_ReleaseResourceFn).
 
     // --- character-model slot hooks ---
     // Per-render-ctx per-frame update: fires once per visible M2 instance per frame, recursively
@@ -1004,13 +996,11 @@ namespace wxl::offsets::game::m2
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
     // Only documented fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
-    /**
-     * @brief I/O record read by the per-sequence rebase: the loaded buffer base and its byte size.
-     *
-     * Pointer-valued fields are stored as uint32_t, not void*, everywhere except the LAST field of a
-     * struct: with more than one such field, sizeof(void*) would drive the padding between them, and
-     * this header is 32/64-bit-neutral (sizeof(uint32_t) is not).
-     */
+    // I/O record read by the per-sequence rebase: the loaded buffer base and its byte size.
+    //
+    // Pointer-valued fields are stored as uint32_t, not void*, everywhere except the LAST field of a
+    // struct: with more than one such field, sizeof(void*) would drive the padding between them, and
+    // this header is 32/64-bit-neutral (sizeof(uint32_t) is not).
     struct IoRecord
     {
         uint8_t  _pad00[kOffRecordBuffer];
@@ -1020,7 +1010,7 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(IoRecord, buffer) == kOffRecordBuffer, "IoRecord.buffer");
     static_assert(offsetof(IoRecord, size)   == kOffRecordSize,   "IoRecord.size");
 
-    /** @brief Async load node: holds the I/O record pointer. */
+    // Async load node: holds the I/O record pointer.
     struct LoadNode
     {
         uint8_t  _pad00[kOffNodeRecord];
@@ -1028,7 +1018,7 @@ namespace wxl::offsets::game::m2
     };
     static_assert(offsetof(LoadNode, record) == kOffNodeRecord, "LoadNode.record");
 
-    /** @brief SetupBatchAlpha draw context: the current element, the instance, and the live material. */
+    // SetupBatchAlpha draw context: the current element, the instance, and the live material.
     struct DrawContext
     {
         uint8_t  _pad00[kOffRenderCtxElement];
@@ -1042,7 +1032,7 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(DrawContext, instance)  == kOffDrawCtxInstance,  "DrawContext.instance");
     static_assert(offsetof(DrawContext, material)  == kOffDrawCtxMaterial, "DrawContext.material");
 
-    /** @brief Live material record: the blend mode the draw uses to pick the alpha-test reference. */
+    // Live material record: the blend mode the draw uses to pick the alpha-test reference.
     struct Material
     {
         uint8_t  _pad00[kOffMaterialBlend];
@@ -1050,20 +1040,18 @@ namespace wxl::offsets::game::m2
     };
     static_assert(offsetof(Material, blend) == kOffMaterialBlend, "Material.blend");
 
-    /**
-     * @brief Runtime instance (= render context wrapper returned by GetRenderCtx).
-     *        Both the character's scene node (cmo+0x38) and collection M2 render contexts
-     *        share this layout. Covers the fields the per-frame palette build and its cadence
-     *        logic touch: flags, links, anchors, the bone-state/palette pointers, the inline
-     *        placement/root matrices and the staged speed/scale/translation block.
-     *
-     * Pointer-valued fields are stored as uint32_t, not void*, everywhere except the LAST field of a
-     * struct: with more than one such field, sizeof(void*) would drive the padding between them, and
-     * this header is 32/64-bit-neutral (sizeof(uint32_t) is not). A pad between two fixed-width fields
-     * is only ever added when it is non-zero: MSVC's C2229 rejects a zero-length array as a non-trailing
-     * member, so two adjacent fixed-width fields are left with no pad between them and rely on the
-     * static_assert below to catch a future offset change instead.
-     */
+    // Runtime instance (= render context wrapper returned by GetRenderCtx).
+    // Both the character's scene node (cmo+0x38) and collection M2 render contexts
+    // share this layout. Covers the fields the per-frame palette build and its cadence
+    // logic touch: flags, links, anchors, the bone-state/palette pointers, the inline
+    // placement/root matrices and the staged speed/scale/translation block.
+    //
+    // Pointer-valued fields are stored as uint32_t, not void*, everywhere except the LAST field of a
+    // struct: with more than one such field, sizeof(void*) would drive the padding between them, and
+    // this header is 32/64-bit-neutral (sizeof(uint32_t) is not). A pad between two fixed-width fields
+    // is only ever added when it is non-zero: MSVC's C2229 rejects a zero-length array as a non-trailing
+    // member, so two adjacent fixed-width fields are left with no pad between them and rely on the
+    // static_assert below to catch a future offset change instead.
     struct M2Instance
     {
         uint8_t  _pad00[kOffInstOwnerFlags];
@@ -1138,7 +1126,7 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2Instance, scaleStage)    == kOffInstScaleStage,    "M2Instance.scaleStage");
     static_assert(offsetof(M2Instance, transStage)    == kOffInstTransStage,    "M2Instance.transStage");
 
-    /** @brief Scene clock/frame block read by the per-frame build and its cadence decisions. */
+    // Scene clock/frame block read by the per-frame build and its cadence decisions.
     struct M2SceneClock
     {
         uint8_t  _pad00[kOffSceneClock];
@@ -1149,7 +1137,7 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2SceneClock, clock) == kOffSceneClock, "M2SceneClock.clock");
     static_assert(offsetof(M2SceneClock, frame) == kOffSceneFrame, "M2SceneClock.frame");
 
-    /** @brief Runtime model: flags, path stem, the parsed .m2 buffer, its size, and the live skin profile. */
+    // Runtime model: flags, path stem, the parsed .m2 buffer, its size, and the live skin profile.
     struct M2Model
     {
         uint8_t  _pad00[kOffModelFlags];
@@ -1167,8 +1155,8 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2Model, fileSize) == kOffModelFileSize, "M2Model.fileSize");
     static_assert(offsetof(M2Model, skin)     == kOffModelSkin,     "M2Model.skin");
 
-    /** @brief Parsed file header: the global flags, sequence/bone/attachment arrays, and the
-     *         bone-index-by-id LUT. */
+    // Parsed file header: the global flags, sequence/bone/attachment arrays, and the
+    // bone-index-by-id LUT.
     struct M2FileHeader
     {
         uint8_t  _pad00[kOffHdrGlobalFlags];
@@ -1199,14 +1187,12 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2FileHeader, boneIdxLutCount)== kOffHdrBoneIdxLutCount, "M2FileHeader.boneIdxLutCount");
     static_assert(offsetof(M2FileHeader, boneIdxLutPtr)  == kOffHdrBoneIdxLutPtr,   "M2FileHeader.boneIdxLutPtr");
 
-    /**
-     * @brief In-model track head: interpolation, global-sequence link, and the per-sequence outer
-     *        arrays (timestamps + values). outerCount == 0 means the track carries no data at all.
-     *
-     * outerPtr is stored as uint32_t, not void*: it is not the last field, and a real pointer there
-     * would let sizeof(void*) drive valuesOuterCount/valuesOuterPtr's offsets, breaking the fixed 0x14
-     * size every M2Bone/M2Attachment track-head member below is checked against.
-     */
+    // In-model track head: interpolation, global-sequence link, and the per-sequence outer
+    // arrays (timestamps + values). outerCount == 0 means the track carries no data at all.
+    //
+    // outerPtr is stored as uint32_t, not void*: it is not the last field, and a real pointer there
+    // would let sizeof(void*) drive valuesOuterCount/valuesOuterPtr's offsets, breaking the fixed 0x14
+    // size every M2Bone/M2Attachment track-head member below is checked against.
     struct M2TrackHead
     {
         uint16_t interp;           // interpolation type
@@ -1218,7 +1204,7 @@ namespace wxl::offsets::game::m2
     };
     static_assert(sizeof(M2TrackHead) == 0x14, "M2TrackHead size");
 
-    /** @brief Bone record in the header bone array (stride kBoneStride). */
+    // Bone record in the header bone array (stride kBoneStride).
     struct M2Bone
     {
         int32_t     keyBoneId;     // kOffBoneKeyId (canonical slot id; negative = no key bone)
@@ -1241,8 +1227,8 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2Bone, pivot)      == kOffBonePivot,      "M2Bone.pivot");
     static_assert(sizeof(M2Bone) == kBoneStride, "M2Bone size");
 
-    /** @brief Attachment record (stride kAttachStride): the palette slot and offset a slot-attached
-     *         child instance rides, plus the enable track sampled during full builds. */
+    // Attachment record (stride kAttachStride): the palette slot and offset a slot-attached
+    // child instance rides, plus the enable track sampled during full builds.
     struct M2Attachment
     {
         uint32_t    id;
@@ -1255,9 +1241,9 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2Attachment, pos)  == kOffAttachPos,  "M2Attachment.pos");
     static_assert(sizeof(M2Attachment) == kAttachStride, "M2Attachment size");
 
-    /** @brief Sequence record (stride kSeqStride = 0x40), byte-identical to the file's (see the
-     *         comment above kOffSeqId). subId/frequency/rangeMin/rangeMax/blendTime/aliasNext carry
-     *         the community-documented field names; their roles are not traced in the client. */
+    // Sequence record (stride kSeqStride = 0x40), byte-identical to the file's (see the
+    // comment above kOffSeqId). subId/frequency/rangeMin/rangeMax/blendTime/aliasNext carry
+    // the community-documented field names; their roles are not traced in the client.
     struct M2SequenceRec
     {
         uint16_t seqId;            // kOffSeqId -- the value SetBoneSequence/lookup functions match against
@@ -1292,7 +1278,7 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2SequenceRec, aliasNext)     == kOffSeqAliasNext,     "M2SequenceRec.aliasNext");
     static_assert(sizeof(M2SequenceRec) == kSeqStride, "M2SequenceRec size");
 
-    /** @brief Track object read by the evaluators: the timestamp and value sub-arrays (count + ptr each). */
+    // Track object read by the evaluators: the timestamp and value sub-arrays (count + ptr each).
     struct M2Track
     {
         uint8_t   _pad00[kOffTrackTimestampsCount];
@@ -1306,8 +1292,8 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2Track, valuesCount)     == kOffTrackValuesCount,     "M2Track.valuesCount");
     static_assert(offsetof(M2Track, valuesPtr)       == kOffTrackValuesPtr,       "M2Track.valuesPtr");
 
-    /** @brief Runtime bone state (stride kRuntimeBoneStride): the persisted sampling records the
-     *         recomposition walk consumes, and the sequence/blend anchors the cadence scan reads. */
+    // Runtime bone state (stride kRuntimeBoneStride): the persisted sampling records the
+    // recomposition walk consumes, and the sequence/blend anchors the cadence scan reads.
     struct RuntimeBone
     {
         uint32_t transHint[2];     // key-search hints (channel A/B)
@@ -1357,7 +1343,7 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(RuntimeBone, blendWeight) == kOffRtBoneBlendWeight, "RuntimeBone.blendWeight");
     static_assert(sizeof(RuntimeBone) == kRuntimeBoneStride, "RuntimeBone size");
 
-    /** @brief Ribbon emitter: the draw-loop layer count and the per-layer texture-handle array pointer. */
+    // Ribbon emitter: the draw-loop layer count and the per-layer texture-handle array pointer.
     struct RibbonEmitter
     {
         uint8_t  _pad00[kOffRibbonLayerCount];
@@ -1368,7 +1354,7 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(RibbonEmitter, layerCount) == kOffRibbonLayerCount,   "RibbonEmitter.layerCount");
     static_assert(offsetof(RibbonEmitter, texHandles) == kOffRibbonTexHandlePtr, "RibbonEmitter.texHandles");
 
-    /** @brief Character model object: race/gender ids and the root scene node pointer. */
+    // Character model object: race/gender ids and the root scene node pointer.
     struct CharModelObject
     {
         uint8_t  _pad00[kOffCmoRace];
@@ -1381,7 +1367,7 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(CharModelObject, genderId)  == kOffCmoGender,    "CharModelObject.genderId");
     static_assert(offsetof(CharModelObject, sceneNode) == kOffCmoSceneNode, "CharModelObject.sceneNode");
 
-    /** @brief Scene node: the CharModelObject that owns this node. */
+    // Scene node: the CharModelObject that owns this node.
     struct SceneNode
     {
         uint8_t  _pad00[kOffSceneNodeOwner];
@@ -1565,7 +1551,7 @@ namespace wxl::offsets::game::m2
     /// through that description. It selects the blit, and only the four values below exist; anything
     /// else silently paints nothing.
     constexpr size_t kOffSourceDescMode = 5;
-    constexpr uint8_t kSourceModeOpaque       = 0; ///< no alpha: the whole rectangle is overwritten
+    constexpr uint8_t kSourceModeOpaque       = 0; // no alpha: the whole rectangle is overwritten
     /// One alpha bit per pixel, in a plane of its own after the index plane: the pixel is written
     /// opaque or it is left alone. Reducing, that is a test and nothing more; magnifying, the bit is
     /// expanded to 0 or 255, averaged across the seams like any other channel and then weighed.
@@ -1623,17 +1609,15 @@ namespace wxl::offsets::game::m2
     /// reached from the per-frame component update -- so on the thread that owns the device, not on
     /// the composition thread. Its full-rebuild branch is the same square upload.
     constexpr uintptr_t kCharUpdateSections                = 0x004E9510;
-    /// Resolves a texture handle to the card-side texture, and takes NO rectangle:
-    /// __cdecl, 3 stack args, (handle, mode, callback), called as (handle, 1, 0) by everything that
-    /// composes. The rectangle visible at the section walks' call sites belongs to the update below,
-    /// whose arguments are pushed first and cleaned separately -- `add esp, 0x0C` for this call and
-    /// `add esp, 0x18` for that one. A decompiler folds the two argument lists into this one.
-    constexpr uintptr_t kTextureGetGxTex                   = engine::sky::kTextureGetGxTex; // alias of engine::sky::kTextureGetGxTex
-    /// Marks a rectangle of that texture for upload to the card. __cdecl, 6 stack args,
-    /// caller-cleaned: (gxTex, left, top, right, bottom, immediate), stored as
-    /// {top, left, bottom, right} and handed to the device. A dirty region is named as
-    /// (x, y, x + w, y + h); a full rebuild as (0, 0, resolution, resolution).
-    constexpr uintptr_t kGxTexUpdate                       = engine::gx::kTextureUpdate; // alias of engine::gx::kTextureUpdate
+    // engine::sky::kTextureGetGxTex resolves a texture handle to the card-side texture and takes NO
+    // rectangle: __cdecl, 3 stack args, (handle, mode, callback), called as (handle, 1, 0) by everything
+    // that composes. The rectangle visible at the section walks' call sites belongs to the update
+    // below, whose arguments are pushed first and cleaned separately -- `add esp, 0x0C` for this call
+    // and `add esp, 0x18` for that one. A decompiler folds the two argument lists into this one.
+    // engine::gx::kTextureUpdate marks a rectangle of that texture for upload to the card. __cdecl, 6
+    // stack args, caller-cleaned: (gxTex, left, top, right, bottom, immediate), stored as
+    // {top, left, bottom, right} and handed to the device. A dirty region is named as
+    // (x, y, x + w, y + h); a full rebuild as (0, 0, resolution, resolution).
     /// Texture cache entry. The six bytes from kOffTexEntryWidth are also what both copies receive as
     /// their "description" argument, laid out exactly as they are here.
     /// Opens the source's file and starts reading it. Creating the cache entry does NOT do this: the
@@ -1646,11 +1630,11 @@ namespace wxl::offsets::game::m2
     /// a non-null image says nothing about readiness -- but neither does this field read on its own,
     /// since the thread completing the read clears it. kTextureDescribe is the answer, under its lock.
     constexpr size_t kOffTexEntryPendingRead = 0x18;
-    constexpr size_t kOffTexEntryWidth      = 0x1C; ///< uint16, height at +0x1E
-    constexpr size_t kOffTexEntryLevelCount = 0x20; ///< byte
-    constexpr size_t kOffTexEntryAlphaBits  = 0x21; ///< byte: 0, 1, 4 or 8
-    constexpr size_t kOffTexEntryImage      = 0xAC; ///< the container file, verbatim; null until the
-                                                    ///< async load has landed
+    constexpr size_t kOffTexEntryWidth      = 0x1C; // uint16, height at +0x1E
+    constexpr size_t kOffTexEntryLevelCount = 0x20; // byte
+    constexpr size_t kOffTexEntryAlphaBits  = 0x21; // byte: 0, 1, 4 or 8
+    constexpr size_t kOffTexEntryImage      = 0xAC; // the container file, verbatim; null until the
+                                                    // async load has landed
     constexpr size_t kOffTexEntryFlags      = 0xB0;
     /// Set on an entry whose image must not be read. Both the palette and the level lookup refuse on
     /// it before they touch the image at all.
@@ -1699,7 +1683,7 @@ namespace wxl::offsets::game::m2
     constexpr uint32_t  kCharRegionCount                   = 10;
 
     /// Section record: three texture paths and the flags the callers test.
-    constexpr size_t kOffSectionTexturePaths = 0x10; ///< char*[3], one per composition slot
+    constexpr size_t kOffSectionTexturePaths = 0x10; // char*[3], one per composition slot
     constexpr size_t kOffSectionFlags        = 0x1C;
     constexpr uint32_t kSectionSlotCount     = 3;
 
@@ -1985,8 +1969,8 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kSharedSetIndices    = 0x008360A0;
     constexpr uintptr_t kSharedSetIndicesSrc = 0x0083619F;
     using M2_SharedSetIndicesFn = uint32_t(__fastcall*)(void* model, void* edx);
-    constexpr size_t kOffSharedIndexPool     = 0x178; ///< -> GxPool backing the shared index buffer
-    constexpr size_t kOffSharedIndexBuf      = 0x17C; ///< -> the shared index GxBuf (built/valid at +0x1C/+0x1D)
+    constexpr size_t kOffSharedIndexPool     = 0x178; // -> GxPool backing the shared index buffer
+    constexpr size_t kOffSharedIndexBuf      = 0x17C; // -> the shared index GxBuf (built/valid at +0x1C/+0x1D)
     /// uint32: how many copies of the model one shared index buffer holds, for the batched-doodad
     /// draw. Read as the pool-size multiplier (`imul eax, [esi+0x190]`) and as the inner repeat count
     /// of the fill. Distinct from kOffSharedMaxInstances (0x194), which is the CEILING finalize
@@ -2006,11 +1990,11 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kDrawBatchStartIndexSites[] = { 0x008205DD, 0x00820666, 0x008206DE };
     /// Per-instance geometry context: the compacted draw list plus the buffers it feeds.
     constexpr size_t kOffInstGeometryCtx  = 0x2D0;
-    constexpr size_t kOffGeoCtxGroups     = 0x08; ///< -> group records, stride kGeoCtxGroupStride
-    constexpr size_t kOffGeoCtxGroupCount = 0x0C; ///< uint32
-    constexpr size_t kOffGeoCtxRanges     = 0x10; ///< -> {firstBatch, lastBatch} pairs, stride 8
-    constexpr size_t kOffGeoCtxIndexBuf   = 0x18; ///< -> the index GxBuf this fills
-    constexpr size_t kGeoCtxGroupStride   = 0x30; ///< a group's first dword indexes kOffGeoCtxRanges
+    constexpr size_t kOffGeoCtxGroups     = 0x08; // -> group records, stride kGeoCtxGroupStride
+    constexpr size_t kOffGeoCtxGroupCount = 0x0C; // uint32
+    constexpr size_t kOffGeoCtxRanges     = 0x10; // -> {firstBatch, lastBatch} pairs, stride 8
+    constexpr size_t kOffGeoCtxIndexBuf   = 0x18; // -> the index GxBuf this fills
+    constexpr size_t kGeoCtxGroupStride   = 0x30; // a group's first dword indexes kOffGeoCtxRanges
     /// The index buffer's two "already built" flags; both set means the contents still stand.
     constexpr size_t kOffGxBufBuilt       = 0x1C;
     constexpr size_t kOffGxBufValid       = 0x1D;
@@ -2248,7 +2232,7 @@ namespace wxl::offsets::game::m2
     /// Own the vertex-buffer upload for a shared model, including its vertex format choice, before any
     /// instance draws. __thiscall, 1 stack arg.
     ///
-    /// With kEnableShaders set it fills at kModelVertexStride: per co-instance, per section, per skin
+    /// With engine::shader::kProgrammablePathFlag set it fills at kModelVertexStride: per co-instance, per section, per skin
     /// vertex v of that section it copies the whole model vertex record named by
     /// skin->vertexLookup[v] into slot v, then rewrites kOffVertexBoneSlots alone from
     /// skin->bones[v * 4], adding section->boneCount * coInstance to each of the four bytes as one

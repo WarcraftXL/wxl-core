@@ -39,12 +39,10 @@ namespace wxl::offsets::engine::zlib
     constexpr int kZFinish     = 4;
     constexpr const char* kVersion = "1.2.2";
 
-    /**
-     * @brief z_stream as zlib 1.2.2 lays it out for a 32-bit build.
-     *
-     * Its size is a hard contract: inflateInit_ compares the caller's `streamSize` against its own
-     * sizeof and refuses with Z_VERSION_ERROR on a mismatch, which is why the Client passes 0x38.
-     */
+    // z_stream as zlib 1.2.2 lays it out for a 32-bit build.
+    //
+    // Its size is a hard contract: inflateInit_ compares the caller's `streamSize` against its own
+    // sizeof and refuses with Z_VERSION_ERROR on a mismatch, which is why the Client passes 0x38.
     struct ZStream
     {
         const uint8_t* nextIn;
@@ -55,7 +53,7 @@ namespace wxl::offsets::engine::zlib
         uint32_t       totalOut;
         const char*    msg;
         void*          state;
-        void*          zalloc;    ///< null lets inflateInit_ install zlib's own allocator
+        void*          zalloc;    // null lets inflateInit_ install zlib's own allocator
         void*          zfree;
         void*          opaque;
         int32_t        dataType;

@@ -304,6 +304,7 @@ namespace wxl::offsets::engine::xml
     // The two globals are read directly rather than the two functions called, there being nothing in
     // either function but that multiply.
     constexpr uintptr_t kNdcToDdcWidthScale   = 0x00AC0CB4;
+    constexpr uintptr_t kNdcToDdcHeightScale  = 0x00AC0CB8; // NDCToDDCHeight's multiplier
     constexpr uintptr_t kAspectCompensation   = 0x00AC0CBC;
     constexpr float     kLayoutReferenceWidth = 1024.0f;
 }

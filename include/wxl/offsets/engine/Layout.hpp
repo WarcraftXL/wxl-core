@@ -24,10 +24,10 @@
 // is a way for a region to have a scale of its own -- not the machinery to lay one out.
 namespace wxl::offsets::engine::layout
 {
-    // Distance from a FrameScript_Object base to its CLayoutFrame subobject. The inverse of
-    // engine::xml::kRegionToScriptObject, and confirmed outright by CSimpleTexture::~CSimpleTexture
-    // (0x00483010), which restores both vtable pointers: *this = 0x009EA1D8 (the script-object
-    // vtable) and this[8] = 0x009EA188 (the CLayoutFrame one), this[8] being this + 0x20.
+    // Distance from a FrameScript_Object base to its CLayoutFrame subobject; the inverse of
+    // engine::xml::kRegionToScriptObject. CSimpleTexture::~CSimpleTexture (0x00483010) restores both
+    // vtable pointers: *this = 0x009EA1D8 (the script-object vtable) and this[8] = 0x009EA188 (the
+    // CLayoutFrame one), this[8] being this + 0x20.
     constexpr int32_t kScriptObjectToLayoutFrame = 0x20;
 
     // CLayoutFrame fields, from the subobject. Width and height are the object's OWN size in layout

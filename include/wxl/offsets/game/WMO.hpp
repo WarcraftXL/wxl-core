@@ -19,8 +19,6 @@
 #include <cstdint>
 #include <cstddef>
 
-#include "wxl/offsets/engine/Shader.hpp"
-
 // INTERNAL to the core. Map-object engine entries (root/group load, material resolve, visibility) and
 // runtime object fields. Modules never include this; they use wxl::game / wxl::events.
 namespace wxl::offsets::game::wmo
@@ -141,10 +139,9 @@ namespace wxl::offsets::game::wmo
     constexpr size_t kOffMomtLayerDiffuse[4] = { 0x0C, 0x18, 0x24, 0x28 };
     constexpr size_t kOffMomtLayerEnv        = 0x2C;
     constexpr size_t kOffMomtLayerHeight[4]  = { 0x30, 0x34, 0x38, 0x3C };
-    // Name CreateMaterial substitutes for an empty texture_1, and the global that disables the second
-    // texture entirely when the shader pipeline is off.
+    // Name CreateMaterial substitutes for an empty texture_1. The second texture is disabled entirely
+    // when the shader pipeline is off (engine::shader::kProgrammablePathFlag, u32).
     constexpr const char kFallbackTextureName[] = "createcrappygreentexture.blp";
-    constexpr uintptr_t kShaderEffectsEnabled = engine::shader::kProgrammablePathFlag; // alias of engine::shader::kProgrammablePathFlag (u32)
 
     // --- MOBA render batch (stride 0x18, based at group+0x0F8, INSIDE the group file buffer) ---
     // The client's own record. A modern file keeps every field EXCEPT the two below.
@@ -239,20 +236,18 @@ namespace wxl::offsets::game::wmo
                 static_cast<uint32_t>(static_cast<uint8_t>(s[3]));
     }
 
-    /**
-     * @brief One chunk slot as the stock walkers fill it: where the content pointer goes, where the
-     *        element count goes, and the stride the count is derived with.
-     *
-     * The client never reads a count field out of the file: every count is `chunkSize / stride`.
-     * `stride == 1` marks the three string blobs (MOTX, MOGN, MODN) whose "count" is the raw byte
-     * size. `countField == 0` means the slot stores a pointer only.
-     */
+    // One chunk slot as the stock walkers fill it: where the content pointer goes, where the
+    // element count goes, and the stride the count is derived with.
+    //
+    // The client never reads a count field out of the file: every count is `chunkSize / stride`.
+    // `stride == 1` marks the three string blobs (MOTX, MOGN, MODN) whose "count" is the raw byte
+    // size. `countField == 0` means the slot stores a pointer only.
     struct ChunkSlot
     {
-        uint32_t tag;        ///< FourCC in memory order ('MOHD'), not the reversed on-disk dword
-        size_t   ptrField;   ///< object offset receiving the chunk CONTENT pointer
-        size_t   countField; ///< object offset receiving the derived count (0 = none)
-        uint32_t stride;     ///< element size; 1 = the count is the raw byte size
+        uint32_t tag;        // FourCC in memory order ('MOHD'), not the reversed on-disk dword
+        size_t   ptrField;   // object offset receiving the chunk CONTENT pointer
+        size_t   countField; // object offset receiving the derived count (0 = none)
+        uint32_t stride;     // element size; 1 = the count is the raw byte size
     };
 
     /// ROOT slots, exactly as `kRootWalk` fills them. Order here is the canonical 335 walk order,
@@ -345,10 +340,9 @@ namespace wxl::offsets::game::wmo
     constexpr uintptr_t kHorizonAabbTest   = 0x0078FDC0; // (bbox, mode); 0=visible, 2=horizon-culled
     constexpr uintptr_t kCameraInGroupTest = 0x007AE880; // (root, camA, camB, groupIndex)
     // The map-object instance the camera is currently inside (null when outdoors). Its
-    // kOffInstanceRoot field points to the root that carries the path.
+    // kOffInstanceRoot field points to the root that carries the path. Read as a flag, != 0 when the
+    // camera is in an indoor group.
     constexpr uintptr_t kCurrentInteriorInstance = 0x00CD87A4;
-    // Same global read as a flag: != 0 when the camera is in an indoor group.
-    constexpr uintptr_t kIndoorFlag = kCurrentInteriorInstance; // alias of kCurrentInteriorInstance
     // Instance field: pointer to the owning root object (the one with the inline path at kOffNameInline).
     constexpr size_t kOffInstanceRoot = 0xF4;
     // Doodad-set selection on the placed instance: the primary selected set (from MODF+0x3A) and up to 3
@@ -491,13 +485,11 @@ namespace wxl::offsets::game::wmo
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
     // Only known fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
-    /**
-     * @brief Map-object root: the parsed root object that owns the material table and the group array.
-     *
-     * Pointer-valued fields are stored as uint32_t, not void*, everywhere except the LAST field of a
-     * struct: with more than one such field, sizeof(void*) would drive the padding between them, and
-     * this header is 32/64-bit-neutral (sizeof(uint32_t) is not).
-     */
+    // Map-object root: the parsed root object that owns the material table and the group array.
+    //
+    // Pointer-valued fields are stored as uint32_t, not void*, everywhere except the LAST field of a
+    // struct: with more than one such field, sizeof(void*) would drive the padding between them, and
+    // this header is 32/64-bit-neutral (sizeof(uint32_t) is not).
     struct Root
     {
         uint8_t  _pad00[kOffNameInline];
@@ -523,10 +515,8 @@ namespace wxl::offsets::game::wmo
     static_assert(offsetof(Root, groupCount)    == kOffGroupCount,    "Root.groupCount");
     static_assert(offsetof(Root, groupArray)    == kOffGroupArray,    "Root.groupArray");
 
-    /**
-     * @brief Map-object group: MOGP flags/bbox/batch-counts, resolved liquid type, file buffer, and the
-     *        back pointer to the root.
-     */
+    // Map-object group: MOGP flags/bbox/batch-counts, resolved liquid type, file buffer, and the
+    // back pointer to the root.
     struct Group
     {
         uint8_t  _pad00[kOffGroupFlags];
@@ -554,10 +544,8 @@ namespace wxl::offsets::game::wmo
     static_assert(offsetof(Group, groupSize)       == kOffGroupSize,            "Group.groupSize");
     static_assert(offsetof(Group, root)            == kOffGroupRoot,            "Group.root");
 
-    /**
-     * @brief Placed WMO instance (spawned from one MODF record): the render/collision transforms, the
-     *        owning root, and the doodad-set selection.
-     */
+    // Placed WMO instance (spawned from one MODF record): the render/collision transforms, the
+    // owning root, and the doodad-set selection.
     struct Instance
     {
         uint8_t  _pad00[kOffInstanceRenderMatrix];
@@ -576,7 +564,7 @@ namespace wxl::offsets::game::wmo
     static_assert(offsetof(Instance, doodadSet)       == kOffInstanceDoodadSet,       "Instance.doodadSet");
     static_assert(offsetof(Instance, extraSets)       == kOffInstanceExtraSets,       "Instance.extraSets");
 
-    /** @brief One MOBA render batch (record = batchArray + i * kMobaStride, batchArray = kGroupSlots[5].ptrField). */
+    // One MOBA render batch (record = batchArray + i * kMobaStride, batchArray = kGroupSlots[5].ptrField).
     struct MobaRecord
     {
         uint8_t  _pad00[kOffMobaMaterialModern];
@@ -592,7 +580,7 @@ namespace wxl::offsets::game::wmo
     static_assert(offsetof(MobaRecord, material)        == kOffMobaMaterial,       "MobaRecord.material");
     static_assert(sizeof(MobaRecord) == kMobaStride, "MobaRecord size/stride");
 
-    /** @brief Group-info entry (root->mogiTable + i * kMogiStride): the per-group world AABB. */
+    // Group-info entry (root->mogiTable + i * kMogiStride): the per-group world AABB.
     struct MogiEntry
     {
         uint8_t  _pad00[kOffMogiBbox];

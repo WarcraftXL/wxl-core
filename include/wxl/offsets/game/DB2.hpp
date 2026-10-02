@@ -18,8 +18,6 @@
 
 #include <cstdint>
 
-#include "wxl/offsets/game/M2.hpp"
-
 // INTERNAL to the core. Data-table runtime offsets. The map-data override rewrites the in-memory map
 // storage built by the engine; the definition overrides target the stock storage object + accessor of
 // each replaced table. Modules never include this; they use wxl::game / wxl::events.
@@ -68,9 +66,9 @@ namespace wxl::offsets::game::db2
         constexpr uintptr_t kStorageObject  = 0x00AD332C; // storage instance
         constexpr uintptr_t kRecordCount    = 0x00AD3334; // recordCount field
         constexpr uintptr_t kRecordData     = 0x00AD3348; // recordData pointer field
-        constexpr uintptr_t kRecordLookup   = m2::kCharGetSectionsRecord; // alias of m2::kCharGetSectionsRecord; consumer accessor (hook point)
         constexpr uintptr_t kCacheBuilder   = 0x004F3DD0; // cache builder
-        constexpr uintptr_t kCacheRoot      = m2::kCharVariationArray; // alias of m2::kCharVariationArray; consumer cache root
+        // The consumer accessor (hook point) is m2::kCharGetSectionsRecord; the consumer cache root
+        // is m2::kCharVariationArray.
     }
 
     // -------------------------------------------------------------------------

@@ -19,11 +19,8 @@
 #include <cstdint>
 #include <cstddef>
 
-#include "wxl/offsets/engine/Gx.hpp"
-#include "wxl/offsets/engine/Liquid.hpp"
 #include "wxl/offsets/engine/Shader.hpp"
 #include "wxl/offsets/engine/Sky.hpp"
-#include "wxl/offsets/game/WMO.hpp"
 
 // INTERNAL to the core. Terrain tile/chunk lookups, the tile-slot grid, and runtime in-memory chunk
 // field offsets. Modules never include this; they use wxl::game / wxl::events.
@@ -62,7 +59,7 @@ namespace wxl::offsets::game::adt
     constexpr size_t kLiquidTypeMaterialId = 0x38; // u32, GetMaterial's usable range is {1, 2, 3}
 
     // TILE-AREA teardown (the tile object's destructor, __thiscall via ECX=area) -- NOT a chunk destructor.
-    // The historical name "ChunkDestroy" was a misnomer: this is the per-TILE object whose
+    // Not a "ChunkDestroy": this is the per-TILE object whose
     // raw ADT file buffer at area+0x80 is freed here while a queued async-read completion may still
     // target it; a cancel hook retires the async object at area+0x70 before the free.
     constexpr uintptr_t kTileAreaDestroy = 0x007D6E10;
@@ -72,8 +69,8 @@ namespace wxl::offsets::game::adt
     constexpr uintptr_t kNearObjectCount = 0x007B50B0;
 
     // --- terrain draw-frustum cull ---
-    // CFrustum::Cull(this=frustum, bbox[6]): __thiscall, 1 stack arg (bbox min@+0/max@+0xC), returns
-    // nonzero when the box survives (visible), 0 when culled. CWorldScene::CullChunks (0x00799D40,
+    // CFrustum::Cull (wmo::kFrustumAabbTest, this=frustum, bbox[6]): __thiscall, 1 stack arg (bbox
+    // min@+0/max@+0xC), returns nonzero when the box survives (visible), 0 when culled. CWorldScene::CullChunks (0x00799D40,
     // called 64x/frame -- once per slot of a sort table, each call walking that slot's own chunk list to
     // exhaustion, so this is NOT a one-call-per-chunk entry point to hook directly) calls this address
     // twice per candidate chunk: once against the chunk's primary AABB (kOffChunkBboxPrimary), and --
@@ -83,10 +80,7 @@ namespace wxl::offsets::game::adt
     // bucket sort happens after, not a further visibility gate) -- so gating a call-through detour of
     // this address on the SECOND call's own return address is the narrowest available hook that still
     // sees every chunk the terrain pass will actually draw this frame, with none of the first call's
-    // false positives (chunks the second test still rejects). Declared __fastcall with a dummy edx, this
-    // codebase's standard idiom for a hooked thiscall function (see kIsDrawable's own doc comment).
-    constexpr uintptr_t kChunkFrustumCull = wmo::kFrustumAabbTest; // alias of wmo::kFrustumAabbTest
-    using ChunkFrustumCullFn = int(__fastcall*)(void* frustum, void* edx, const float* bbox);
+    // false positives (chunks the second test still rejects).
     // Return address (call site + 5) of the second CFrustum::Cull call described above. At that instant
     // the bbox argument still on the stack IS chunk+kOffChunkBboxSecondary, so chunk = bbox - that offset
     // -- no separate chunk-identity lookup needed at the hook site.
@@ -94,13 +88,23 @@ namespace wxl::offsets::game::adt
     constexpr size_t    kOffChunkBboxPrimary   = 0x4C;
     constexpr size_t    kOffChunkBboxSecondary = 0x8C;
 
+    // Terrain height of one map cell: bool __cdecl(mapChunk, const float* worldPos, int cellFromY,
+    // int cellFromX, float* outHeight). The chunk/cell resolution from a world position mirrors the
+    // client's walkable-height wrapper: grid = -(world - 17066.666) * 0.24, cell = round(g - 0.5),
+    // area = grid[(cellX>>7 & 0x3f) * 0x40 + (cellY>>7 & 0x3f)] (skip when the interior flag or the
+    // area's +0x70 marker is set), chunk = area[+0xBC + ((cellX>>3 & 0xF) * 0x10 + (cellY>>3 & 0xF)) * 4].
+    constexpr uintptr_t kMapGetHeightTerrain = 0x007AD3B0;
+    using MapGetHeightTerrainFn = int(__cdecl*)(void* mapChunk, const float* pos, int cellFromY,
+                                                int cellFromX, float* outHeight);
+
     // --- tile-slot grid ---
     // Tile-slot grid base: a 64x64 array of tile-area pointers (stride 4). Slot index is
     // secondFilenameNumber * 64 + firstFilenameNumber, where the two numbers are the "%d_%d" of the
-    // "<Map>_%d_%d.adt" tile name (area+0x48 = first, area+0x4C = second). NOTE the old comment said
-    // "X-major (tileX*64 + tileY)": that was correct only under a swapped naming where "tileX" meant
-    // the SECOND filename number. Phasing's PhaseHasTile uses the true second*64+first form.
-    constexpr uintptr_t kTileSlots   = engine::liquid::kMapAreaTable; // alias of engine::liquid::kMapAreaTable
+    // "<Map>_%d_%d.adt" tile name (area+0x48 = first, area+0x4C = second). Read as "X-major
+    // (tileX*64 + tileY)" it holds only when "tileX" names the SECOND filename number. Phasing's
+    // PhaseHasTile uses the second*64+first form.
+    constexpr uintptr_t kMapAreaTable = 0x00CE48D0; // 64x64 area-chunk pointer grid
+    constexpr uintptr_t kMapBDungeon  = 0x00CF08F4; // interior map flag: no terrain grid resident
     constexpr uint32_t  kTileGridDim = 64;   // tiles per axis
     constexpr size_t    kTileSlotStride = 0x04;
     // Detailed/streaming-path selector (u32).
@@ -153,11 +157,10 @@ namespace wxl::offsets::game::adt
     // --- map low-detail (WDL) seam ---
     // Load WDL (MapLowDetail.cpp): opens "<mapPath>\<mapName>.wdl", allocates the whole file
     // into wdlState[0], then parses MVER -> optional MWMO/MWID/MODF -> MAOF -> per-tile MARE(+MAHO).
-    // Convention verified against the client build directly: true __thiscall (prologue
-    // 55 8B EC 81 EC 3C 01 00 00 .. 8B F9 = this out of ECX, epilogue C2 08 00 = two stack args),
-    // returns 1 on success / 0 when the .wdl does not open. Single caller: the map load entry @ 0x007BFDD2
-    // with ECX = kWdlState and args (&mapPath, &mapName). Declared __fastcall with a
-    // dummy EDX so the trampoline routes wdlState into the this-register.
+    // True __thiscall (this in ECX, two stack args, ret 8), returns 1 on success / 0 when the .wdl
+    // does not open. Single caller: the map load entry @ 0x007BFDD2 with ECX = kWdlState and args
+    // (&mapPath, &mapName). Declared __fastcall with a dummy EDX so the trampoline routes wdlState
+    // into the this-register.
     constexpr uintptr_t kLoadWdl = 0x007CC310;
     using LoadWdlFn = uint32_t(__fastcall*)(int* wdlState, void* edx,
                                             const char* mapPath, const char* mapName);
@@ -175,8 +178,8 @@ namespace wxl::offsets::game::adt
     constexpr uintptr_t kWdlState     = 0x00CF0900;
     constexpr uint32_t  kWdlSlotCount = 64 * 64; // dimension of the [6..] slot array (0x1000)
     // Allocate low-detail tile: pool-allocates one low-detail tile object (the per-tile low-detail
-    // object stored in the kWdlState [6..] slots). Verified __cdecl, no args, pointer in EAX (prologue
-    // 55 8B EC 83 EC 08 8B 15 18 54 D2 00 -- pool head at 0xD25418 -- plain C3 ret). Fields below are
+    // object stored in the kWdlState [6..] slots). __cdecl, no args, returns the pointer in EAX
+    // (pool head at 0xD25418). Fields below are
     // what the kLoadWdl grid loop writes on the returned object; see AreaLow for the typed view.
     constexpr size_t kOffAreaLowMinX         = 0x04;
     constexpr size_t kOffAreaLowMinY         = 0x08;
@@ -250,15 +253,14 @@ namespace wxl::offsets::game::adt
     // It draws one chunk per call with a single DIP: diffuse layer i at stage 0x15+i, a 4-channel combined
     // alpha RT (chunkObj+0x84) at stage 0x15+nLayers, and a Terrain1/2/3 pixel shader indexed by nLayers.
     constexpr uintptr_t kSurfaceChunkDrawShader = 0x007D2D70;
-    // GPU device singleton; vtable + 0xA8 = the Draw (DrawIndexedPrimitive) method (batch ptr + flag).
-    constexpr uintptr_t kGxDeviceSingleton = engine::gx::kGxDevicePtr; // alias of engine::gx::kGxDevicePtr
+    // Vtable slot of the Draw (DrawIndexedPrimitive) method on the engine::gx::kGxDevicePtr device
+    // (batch ptr + flag).
     constexpr size_t    kGxDeviceDrawVtbl  = 0xA8;
     // Texture object -> GPU handle resolve.
-    constexpr uintptr_t kTexResolve        = engine::sky::kTextureGetGxTex; // alias of engine::sky::kTextureGetGxTex
+    constexpr uintptr_t kTexResolve        = engine::sky::kTextureGetGxTex; // kept: used by extensions/wxl-modern-adt
     // GxRsSet / SetTexture for a sampler slot (0x15 = diffuse stage, 0x16 = alpha stage).
-    constexpr uintptr_t kSetSamplerTexture = engine::shader::kGxStateSet; // alias of engine::shader::kGxStateSet
-    // Wrap mode for the just-bound texture.
-    constexpr uintptr_t kSetSamplerState   = engine::gx::kGxTexSetWrap; // alias of engine::gx::kGxTexSetWrap
+    constexpr uintptr_t kSetSamplerTexture = engine::shader::kGxStateSet; // kept: used by extensions/wxl-modern-adt
+    // The wrap mode for the just-bound texture is set through engine::gx::kGxTexSetWrap.
     // Lazy texture loader for one tex-owner handle slot: slot[+4] = Load(slot[+0]).
     constexpr uintptr_t kLazyLoadTexSlot   = 0x007D6980;
     // Load tile textures: builds the tile tex-owner handle array (area+0x60) from the MTEX name
@@ -322,7 +324,7 @@ namespace wxl::offsets::game::adt
     constexpr uint32_t kPsConstTerrainBindCount = 9;
     // Relocated served-terrain-shader block: c22..c24 extras pairs, c25..c27 native pairs, c28.y
     // native layer-3 height, c29 native uv ratios, c30 extras uv ratios (c13..c21 collided with
-    // the additive shader family's own constant use; c22..c30 verified free on every permutation).
+    // the additive shader family's own constant use; c22..c30 are free on every permutation).
     constexpr uint32_t kPsConstTerrainBindBase = 22;
     // Signatures for kTexResolve / kSetSamplerTexture above.
     using Map_TexResolveFn  = void*(__cdecl*)(void* handle, int a, int b);
@@ -349,7 +351,7 @@ namespace wxl::offsets::game::adt
     // In-memory terrain texture create: builds linear/clamp flags and creates a callback-filled
     // texture handle. The fill callback is invoked by the texture system with op==1 and must write
     // *outBase / *outStride; the creation ctx arrives as its 6th argument (stride at arg 7, base at
-    // arg 8, byte-verified against the native terrain fill callback).
+    // arg 8, as the native terrain fill callback reads them).
     constexpr uintptr_t kAllocTerrainTexture = 0x007B7A70;
     using Map_AllocTerrainTextureFn = void*(__cdecl*)(uint32_t w, uint32_t h, void* ctx, void* callback,
                                                       uint32_t fmt, uint32_t fmt2);
@@ -400,14 +402,12 @@ namespace wxl::offsets::game::adt
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
     // Only known fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
-    /**
-     * @brief Tile-area object (one per resident map tile): filename index, file handle, async-read
-     *        state, file buffer.
-     *
-     * Pointer-valued fields are stored as uint32_t, not void*: with more than one such field in the same
-     * struct, sizeof(void*) would drive the padding between them, and this header is 32/64-bit-neutral
-     * (sizeof(uint32_t) is not). Only ever the LAST field of a struct is safe to type as a real pointer.
-     */
+    // Tile-area object (one per resident map tile): filename index, file handle, async-read
+    // state, file buffer.
+    //
+    // Pointer-valued fields are stored as uint32_t, not void*: with more than one such field in the same
+    // struct, sizeof(void*) would drive the padding between them, and this header is 32/64-bit-neutral
+    // (sizeof(uint32_t) is not). Only ever the LAST field of a struct is safe to type as a real pointer.
     struct TileArea
     {
         uint8_t  _pad00[kOffTileIdxFirst];
@@ -427,14 +427,12 @@ namespace wxl::offsets::game::adt
     static_assert(offsetof(TileArea, fileBuffer) == kOffTileFileBuffer, "TileArea.fileBuffer");
     static_assert(offsetof(TileArea, fileSize)   == kOffTileFileSize,   "TileArea.fileSize");
 
-    /**
-     * @brief Runtime chunk object: tex-owner link, local grid index, and the sub-chunk
-     *        pointer block the sub-chunk walk fills (raw MCNK, header, and each parsed sub-chunk).
-     *
-     * The old single struct conflated two objects: nodeLayerCount @0x09 is a draw-node field, while
-     * everything here is a chunk-object field. They are now two typed views --
-     * MapChunk for the chunk object, RenderNode for the draw node reached via chunk+0xA8.
-     */
+    // Runtime chunk object: tex-owner link, local grid index, and the sub-chunk
+    // pointer block the sub-chunk walk fills (raw MCNK, header, and each parsed sub-chunk).
+    //
+    // The old single struct conflated two objects: nodeLayerCount @0x09 is a draw-node field, while
+    // everything here is a chunk-object field. They are now two typed views --
+    // MapChunk for the chunk object, RenderNode for the draw node reached via chunk+0xA8.
     struct MapChunk
     {
         uint8_t  _pad00[kOffChunkTexOwnerSrc];
@@ -470,10 +468,8 @@ namespace wxl::offsets::game::adt
     static_assert(offsetof(MapChunk, mclq)        == kOffChunkMclq,       "MapChunk.mclq");
     static_assert(offsetof(MapChunk, mcse)        == kOffChunkMcse,       "MapChunk.mcse");
 
-    /**
-     * @brief One MCLY layer slot inside a draw node's layer array
-     *        (record = node + kOffChunkLayerRecords + i*kChunkLayerRecordStride).
-     */
+    // One MCLY layer slot inside a draw node's layer array
+    // (record = node + kOffChunkLayerRecords + i*kChunkLayerRecordStride).
     struct LayerRecord
     {
         uint8_t  _pad00[kOffLayerSlotTexId];
@@ -483,7 +479,7 @@ namespace wxl::offsets::game::adt
     static_assert(offsetof(LayerRecord, texId) == kOffLayerSlotTexId,   "LayerRecord.texId");
     static_assert(sizeof(LayerRecord)          == kChunkLayerRecordStride, "LayerRecord size/stride");
 
-    /** @brief Draw node (chunk+0xA8): layer count/flags, owning chunk, layer array. */
+    // Draw node (chunk+0xA8): layer count/flags, owning chunk, layer array.
     struct RenderNode
     {
         uint8_t     _pad00[kOffChunkNodeLayerCount];
@@ -501,7 +497,7 @@ namespace wxl::offsets::game::adt
     static_assert(offsetof(RenderNode, layers) + sizeof(RenderNode::layers) == kOffChunkNodeAlphaRT,
                   "RenderNode.layers should end exactly at the combined alpha-RT slot");
 
-    /** @brief MCNK 128-byte data header (chunk->mcnkHeader): the authoritative texture-layer count. */
+    // MCNK 128-byte data header (chunk->mcnkHeader): the authoritative texture-layer count.
     struct McnkHeader
     {
         uint8_t  _pad00[kOffMcnkNLayers];
@@ -509,10 +505,8 @@ namespace wxl::offsets::game::adt
     };
     static_assert(offsetof(McnkHeader, nLayers) == kOffMcnkNLayers, "McnkHeader.nLayers");
 
-    /**
-     * @brief Low-detail tile object (from the low-detail-tile allocator): the WDL grid-loop bounds,
-     *        column/row, render-index budget, and MARE/MAHO data.
-     */
+    // Low-detail tile object (from the low-detail-tile allocator): the WDL grid-loop bounds,
+    // column/row, render-index budget, and MARE/MAHO data.
     struct AreaLow
     {
         uint8_t  _pad00[kOffAreaLowMinX];
@@ -567,44 +561,6 @@ namespace wxl::offsets::game::adt
     /// Owns the per-slot chunk visibility walk and the render-ready link -- a detour can add chunks to,
     /// or remove them from, this frame's terrain list wholesale. __cdecl, caller-cleaned.
     constexpr uintptr_t kCullChunks                        = 0x00799D40;
-
-    // Ground effects / detail doodads
-    /// Brackets the entire ground-effect draw pass; state set here is the one place that affects every
-    /// clutter instance in the frame. __cdecl, caller-cleaned.
-    constexpr uintptr_t kRenderDetailDoodads               = 0x007984A0;
-    /// Builds the distance alpha-ramp texture that fades clutter out -- detour to change the ground-
-    /// effect fade curve. __cdecl, caller-cleaned.
-    constexpr uintptr_t kCreateDetailDoodadAlphaRamp       = 0x007B11B0;
-    /// Teardown of the detail-doodad model set, symmetric with the model resolve above. __cdecl,
-    /// caller-cleaned.
-    constexpr uintptr_t kDestroyDetailDoodadModels         = 0x007B1380;
-    /// The ground-effect subsystem init (pools, heaps, shader handles) -- a place to enlarge the
-    /// detail-doodad budget before anything allocates. __cdecl, caller-cleaned.
-    constexpr uintptr_t kInitDetailDoodads                 = 0x007B2760;
-    /// Per-frame rebuild of the detail-doodad vertex/index pools, gated on the dirty flag at 0x00D1C4C0
-    /// -- hook to instrument or resize the clutter pools. __cdecl, caller-cleaned.
-    constexpr uintptr_t kUpdateDetailDoodadPools           = 0x007B2A80;
-    /// The ground-effect render state and shader selection block -- the place to substitute a custom
-    /// detail-doodad shader. __cdecl, caller-cleaned.
-    constexpr uintptr_t kSetupDetailDoodadRenderState      = 0x007B2D30;
-    /// The per-detail-doodad asset load, where the model path is built and requested. __thiscall,
-    /// caller-cleaned.
-    constexpr uintptr_t kLoadDetailDoodadData              = 0x007B3050;
-    /// The leaf that places one clutter instance (position, scale, rotation, colour) -- the finest-
-    /// grain hook for ground-effect placement. __thiscall, 7 stack args.
-    constexpr uintptr_t kAddDetailDoodadInstance           = 0x007B31E0;
-    /// Index-to-model resolution for detail doodads -- one detour redirects every ground-effect model
-    /// lookup. __cdecl, caller-cleaned.
-    constexpr uintptr_t kResolveDetailDoodadModel          = 0x007B3530;
-    /// Resolves the doodad model set a chunk's ground effects need -- the seam for substituting modern
-    /// detail-doodad models. __thiscall, caller-cleaned.
-    constexpr uintptr_t kLoadChunkDetailDoodadModels       = 0x007D05F0;
-    /// The whole ground-effect placement for one chunk (GroundEffectTexture/Doodad lookup, density,
-    /// per-cell scatter) -- the hook for custom or denser ground clutter. __thiscall, caller-cleaned.
-    constexpr uintptr_t kBuildChunkDetailDoodads           = 0x007D3390;
-    /// The visibility-driven "spawn this chunk's detail-doodad instance" gate -- hook to control
-    /// ground-effect pop-in per chunk. __thiscall, caller-cleaned.
-    constexpr uintptr_t kEnsureChunkDetailDoodadInst       = 0x007D3FE0;
 
     // Per-chunk terrain draw and the terrain render passes
     /// Brackets the solid terrain sub-pass, so an extension can add its own full-terrain overlay pass

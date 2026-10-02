@@ -19,6 +19,7 @@
 #include <cstdint>
 
 #include "wxl/game/Binding.hpp"
+#include "wxl/offsets/engine/Xml.hpp"
 #include "wxl/offsets/game/World.hpp"
 
 /**
@@ -30,6 +31,7 @@
 namespace wxl::game::world
 {
     namespace woff = wxl::offsets::game::world;
+    namespace xoff = wxl::offsets::engine::xml;
 
     /** @brief A world-space vector (x, y, z). */
     struct Vec3 { float x; float y; float z; };
@@ -147,8 +149,8 @@ namespace wxl::game::world
         // immediately before its native hit-test call.
         const float ndcX = At<float>(input, woff::kInputCursorNdcX);
         const float ndcY = At<float>(input, woff::kInputCursorNdcY);
-        const float ddcWidth = Read<float>(woff::kDdcWidth);
-        const float ddcHeight = Read<float>(woff::kDdcHeight);
+        const float ddcWidth = Read<float>(xoff::kNdcToDdcWidthScale);
+        const float ddcHeight = Read<float>(xoff::kNdcToDdcHeightScale);
         if (ddcWidth <= 0.0f || ddcHeight <= 0.0f) return false;
 
         ddcX = ndcX * ddcWidth;

@@ -186,17 +186,6 @@ namespace wxl::offsets::engine::liquid
         uint32_t vertexRange; // low half min vertex index, high half max
     };
 
-    // Terrain height of one map cell: bool __cdecl(mapChunk, const float* worldPos, int cellFromY,
-    // int cellFromX, float* outHeight). The chunk/cell resolution from a world position mirrors the
-    // client's walkable-height wrapper: grid = -(world - 17066.666) * 0.24, cell = round(g - 0.5),
-    // area = grid[(cellX>>7 & 0x3f) * 0x40 + (cellY>>7 & 0x3f)] (skip when the interior flag or the
-    // area's +0x70 marker is set), chunk = area[+0xBC + ((cellX>>3 & 0xF) * 0x10 + (cellY>>3 & 0xF)) * 4].
-    constexpr uintptr_t kMapGetHeightTerrain = 0x007AD3B0;
-    using MapGetHeightTerrainFn = int(__cdecl*)(void* mapChunk, const float* pos, int cellFromY,
-                                                int cellFromX, float* outHeight);
-    constexpr uintptr_t kMapAreaTable = 0x00CE48D0; // 64x64 area-chunk pointer grid
-    constexpr uintptr_t kMapBDungeon  = 0x00CF08F4; // interior map flag: no terrain grid resident
-
     // LiquidType row fields consumed at draw time (row via the id-index in offsets/game/ADT.hpp).
     // The four darken columns are resident in every loaded row but unread by the stock draw.
     constexpr size_t kRowMaxDarkenDepth     = 0x18; // float, world units

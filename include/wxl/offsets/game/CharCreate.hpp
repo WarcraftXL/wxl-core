@@ -46,8 +46,8 @@ namespace wxl::offsets::game::charcreate
     // on: the SELECTED POSITION in the available-race list, not a ChrRaces id.
     constexpr uintptr_t kRaceIndex = 0x00B6B180;
 
-    // Every occurrence of kPreferences as a 4-byte operand in the image -- eight, verified by
-    // scanning the whole file for the literal, so the set is closed. Each address below is the
+    // Every occurrence of kPreferences as a 4-byte operand in the image -- eight, and the set is
+    // closed: the literal occurs nowhere else in the file. Each address below is the
     // disp32/imm32 field of one complete instruction, so writing a new base over it changes only
     // which array the instruction reaches. Relocating the array means rewriting ALL of them:
     // a subset leaves some sites indexing the new block and some the old one.

@@ -53,7 +53,7 @@ namespace wxl::offsets::engine::sound
     // field, with the member offset checked against the constant at compile time. Only the field of
     // interest is named; the lead-in is explicit padding.
 #pragma pack(push, 1)
-    /** @brief Sound-group record (an element of the kSoundGroupArrayPtr target). */
+    // Sound-group record (an element of the kSoundGroupArrayPtr target).
     struct SoundGroup
     {
         uint8_t  _pad00[kOffGroupMasterVolume];

@@ -6,17 +6,14 @@
 #include <cstddef>
 #include <cstdint>
 
-/**
- * @brief What "## Secure: 1" costs, and what satisfies it.
- *
- * A manifest declaring itself secure is checked against a `.sig` beside it. The declaration alone is
- * not enough and the failure is not local: one unsigned secure manifest fails the WHOLE check, and the
- * client then reports "FrameXML is modified or corrupt" whatever the actual offender was.
- *
- * The scheme is entirely standard cryptography -- MD5, SHA-1, RSA-2048 -- so signing needs no custom
- * implementation, only the right key. Everything below marked VERIFIED was reproduced against the
- * client's own shipped signatures; the rest was read off the binary at the address given.
- */
+// What "## Secure: 1" costs, and what satisfies it.
+//
+// A manifest declaring itself secure is checked against a `.sig` beside it. The declaration alone is
+// not enough and the failure is not local: one unsigned secure manifest fails the WHOLE check, and the
+// client then reports "FrameXML is modified or corrupt" whatever the actual offender was.
+//
+// The scheme is entirely standard cryptography -- MD5, SHA-1, RSA-2048 -- so signing needs no custom
+// implementation, only the right key.
 namespace wxl::offsets::engine::addon
 {
     // --- the scheme -------------------------------------------------------------------------------
@@ -112,7 +109,7 @@ namespace wxl::offsets::engine::addon
     constexpr size_t kSignatureCtxBlobSize = 0x104;  // 256 + the magic
     constexpr size_t kSignatureCtxBlobPtr  = 0x10;   // byte offset of [4] within the context
 
-    /// What kSignatureVerify demands, read off its body: the blob's first dword must equal
+    /// What kSignatureVerify demands: the blob's first dword must equal
     /// kSignatureMagic, else it refuses before doing any maths; then it fills the buffer with
     /// kSignaturePadByte, sets its last byte to kSignaturePadTerminator, writes the digest over its
     /// head, and compares against the block found after the magic.

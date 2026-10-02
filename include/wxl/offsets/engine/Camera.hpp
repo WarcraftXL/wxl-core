@@ -50,7 +50,7 @@ namespace wxl::offsets::engine::camera
     constexpr size_t kCameraFov      = 0x40; // float, full angle in radians
 
 #pragma pack(push, 1)
-    /** @brief The part of a camera the world renderer reads, at the offsets its methods use. */
+    // The part of a camera the world renderer reads, at the offsets its methods use.
     struct SimpleCamera
     {
         const void* vtable;                                  // 0x00

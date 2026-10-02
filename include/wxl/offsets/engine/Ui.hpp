@@ -30,10 +30,10 @@ namespace wxl::offsets::engine::ui
 
     // --- typed view over the interface root object ---
     // The constants above are the curated landmarks; this struct gives named, typed access to the same
-    // field, with the member offset checked against the constant at compile time. Only the confirmed
+    // field, with the member offset checked against the constant at compile time. Only the known
     // field is named; the lead-in is explicit padding.
 #pragma pack(push, 1)
-    /** @brief Interface root object (the kUiRootPtr target). */
+    // Interface root object (the kUiRootPtr target).
     struct UiRoot
     {
         uint8_t  _pad00[kUiEnabledFlag];

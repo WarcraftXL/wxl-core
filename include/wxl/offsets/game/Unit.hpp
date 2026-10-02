@@ -107,7 +107,7 @@ namespace wxl::offsets::game::unit
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
     // Only known fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
-    /** @brief Unit / world object: the body-model slot, the world position, and the owned character component. */
+    // Unit / world object: the body-model slot, the world position, and the owned character component.
     struct UnitObject
     {
         uint8_t  _pad00[kUnitModelField];
@@ -122,7 +122,7 @@ namespace wxl::offsets::game::unit
     static_assert(offsetof(UnitObject, characterComponent) == kUnitCharacterComponentField,
                   "UnitObject.characterComponent");
 
-    /** @brief Object header: the GUID and the type mask the object lookup filters on. */
+    // Object header: the GUID and the type mask the object lookup filters on.
     struct ObjectHeader
     {
         unsigned long long guid;     // kHeaderGuidField
@@ -131,7 +131,7 @@ namespace wxl::offsets::game::unit
     static_assert(offsetof(ObjectHeader, guid) == kHeaderGuidField, "ObjectHeader.guid");
     static_assert(offsetof(ObjectHeader, typeMask) == kHeaderTypeField, "ObjectHeader.typeMask");
 
-    /** @brief What every object carries regardless of its concrete type: the header slot. */
+    // What every object carries regardless of its concrete type: the header slot.
     struct ObjectBase
     {
         uint8_t       _pad00[kObjectHeaderField];
@@ -139,7 +139,7 @@ namespace wxl::offsets::game::unit
     };
     static_assert(offsetof(ObjectBase, header) == kObjectHeaderField, "ObjectBase.header");
 
-    /** @brief Model object: the parent slot in the attachment chain. */
+    // Model object: the parent slot in the attachment chain.
     struct ModelObject
     {
         uint8_t  _pad00[kModelParentField];

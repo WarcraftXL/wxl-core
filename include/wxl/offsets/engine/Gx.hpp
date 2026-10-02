@@ -205,12 +205,12 @@ namespace wxl::offsets::engine::gx
 
     // --- typed views over the device objects ---
     // The constants above are the curated landmarks; these structs give named, typed access to the same
-    // fields, with every member offset checked against a constant at compile time. Only confirmed fields
+    // fields, with every member offset checked against a constant at compile time. Only known fields
     // are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client. The graphics-device
     // singleton pointer, the vtable indices, the function addresses, and the render-state ids stay as plain
     // constants: they are not struct fields.
 #pragma pack(push, 1)
-    /** @brief Graphics-device object (the kGxDevicePtr target): the live D3D device and cached surfaces. */
+    // Graphics-device object (the kGxDevicePtr target): the live D3D device and cached surfaces.
     struct GxDevice
     {
         uint8_t  _pad0000[kD3DDeviceField];
@@ -223,7 +223,7 @@ namespace wxl::offsets::engine::gx
     static_assert(offsetof(GxDevice, backBuffer)   == kBackBufferField,  "GxDevice.backBuffer");
     static_assert(offsetof(GxDevice, depthSurface) == kDepthSurfaceField, "GxDevice.depthSurface");
 
-    /** @brief M2 triangle-batch draw context (this-in-ECX at kDrawTriangleBatch or kDrawBatchDoodad). */
+    // M2 triangle-batch draw context (this-in-ECX at kDrawTriangleBatch or kDrawBatchDoodad).
     struct DrawBatchContext
     {
         uint8_t  _pad00[kDrawBatchCtxElementField];
@@ -304,8 +304,8 @@ namespace wxl::offsets::engine::gx
     using LiquidRenderPassFn = void(__fastcall*)(void* bank, void* edx, void* transform, int passType);
 
 #pragma pack(push, 1)
-    /** @brief One entry of the liquid material-settings bank (kLiquidRenderPass ECX, indexed by passType).
-     *  instances is a 4-byte client pointer; kept as a u32 so the layout is host-width independent. */
+    // One entry of the liquid material-settings bank (kLiquidRenderPass ECX, indexed by passType).
+    // instances is a 4-byte client pointer; kept as a u32 so the layout is host-width independent.
     struct LiquidPassEntry
     {
         uint32_t _unk00;    // 0x00

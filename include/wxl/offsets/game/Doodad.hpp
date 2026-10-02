@@ -38,12 +38,12 @@ namespace wxl::offsets::game::doodad
     constexpr size_t kMddfPosX  = 0x08;
     constexpr size_t kMddfPosY  = 0x0C;
     constexpr size_t kMddfPosZ  = 0x10;
-    // Uniform scale, u16 with 1024 = 100%. The spawn path's own conversion, byte-verified at the call
-    // site that fills kScale: doodad.scale = (float)mddf.scaleU16 * kMddfScaleToFloat. Reading it here
+    // Uniform scale, u16 with 1024 = 100%. The spawn path's own conversion, at the call site that
+    // fills kScale: doodad.scale = (float)mddf.scaleU16 * kMddfScaleToFloat. Reading it here
     // is what lets a caller size a placement BEFORE the model exists to be measured.
     constexpr size_t kMddfScale = 0x20;
     constexpr float  kMddfScaleToFloat = 0.0009765625f; // 1/1024
-    // World position from an MDDF record, confirmed at kSpawnFromMDDF's own call site:
+    // World position from an MDDF record, as kSpawnFromMDDF's own call site computes it:
     // worldX = tileOrigin.x - mddf.posZ, worldY = tileOrigin.y - mddf.posX,
     // worldZ = tileOrigin.z + mddf.posY -- the same axis-swap/negate every archived-coordinate
     // consumer in this codebase applies. tileOrigin is the constant {17066.666, 17066.666, 0} for
@@ -127,7 +127,7 @@ namespace wxl::offsets::game::doodad
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
     // Only known fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
-    /** @brief Placed-doodad object: one per map M2 placement (the "d" pointer). */
+    // Placed-doodad object: one per map M2 placement (the "d" pointer).
     struct MapDoodad
     {
         uint8_t  _pad00[kFlags];
@@ -154,7 +154,7 @@ namespace wxl::offsets::game::doodad
     static_assert(offsetof(MapDoodad, worldMatrix) == kWorldMatrix, "MapDoodad.worldMatrix");
     static_assert(offsetof(MapDoodad, worldMatrix) + 12 * sizeof(float) == kWorldMatrixTransX, "MapDoodad.worldMatrix.trans");
 
-    /** @brief CM2 render instance (doodad+0x34): holds the live world matrix the renderer reads each frame. */
+    // CM2 render instance (doodad+0x34): holds the live world matrix the renderer reads each frame.
     struct M2Instance
     {
         uint8_t  _pad00[kInstModel];
@@ -166,7 +166,7 @@ namespace wxl::offsets::game::doodad
     static_assert(offsetof(M2Instance, worldMatrix) == kInstWorldMatrix, "M2Instance.worldMatrix");
     static_assert(offsetof(M2Instance, worldMatrix) + 12 * sizeof(float) == kInstTransX, "M2Instance.worldMatrix.trans");
 
-    /** @brief Model cache node (instance+0x2c): inline file path plus the parsed MD20 header pointer. */
+    // Model cache node (instance+0x2c): inline file path plus the parsed MD20 header pointer.
     struct M2ModelCache
     {
         uint8_t  _pad00[kModelFullPath];
@@ -179,7 +179,7 @@ namespace wxl::offsets::game::doodad
     static_assert(offsetof(M2ModelCache, fileName) == kModelFileName, "M2ModelCache.fileName");
     static_assert(offsetof(M2ModelCache, header)   == kModelHeader,   "M2ModelCache.header");
 
-    /** @brief MD20 header (modelCache->header): the model-LOCAL bounding box. */
+    // MD20 header (modelCache->header): the model-LOCAL bounding box.
     struct MD20Header
     {
         uint8_t  _pad00[kHdrBBoxMinX];

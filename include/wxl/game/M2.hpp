@@ -20,6 +20,8 @@
 #include <cstdint>
 
 #include "wxl/game/Binding.hpp"
+#include "wxl/offsets/engine/Gx.hpp"
+#include "wxl/offsets/game/ADT.hpp"
 #include "wxl/offsets/game/M2.hpp"
 #include "wxl/formats/M2Format.hpp"
 
@@ -32,6 +34,8 @@
 namespace wxl::game::m2
 {
     namespace off = wxl::offsets::game::m2;
+    namespace gxoff = wxl::offsets::engine::gx;
+    namespace adtoff = wxl::offsets::game::adt;
 
     /**
      * @brief Resolves a texture handle to the internal texture object a sampler bind expects.
@@ -272,7 +276,7 @@ namespace wxl::game::m2
     inline void* LoadResource(const char* path, uint32_t flags = 0)
     {
         int status = 0;
-        return Native<off::M2_LoadResourceFn>(off::kLoadResource)(path, flags, &status, 0);
+        return Native<off::M2_LoadResourceFn>(gxoff::kTextureCreate)(path, flags, &status, 0);
     }
 
     /**
@@ -281,6 +285,6 @@ namespace wxl::game::m2
      */
     inline void ReleaseResource(void* resource)
     {
-        Native<off::M2_ReleaseResourceFn>(off::kReleaseResource)(resource);
+        Native<off::M2_ReleaseResourceFn>(adtoff::kTextureRelease)(resource);
     }
 }

@@ -26,8 +26,8 @@ namespace wxl::offsets::engine::frame
     // stores, so it runs exactly once per frame by construction -- a second call would corrupt the
     // client's own timing before it corrupted ours. That makes it the OnUpdate anchor.
     //
-    // __cdecl, two stack args, verified at the prologue ([ebp+8] float, [ebp+0xc] int) and at the
-    // bare `ret` that ends it.
+    // __cdecl, two stack args ([ebp+8] float, [ebp+0xc] int), caller-cleaned (it ends in a bare
+    // `ret`).
     constexpr uintptr_t kFramePump = 0x0077ECB0;
     using FramePumpFn = void(__cdecl*)(float deltaSeconds, uint32_t frameTimeMs);
 

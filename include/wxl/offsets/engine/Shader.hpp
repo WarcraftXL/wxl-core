@@ -72,7 +72,7 @@ namespace wxl::offsets::engine::shader
     // The device's vertex-shader create entry: the point where a shader wrapper's bytecode becomes a
     // live IDirect3DVertexShader9. Reads the wrapper's bytecode pointer (+kCgxShaderBytePtr) and length
     // (+kCgxShaderByteLen), calls the device CreateVertexShader (D3D vtbl +0x16c), and stores the handle
-    // at +kCgxShaderHandle. Confirmed __thiscall(device /*ecx*/, wrapper /*one stack arg*/), ret 4. Detour
+    // at +kCgxShaderHandle. __thiscall(device /*ecx*/, wrapper /*one stack arg*/), ret 4. Detour
     // as __fastcall(device, edx, wrapper) -- byte-compatible -- to substitute a recognised shader's
     // bytecode (swap the wrapper's +0x50/+0x4c fields around the original call, then restore).
     constexpr uintptr_t kShaderCreateVertex = 0x006AA0D0;

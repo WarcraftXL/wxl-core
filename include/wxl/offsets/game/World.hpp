@@ -19,10 +19,6 @@
 #include <cstdint>
 #include <cstddef>
 
-#include "wxl/offsets/engine/Liquid.hpp"
-#include "wxl/offsets/engine/Xml.hpp"
-#include "wxl/offsets/game/ADT.hpp"
-
 // INTERNAL to the core. World tick / load-gate entries, async-I/O queue primitives, and the
 // load-state globals. Modules never include this; they use wxl::game / wxl::events.
 namespace wxl::offsets::game::world
@@ -61,19 +57,18 @@ namespace wxl::offsets::game::world
     constexpr uintptr_t kTileUnload  = 0x007C3700;
     constexpr uintptr_t kTileDestroy = 0x007C00A0;
     using TileDestroyFn = void(__cdecl*)(void* tile);
-    // Async read-completion callback: finalizes the tile, frees the read context, clears the read handle.
-    constexpr uintptr_t kReadComplete = adt::kTileAreaAsyncLoadCallback; // alias of adt::kTileAreaAsyncLoadCallback
-    using ReadCompleteFn = void(__cdecl*)(void* tile);
+    // The async read-completion callback (finalizes the tile, frees the read context, clears the read
+    // handle) is adt::kTileAreaAsyncLoadCallback.
 
     // Active-tiles list (intrusive TS-list): the head holds the first node value (sentinel = bit0 set);
     // the link base holds the relative-pointer origin. Per node: tile = *(node+4); next =
-    // *(*(u32*)kActiveListLinkBase + 4 + node). Tile grid: 64x64 Tile*, slot = tile[0x4c]*64 + tile[0x48].
+    // *(*(u32*)kActiveListLinkBase + 4 + node). Tile grid (adt::kMapAreaTable): 64x64 Tile*,
+    // slot = tile[0x4c]*64 + tile[0x48].
     constexpr uintptr_t kActiveListHead     = 0x00ADFBF4;
     constexpr uintptr_t kActiveListLinkBase = 0x00ADFBEC;
-    constexpr uintptr_t kTileGrid           = engine::liquid::kMapAreaTable; // alias of engine::liquid::kMapAreaTable
     // Tile fields: async read-in-flight handle (0 = idle), open file handle, raw ADT file-buffer ptr
-    // (0 = not loaded), and that buffer's byte size (kOffTileFileId is a historical misnomer -- it
-    // holds a byte count, not an id). Same tile-area object as ADT.hpp's TileArea struct, which is the
+    // (0 = not loaded), and that buffer's byte size (kOffTileFileId holds a byte count, not an id,
+    // despite its name). Same tile-area object as ADT.hpp's TileArea struct, which is the
     // canonical typed (offset-checked) view of these fields -- use that from C++ code instead of these
     // raw constants when a named struct member will do.
     constexpr size_t kOffTileAsyncRead  = 0x70;
@@ -108,7 +103,7 @@ namespace wxl::offsets::game::world
     constexpr uintptr_t kSetFarClip = 0x00780800;
     using World_SetFarClipFn = void(__cdecl*)(float farClip);
 
-    // The clamp SetFarClip calls internally (disasm-confirmed x87 clamp(farClip, 183.33333, ceiling)):
+    // The clamp SetFarClip calls internally (an x87 clamp(farClip, 183.33333, ceiling)):
     // ceiling is 791.6667 or 1583.3334, picked by map id (old-continent ids stay at the lower tier
     // unless s_cvFarClipOverride's value is >= 1) and, off the old continents, by physical RAM (< ~1GB
     // -> lower tier). Both float(__cdecl) params/return -- the x87 return convention applies regardless
@@ -184,17 +179,12 @@ namespace wxl::offsets::game::world
     using GetScreenCoordinatesFn = int(__fastcall*)(void* worldFrame, void* unusedEdx,
                                                     const float* worldPos, float* outScreen,
                                                     uint32_t* clipFlags);
-    // UI coordinate multipliers used by Blizzard's world-space projection conversion: the DDC width
-    // scale and the aspect compensation.
-    constexpr uintptr_t kUiTexCoordAlphaMultiplier1 = engine::xml::kNdcToDdcWidthScale; // alias of engine::xml::kNdcToDdcWidthScale
-    constexpr uintptr_t kUiTexCoordAlphaMultiplier3 = engine::xml::kAspectCompensation; // alias of engine::xml::kAspectCompensation
     // CGWorldFrame::SetupDefaultAction refreshes its hit-test point from the active input
-    // object's normalized cursor immediately before calling HitTestPoint.
+    // object's normalized cursor immediately before calling HitTestPoint, scaled by the NDC-to-DDC
+    // globals in engine::xml.
     constexpr size_t kWorldFrameInput = 0x00A0;
     constexpr size_t kInputCursorNdcX = 0x1224;
     constexpr size_t kInputCursorNdcY = 0x1228;
-    constexpr uintptr_t kDdcWidth  = engine::xml::kNdcToDdcWidthScale; // alias of engine::xml::kNdcToDdcWidthScale
-    constexpr uintptr_t kDdcHeight = 0x00AC0CB8;
     // Full cursor pick: sets up the world projection, builds the ray, and intersects, in one call. This is the engine's own per-frame mouseover entry
     // this = world frame; result[0..5] = {objLo, objHi, posX, posY, posZ, t}; returns the hit type.
     constexpr uintptr_t kPickAtScreen = 0x004F9DA0;
@@ -265,7 +255,7 @@ namespace wxl::offsets::game::world
     // ctx, invoked on the MAIN thread by the completion drain) and enqueues via kAsyncFileReadObject.
     constexpr uintptr_t kAsyncFileReadAllocObject = 0x004BA170;
     using AsyncFileReadAllocObjectFn = void*(__cdecl*)();
-    // Async-read record field offsets (verified against the tile-area load routine 0x007D7150 and the drain).
+    // Async-read record field offsets, as the tile-area load routine 0x007D7150 and the drain use them.
     constexpr size_t kOffAsyncFile     = 0x00;
     constexpr size_t kOffAsyncBuffer   = 0x04;
     constexpr size_t kOffAsyncSize     = 0x08;
@@ -459,9 +449,6 @@ namespace wxl::offsets::game::world
     /// The per-frame publish of screen-effect parameters, 7 call sites deep in the render path - the
     /// place to blend in extension grading each frame. __cdecl, caller-cleaned.
     constexpr uintptr_t kFrameScreenEffectUpdate           = 0x004F88B0;
-    /// Grass/detail draw distance with the engine's own clamp and squared-distance bookkeeping done for
-    /// you - safer than writing the two globals directly. __cdecl, caller-cleaned.
-    constexpr uintptr_t kDetailDoodadDistSet               = 0x00780730;
     /// The graphics-preset application - hooking it lets an extension define its own quality tiers
     /// rather than fighting the client's. __cdecl, caller-cleaned.
     constexpr uintptr_t kParamDefaultsApply                = 0x0078E1A0;

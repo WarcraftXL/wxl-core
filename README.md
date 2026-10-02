@@ -44,7 +44,8 @@ void AddScripts() { wxl::ScriptMgr::Add(new MyScript()); }
 
 ```
 include/wxl/    what an extension includes: the C ABI (PluginApi.h, Common.h, Events.hpp), the
-                C++ SDK (Common.hpp, Script.hpp and the scripts/*.def tables)
+                C++ SDK (Common.hpp, Script.hpp and the scripts/*.def tables), the game bindings
+                (game/) and the object handles (objects/)
 src/
 ├── common/     logger, configuration, page-protection helpers, shared by every binary
 ├── offsets/    engine/ · game/      client addresses, function types and struct layouts (internal)

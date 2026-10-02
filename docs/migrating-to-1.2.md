@@ -114,6 +114,43 @@ and its duplicate `EnterMap` is gone (the one in `World.hpp` is the same functio
 most derived type you need; `Player.hpp` pulls in `Unit.hpp` and `Object.hpp`. The free functions
 stay.
 
+## More object handles (nothing to do)
+
+`wxl/objects/` gains seven handles beside `Object`, `Unit` and `Player`. Each one wraps a raw pointer
+the bindings already hand out, so the free functions they call stay exactly as they are: an extension
+that passes `void*` around keeps working, and these are the shorter way to write the same thing.
+
+| Handle | Wraps | Where one comes from |
+|---|---|---|
+| `wxl::GameObject` | a game object | `Object::AsGameObject()`, `GameObject::FromGuid` |
+| `wxl::Doodad` | a placed map doodad | `MapChunk::ForEachDoodad` |
+| `wxl::MapChunk` | a terrain chunk | `MapChunk::At(pos)` |
+| `wxl::MapTile` | a resident map tile | `MapTile::Slot(second, first)` |
+| `wxl::Camera` | the engine's active camera | `Camera::Active()` |
+| `wxl::Model` | an M2 model object | the `ModelScript` hooks' `model` argument |
+| `wxl::Wmo`, `wxl::WmoGroup` | a map object's root and groups | the `AssetScript` WMO hooks |
+
+```cpp
+// before
+void* d = /* a chunk entry */;
+if (wxl::game::doodad::IsValid(d)) {
+    float p[3]; wxl::game::doodad::Position(d, p);
+    char name[128]; wxl::game::doodad::ModelName(d, name, sizeof name);
+}
+// after
+if (wxl::Doodad d = /* a chunk entry */) {
+    const wxl::Vec3 p = d.Position();
+    const char* name = d.ModelName().Text();
+}
+```
+
+Two things worth knowing before reaching for one:
+
+- `Camera`'s view, projection, view-projection and position members are `static`: that state is the
+  active render state, not a property of one camera. Only the field of view belongs to the handle.
+- `Unit::Model()` returns the attachment-chain node, **not** the M2 model object `wxl::Model` wraps.
+  The two are different objects and handing one to the other is a bug.
+
 ## Service headers moved out of the core
 
 `AppearanceApi.h`, `Db2Api.h`, `LightApi.h` and `ModelDataApi.h` left `include/wxl/`: they are not

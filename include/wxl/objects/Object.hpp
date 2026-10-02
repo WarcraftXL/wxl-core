@@ -29,6 +29,7 @@ namespace wxl
 
     class Unit;
     class Player;
+    class GameObject;
 
     /// Any resident object: the header every type carries, the position slots every type implements.
     class Object
@@ -141,6 +142,13 @@ namespace wxl
          * @return Player player : null when the object is not a player
          */
         inline Player AsPlayer() const;
+
+        /**
+         * The same object as a GameObject. Defined in wxl/objects/GameObject.hpp.
+         *
+         * @return GameObject gameObject : null when the object is not a game object
+         */
+        inline GameObject AsGameObject() const;
 
         bool operator==(const Object& o) const { return raw_ == o.raw_; }
         bool operator!=(const Object& o) const { return raw_ != o.raw_; }

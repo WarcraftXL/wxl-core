@@ -42,9 +42,10 @@ namespace wxl
         { return Unit(game::world::ResolveObject(guid, game::world::kTypeMaskUnit)); }
 
         /**
-         * The body model.
+         * The unit's body model node: the node game::unit::ModelParent walks up the attachment
+         * chain. Not the M2 model object wxl::Model wraps, and not valid to hand to it.
          *
-         * @return void* model : null when none
+         * @return void* model : a game::unit ModelObject, null when none
          */
         void* Model() const { return game::unit::Model(raw_); }
 

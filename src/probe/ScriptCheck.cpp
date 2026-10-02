@@ -17,7 +17,14 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wxl/Script.hpp"
+#include "wxl/objects/Camera.hpp"
+#include "wxl/objects/Doodad.hpp"
+#include "wxl/objects/GameObject.hpp"
+#include "wxl/objects/MapChunk.hpp"
+#include "wxl/objects/MapTile.hpp"
+#include "wxl/objects/Model.hpp"
 #include "wxl/objects/Player.hpp"
+#include "wxl/objects/Wmo.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -107,14 +114,45 @@ int main()
     CHECK(std::strcmp(early->GetName(), "both") == 0);
     CHECK(wxl::ScriptMgr::Api() == &api);
 
-    // The handles compile and keep their null semantics without a client behind them.
+    // The handles compile and keep their null semantics without a client behind them. Only the
+    // members whose binding guards its pointer are called here: a factory (Active, At, Slot,
+    // FromGuid) reads a fixed client address, and Model's and Wmo's readers dereference the object,
+    // so neither can run outside the client.
     wxl::Object none;
     CHECK(!none && none.Guid() == 0 && none.TypeMask() == 0 && !none.IsUnit());
-    CHECK(!none.AsUnit() && !none.AsPlayer());
+    CHECK(!none.AsUnit() && !none.AsPlayer() && !none.AsGameObject());
     wxl::Unit noUnit;
     CHECK(noUnit.Reaction(noUnit) == 0 && !noUnit.Model());
     wxl::Player noPlayer;
     CHECK(!noPlayer && !noPlayer.AsUnit() && !noPlayer.AsPlayer());
+    wxl::GameObject noGameObject;
+    CHECK(!noGameObject && noGameObject.Guid() == 0 && !noGameObject.IsGameObject());
+
+    wxl::Doodad noDoodad;
+    CHECK(!noDoodad && !noDoodad.Instance() && !noDoodad.ModelName());
+    CHECK(noDoodad.Scale() == 1.0f && noDoodad.Position().x == 0.0f && noDoodad.Center().z == 0.0f);
+    wxl::Vec3 lo{}, hi{};
+    CHECK(!noDoodad.BBox(lo, hi) && !noDoodad.LocalBounds(lo, hi));
+    char nameBuf[8] = { 'x' };
+    CHECK(!noDoodad.ModelName(nameBuf, sizeof nameBuf));
+
+    wxl::MapChunk noChunk;
+    CHECK(!noChunk && noChunk.NearObjectCount(0) == 0);
+    int visited = 0;
+    CHECK(noChunk.ForEachDoodad([&](wxl::Doodad) { ++visited; }) == 0 && visited == 0);
+
+    wxl::MapTile noTile;
+    CHECK(!noTile && noTile.TileFirst() < 0 && noTile.TileSecond() < 0);
+
+    // A null camera: the field-of-view binding answers with its own fallback and the setter no-ops.
+    wxl::Camera noCamera;
+    CHECK(!noCamera && noCamera.Fov() > 0.0f);
+    noCamera.SetFov(1.0f);
+
+    wxl::Model noModel;
+    wxl::Wmo noWmo;
+    wxl::WmoGroup noWmoGroup;
+    CHECK(!noModel && !noWmo && !noWmoGroup);
 
     std::printf("%d failure(s)\n", g_failures);
     return g_failures ? 1 : 0;

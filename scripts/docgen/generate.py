@@ -14,7 +14,7 @@ OUT = ROOT / "docs" / "site"
 ASSETS = Path(__file__).resolve().parent
 
 SCRIPT_TYPES = ["WorldScript", "RenderScript", "ModelScript", "ObjectScript", "AssetScript"]
-OBJECT_FILES = ["Object.hpp", "Unit.hpp", "Player.hpp"]
+OBJECT_BASE_FILES = ["Object.hpp", "Unit.hpp", "Player.hpp"]  # the base chain, documented in order
 FRAMEWORK_NAMES = {"ScriptObject", "ScriptMgr", "WXL_DECLARE_EXTENSION"}
 
 
@@ -649,8 +649,11 @@ def main():
     scripts = build_scripts(framework)
     framework_items = [it for it in framework["items"] if it["name"] in FRAMEWORK_NAMES]
 
+    names = [p.name for p in sorted((INCLUDE / "objects").glob("*.hpp"))]
+    ordered = OBJECT_BASE_FILES + [n for n in names if n not in OBJECT_BASE_FILES]
+
     objects = []
-    for f in OBJECT_FILES:
+    for f in ordered:
         h = parse_header(INCLUDE / "objects" / f)
         for it in h["items"]:
             if it["kind"] in ("class", "struct"):

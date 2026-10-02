@@ -200,6 +200,117 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kRsDirty         = 0x14;
     constexpr unsigned kRenderStateCount = 86;
 
+    // EGxRenderState ids, as the D3D backend's own handler switches on them: what a backend reads to
+    // build one draw. The ids are the engine's enum, not offsets, so they live here whole.
+    enum : unsigned
+    {
+        kRsPolygonOffset   = 0,
+        kRsMatDiffuse      = 1,
+        kRsMatEmissive     = 2,
+        kRsMatSpecular     = 3,
+        kRsMatSpecularExp  = 4,
+        kRsNormalizeNormals = 5,
+        kRsBlend           = 6,
+        kRsAlphaRef        = 7,  // 0..255; below 1 the test is off
+        kRsFogStart        = 8,
+        kRsFogEnd          = 9,
+        kRsFogColor        = 10,
+        kRsLighting        = 11,
+        kRsFog             = 12,
+        kRsDepthTest       = 13,
+        kRsDepthFunc       = 14,
+        kRsDepthWrite      = 15,
+        kRsColorWrite      = 16, // engine mask: bit 0 R, bit 1 B, bit 2 G, bit 3 A
+        kRsCulling         = 17,
+        kRsClipPlaneMask   = 18,
+        kRsMultisample     = 19,
+        kRsScissorTest     = 20,
+        kRsTexture0        = 21, // + stage, up to 15
+        kRsColorOp0        = 37, // + stage, up to 7
+        kRsAlphaOp0        = 45,
+        kRsTexGen0         = 53,
+        kRsTexTransform0   = 61,
+        kRsTexCoord0       = 69,
+        kRsVertexShader    = 77,
+        kRsPixelShader     = 78,
+        kRsPointSize       = 79,
+        kRsPointScale      = 80,
+        kRsPointSizeMin    = 81,
+        kRsPointSizeMax    = 82,
+        kRsPointSprite     = 83,
+        kRsBlendFactor     = 84,
+        kRsColorMaterial   = 85,
+    };
+
+    // Master-enable bits (slot 51): a bit that is off forces its state to the disabled value.
+    enum : unsigned
+    {
+        kMasterLighting   = 0,
+        kMasterFog        = 1,
+        kMasterDepthTest  = 2,
+        kMasterDepthWrite = 3,
+        kMasterColorWrite = 4,
+        kMasterCulling    = 5,
+        kMasterProjection = 7, // read by the D3D XformSetProjection
+        kMasterSolidFill  = 8, // clear = wireframe
+    };
+
+    // EGxBlend, the blend modes state kRsBlend selects. Modes 0 and 1 do not blend; 1 keys on alpha.
+    constexpr uint32_t kBlendModeCount = 12;
+
+    // EGxDepthFunc, state kRsDepthFunc.
+    enum : uint32_t
+    {
+        kDepthFuncLessEqual    = 0,
+        kDepthFuncEqual        = 1,
+        kDepthFuncGreaterEqual = 2,
+        kDepthFuncLess         = 3,
+    };
+
+    // EGxCull, state kRsCulling. Mode 1 culls clockwise triangles in screen space, so a front face is
+    // counter-clockwise there.
+    enum : uint32_t
+    {
+        kCullNone = 0,
+        kCullCw   = 1,
+        kCullCcw  = 2,
+    };
+
+    // EGxPrim, the primitive a CGxBatch names.
+    enum : uint32_t
+    {
+        kPrimPoints        = 0,
+        kPrimLines         = 1,
+        kPrimLineStrip     = 2,
+        kPrimTriangles     = 3,
+        kPrimTriangleStrip = 4,
+        kPrimTriangleFan   = 5,
+    };
+
+    // EGxVertexAttrib, which the attribute slots are indexed by.
+    enum : unsigned
+    {
+        kAttribPosition     = 0,
+        kAttribBlendWeight  = 1,
+        kAttribBlendIndices = 2,
+        kAttribNormal       = 3,
+        kAttribColor0       = 4,
+        kAttribColor1       = 5,
+        kAttribTexCoord0    = 6, // + set, up to 7
+    };
+
+    // Attribute data formats, what a slot's format field holds.
+    enum : uint32_t
+    {
+        kAttribFmtColorBgra = 0,
+        kAttribFmtUByte4    = 1,
+        kAttribFmtUByte4N   = 2,
+        kAttribFmtFloat2    = 3,
+        kAttribFmtFloat3    = 4,
+        kAttribFmtShort2    = 5,
+        kAttribFmtFloat1    = 6,
+    };
+
     constexpr size_t kTexList           = 0x2904; // TSList of every CGxTex
     constexpr size_t kTexListHead       = 0x290C;
 

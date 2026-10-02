@@ -9,6 +9,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)   # feeds the IDE the real C++20 flags
 # brand-new VC++ redistributable. A dynamic CRT turns a missing/stale redist into a loader failure at
 # process start (0xc0000142) with no log at all.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# The mingw equivalent (cross-build from Linux, cmake/toolchain/): the C++ runtime, unwinder and
+# pthread shim go in statically, so a binary depends on nothing but the system DLLs.
+# -fms-extensions turns on the MSVC keywords the client code relies on (__try/__except,
+# __declspec(uuid), __stdcall on function pointers).
+if(MINGW)
+    add_compile_options(-fms-extensions)
+    add_link_options(-static)
+endif()
 
 set(WXL_DEFS WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 

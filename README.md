@@ -79,6 +79,18 @@ cmake --build build --config Release --target WarcraftXL
 
 Output: `WarcraftXL.dll`. Vendored dependencies build with the project.
 
+**From Linux.** The same Windows binaries (`.dll`, `.exe`) cross-compile with a clang-based
+mingw-w64 toolchain: [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) unpacked anywhere
+(`~/.local/opt/llvm-mingw` is found on its own; otherwise set `WXL_MINGW_ROOT` or put its `bin/` on
+`PATH`). GCC is not enough: the client code relies on SEH and MSVC intrinsics that only clang
+compiles. Then:
+
+```sh
+./build.sh --client /path/to/client      # build + deploy, like build.ps1; the path is remembered
+./build.sh --target WarcraftXL           # one target
+cmake -S . -B build/mingw-x86 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain/mingw-i686.cmake   # by hand
+```
+
 ## Install
 
 1. Place `WarcraftXL.dll` next to `Wow.exe` and load it into the client (import-table entry / loader).

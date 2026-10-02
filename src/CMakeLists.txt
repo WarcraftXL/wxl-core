@@ -25,7 +25,8 @@ target_include_directories(WarcraftXL PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/include"   # the extension ABI, shared verbatim with extensions
     "${CMAKE_SOURCE_DIR}/deps/minhook/include")
-target_link_libraries(WarcraftXL PRIVATE wxl_common wxl_imgui minhook d3d9 shell32)
+# dwmapi and gdi32: ImGui's Win32 backend names them in #pragma comment(lib), which only MSVC reads.
+target_link_libraries(WarcraftXL PRIVATE wxl_common wxl_imgui minhook d3d9 shell32 dwmapi gdi32)
 target_compile_definitions(WarcraftXL PRIVATE ${WXL_DEFS})
 source_group(TREE "${CMAKE_SOURCE_DIR}" FILES ${WXL_CORE_SRC})
 

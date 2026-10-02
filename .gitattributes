@@ -1,3 +1,5 @@
 # Line endings: LF in the repository, CRLF in the working tree. Pinning both ends stops a tool run
 # from a POSIX shell rewriting the whole tree's endings. text=auto still detects and skips binaries.
 * text=auto eol=crlf
+# Shell scripts run on Linux: bash rejects CRLF.
+*.sh text eol=lf

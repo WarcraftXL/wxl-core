@@ -1,4 +1,8 @@
 // ModelScript: M2 models, skins, poses and batches. Several hooks fire per instance or per batch.
+// Every hook here is raised by the wxl-modern-m2 extension, not by the core, which owns the native
+// M2 pipeline these moments belong to. A ModelScript in a client without that extension loaded is
+// registered and subscribed as usual, and none of its overrides is ever called.
+//
 // One row per hook: WXL_SCRIPT_HOOK(name, (params), (args)) where args unpacks `a`, the event's args
 // struct (wxl/Events.hpp). The name is the event's name. Rows are appended, never reordered.
 // Copyright (C) 2026 WarcraftXL

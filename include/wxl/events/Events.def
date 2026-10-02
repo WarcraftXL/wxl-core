@@ -22,15 +22,15 @@
 #error "define WXL_EVENT(name, id, args) before including Events.def"
 #endif
 
-/** A model's raw bytes are read, before the parse. */
+/** A model's raw bytes are read, before the parse. Raised by wxl-modern-m2, not the core. */
 WXL_EVENT(OnModelLoadPre,       0, ModelLoadArgs)
-/** A model finished loading and is parsed. */
+/** A model finished loading and is parsed. Raised by wxl-modern-m2, not the core. */
 WXL_EVENT(OnModelLoad,          1, ModelLoadArgs)
-/** A model's skin profile is being finalized, before the native finalize sizes its batch blocks. */
+/** A model's skin profile is being finalized, before the native finalize sizes its batch blocks. Raised by wxl-modern-m2, not the core. */
 WXL_EVENT(OnM2SkinFinalize,     2, M2SkinFinalizeArgs)
-/** The scene graph updates one visible M2 instance; once per instance per frame. */
+/** The scene graph updates one visible M2 instance; once per instance per frame. Raised by wxl-modern-m2, not the core. */
 WXL_EVENT(OnM2PerFrameUpdate,   3, M2PerFrameUpdateArgs)
-/** The engine filled an instance's bone palette, before the batch draw uploads it. */
+/** The engine filled an instance's bone palette, before the batch draw uploads it. Raised by wxl-modern-m2, not the core. */
 WXL_EVENT(OnBuildBonePalette,   4, BuildBonePaletteArgs)
 /** Once per frame, before Present. */
 WXL_EVENT(OnFrame,              5, FrameArgs)
@@ -50,19 +50,19 @@ WXL_EVENT(OnWorldRenderEnd,    11, WorldRenderEndArgs)
 WXL_EVENT(OnWorldSceneEnd,     12, WorldSceneEndArgs)
 /** A liquid render pass is about to draw. */
 WXL_EVENT(OnLiquidRender,      13, LiquidRenderArgs)
-/** One M2 triangle batch was drawn; its buffers are still bound. */
+/** One M2 triangle batch was drawn; its buffers are still bound. Raised by wxl-modern-m2, not the core. */
 WXL_EVENT(OnM2BatchDraw,       14, M2BatchDrawArgs)
-/** An M2 batch's alpha-test reference was chosen from its blend mode. */
+/** An M2 batch's alpha-test reference was chosen from its blend mode. Raised by wxl-modern-m2, not the core. */
 WXL_EVENT(OnM2SetupBatchAlpha, 15, M2SetupBatchAlphaArgs)
-/** A ribbon emitter is about to draw. */
+/** A ribbon emitter is about to draw. Raised by wxl-modern-m2, not the core. */
 WXL_EVENT(OnRibbonDraw,        16, RibbonDrawArgs)
 /** A window message arrived; a handler may swallow it. */
 WXL_EVENT(OnInput,             17, InputArgs)
 /** A mouse click resolved to a point or an object in the world. */
 WXL_EVENT(OnWorldClick,        18, WorldClickArgs)
-/** An ADT map chunk is being built. */
+/** An ADT map chunk is being built. Raised by wxl-modern-adt, not the core. */
 WXL_EVENT(OnAdtChunkBuild,     19, AdtChunkArgs)
-/** A split ADT tile finished loading its root, _tex0 and _obj0 files. */
+/** A split ADT tile finished loading its root, _tex0 and _obj0 files. Raised by wxl-modern-adt, not the core. */
 WXL_EVENT(OnAdtSplitTileLoad,  20, AdtSplitTileLoadArgs)
 /** A WMO root buffer is read, before the native chunk walk. */
 WXL_EVENT(OnWmoRootLoad,       21, WmoRootLoadArgs)
@@ -90,9 +90,9 @@ WXL_EVENT(OnItemSlotClear,     31, ItemSlotClearArgs)
 WXL_EVENT(OnWorldEnter,        32, WorldEnterArgs)
 /** The world is being torn down; the map being left is still loaded. */
 WXL_EVENT(OnWorldLeave,        33, WorldLeaveArgs)
-/** The grass-wind integrator advanced this frame; only while grass draws. */
+/** The grass-wind integrator advanced this frame; only while grass draws. Nothing emits this yet. */
 WXL_EVENT(OnGrassWind,         34, GrassWindArgs)
-/** A stock terrain pixel-shader permutation was patched for height blending; once per permutation. */
+/** A stock terrain pixel-shader permutation was patched for height blending; once per permutation. Nothing emits this yet. */
 WXL_EVENT(OnAdtHeightBlend,    35, AdtHeightBlendArgs)
-/** The native reader direct-filled a modern MD21 model. */
+/** The native reader direct-filled a modern MD21 model. Raised by wxl-modern-m2, not the core. */
 WXL_EVENT(OnM2NativeLoad,      36, M2NativeLoadArgs)

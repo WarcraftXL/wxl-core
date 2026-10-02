@@ -1,4 +1,5 @@
 // AssetScript: terrain, WMO and texture loads.
+//
 // One row per hook: WXL_SCRIPT_HOOK(name, (params), (args)) where args unpacks `a`, the event's args
 // struct (wxl/Events.hpp). The name is the event's name. Rows are appended, never reordered.
 // Copyright (C) 2026 WarcraftXL
@@ -21,7 +22,8 @@
 #endif
 
 /**
- * An ADT map chunk is being built.
+ * An ADT map chunk is being built. Raised by the wxl-modern-adt extension, not by the core: without
+ * that extension loaded this hook never fires.
  *
  * @param void* chunk : the map chunk
  * @param uint32 layerCount : its texture layers
@@ -30,7 +32,8 @@ WXL_SCRIPT_HOOK(OnAdtChunkBuild, (void* chunk, uint32_t layerCount), (a.chunk, a
 
 /**
  * A split ADT tile finished loading its root, _tex0 and _obj0 files; main thread, after the stock
- * parser ran. Read-only.
+ * parser ran. Read-only. Raised by the wxl-modern-adt extension, which owns the split-tile reader,
+ * not by the core: without it loaded this hook never fires.
  *
  * @param AdtSplitTileLoadArgs tile : tileFirst, tileSecond, rootSize, texSize, objSize, chunkCount
  */

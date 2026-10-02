@@ -49,6 +49,23 @@ replacement is a script type with one virtual per hook; the hooks of each type a
 | `ObjectScript` | OnObjectUpdate, OnObjectDestroy, OnDoodadSpawn, OnItemSlotChange, OnItemSlotClear |
 | `AssetScript` | OnAdtChunkBuild, OnAdtSplitTileLoad, OnWmoRootLoad, OnWmoGroupLoad, OnTextureUpload, OnBlpLoad |
 
+**Not every hook is raised by the core.** A script is registered and subscribed either way, so a hook
+nothing raises is simply never called — which looks exactly like a bug in your own code. Who raises
+what:
+
+| Hooks | Raised by |
+|---|---|
+| all nine of `ModelScript` | `wxl-modern-m2`, which owns the native M2 pipeline |
+| `OnAdtChunkBuild`, `OnAdtSplitTileLoad` | `wxl-modern-adt`, which owns the split-tile reader |
+| `OnGrassWind`, `OnAdtHeightBlend` | nothing yet — see below |
+| everything else | the core |
+
+The two unraised rows stay in the table because the event ids are the ABI and a row is never
+removed. `OnGrassWind` reports a grass wind that is not implemented anywhere. `OnAdtHeightBlend`
+describes a shader-bytecode injection that was never built: `wxl-modern-adt` blends height through
+shader constants and sampler binds, so there are no bytecode sizes to report. Each row says so in
+its own doc comment, and the generated reference repeats it.
+
 Before:
 
 ```cpp

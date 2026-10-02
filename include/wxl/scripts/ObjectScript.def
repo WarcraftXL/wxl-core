@@ -1,4 +1,5 @@
 // ObjectScript: server objects, doodads and character equipment.
+//
 // One row per hook: WXL_SCRIPT_HOOK(name, (params), (args)) where args unpacks `a`, the event's args
 // struct (wxl/Events.hpp). The name is the event's name. Rows are appended, never reordered.
 // Copyright (C) 2026 WarcraftXL

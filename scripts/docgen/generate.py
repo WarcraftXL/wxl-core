@@ -850,7 +850,9 @@ def build_scripts(framework):
                           "returns": doc["returns"], "call": tidy(call),
                           "file": path.relative_to(ROOT).as_posix(), "line": line})
         cls = classes.get(t)
-        scripts.append({"name": t, "file": path.relative_to(ROOT).as_posix(), "banner": banner(text, False),
+        # The whole opening paragraph, as for a bindings file: a table's header carries what the
+        # per-hook rows cannot, such as an extension every one of its hooks depends on.
+        scripts.append({"name": t, "file": path.relative_to(ROOT).as_posix(), "banner": banner(text, True),
                         "description": cls["description"] if cls else "",
                         "signature": cls["signature"] if cls else None, "hooks": hooks})
     return scripts

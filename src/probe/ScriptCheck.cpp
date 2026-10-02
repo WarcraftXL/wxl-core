@@ -17,7 +17,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "wxl/Script.hpp"
-#include "wxl/game/Objects.hpp"
+#include "wxl/objects/Player.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -108,11 +108,13 @@ int main()
     CHECK(wxl::ScriptMgr::Api() == &api);
 
     // The handles compile and keep their null semantics without a client behind them.
-    wxl::game::Object none;
+    wxl::Object none;
     CHECK(!none && none.Guid() == 0 && none.TypeMask() == 0 && !none.IsUnit());
     CHECK(!none.AsUnit() && !none.AsPlayer());
-    wxl::game::Unit noUnit;
+    wxl::Unit noUnit;
     CHECK(noUnit.Reaction(noUnit) == 0 && !noUnit.Model());
+    wxl::Player noPlayer;
+    CHECK(!noPlayer && !noPlayer.AsUnit() && !noPlayer.AsPlayer());
 
     std::printf("%d failure(s)\n", g_failures);
     return g_failures ? 1 : 0;

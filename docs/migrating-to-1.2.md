@@ -108,6 +108,8 @@ an extension that reads client memory can do the same. The two private vtable he
 `world::MapId()` is deprecated: call `world::CurrentMapId()`. `Loading.hpp` includes `World.hpp`,
 and its duplicate `EnterMap` is gone (the one in `World.hpp` is the same function).
 
-`wxl/game/Objects.hpp` adds the handles `wxl::game::Object`, `Unit` and `Player`: one pointer,
-no ownership, methods over the same bindings (`Player::Active().Position()`,
-`unit.IsHostileTo(other)`, `Object::FromGuid(guid)`). The free functions stay.
+`wxl/objects/Object.hpp`, `Unit.hpp` and `Player.hpp` add the handles `wxl::Object`, `wxl::Unit` and
+`wxl::Player`, one type per file: one pointer, no ownership, methods over the same bindings
+(`Player::Active().Position()`, `unit.IsHostileTo(other)`, `Object::FromGuid(guid)`). Include the
+most derived type you need; `Player.hpp` pulls in `Unit.hpp` and `Object.hpp`. The free functions
+stay.

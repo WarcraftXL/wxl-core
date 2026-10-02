@@ -640,6 +640,201 @@ def build_events():
     return events, others, header
 
 
+def first_sentence(text, cap=140):
+    """The first sentence of a description, on one line, shortened past cap characters."""
+    if not text:
+        return ""
+    head = re.sub(r"\s+", " ", re.split(r"\n\s*\n", text.strip())[0])
+    m = re.match(r"(.+?\.)(\s|$)", head)
+    out = m.group(1) if m else head
+    return out if len(out) <= cap else out[:cap - 3].rstrip() + "..."
+
+
+def call_form(item, name):
+    """The qualified name with its parameter list, e.g. wxl::Object::Is(uint32_t typeMask).
+
+    The parameter list is the bracket group closing the signature, found by walking back from the
+    last ')': taking the first '(' instead would pick up a decltype(...) return type.
+    """
+    sig = item.get("signature") or ""
+    end = sig.rfind(")")
+    if end < 0:
+        return name
+    depth = 0
+    for i in range(end, -1, -1):
+        if sig[i] == ")":
+            depth += 1
+        elif sig[i] == "(":
+            depth -= 1
+            if depth == 0:
+                return name + re.sub(r"\s+", " ", sig[i:end + 1])
+    return name
+
+
+def param_lines(params, returns, indent="    "):
+    """The @param and @return rows as flat text, one per line."""
+    out = []
+    for p in params or []:
+        label = " ".join(x for x in (p.get("type"), p.get("name")) if x)
+        out.append(indent + label + ((" : " + p["meaning"]) if p.get("meaning") else ""))
+    for r in returns or []:
+        label = " ".join(x for x in (r.get("type"), r.get("name")) if x)
+        out.append(indent + "-> " + label + ((" : " + r["meaning"]) if r.get("meaning") else ""))
+    return out
+
+
+def flatten(items, prefix=""):
+    """Every item and nested member, depth-first, as (item, qualified display name)."""
+    for it in items or []:
+        name = it.get("qname") or ((prefix + "::" + it["name"]) if prefix else it["name"])
+        yield it, name
+        yield from flatten(it.get("children"), name)
+
+
+def render_llms(api):
+    """The two flat renderings: a one-line-per-symbol index, and the full reference.
+
+    The browsable site builds itself from data.js at runtime, so anything that does not execute
+    JavaScript -- an agent reading the directory, a crawler, curl -- sees an empty page. These two
+    files carry the same content as plain text.
+    """
+    intro = [
+        "WarcraftXL client-modding framework: the API an extension is written against.",
+        "",
+        "Generated from the doc comments of the public headers under include/wxl/ by",
+        "scripts/docgen/generate.py. Regenerate it rather than editing it.",
+        "",
+        "An extension is a DLL that derives a script type, overrides the hooks it needs and",
+        "registers it. Everything else -- events, handles, bindings -- is reached from there.",
+        "",
+        "    #include \"wxl/Script.hpp\"",
+        "",
+        "    class MyScript final : public wxl::RenderScript {",
+        "        void OnEndScene(void* device) override { /* draw, read the world, edit */ }",
+        "    };",
+        "",
+        "    WXL_DECLARE_EXTENSION(\"my-extension\", 1)   // writes WXL_Query and WXL_Load",
+        "",
+        "    void AddScripts() { wxl::ScriptMgr::Add(new MyScript()); }",
+        "",
+        "Only include/wxl/ is public. include/wxl/offsets/ is internal to the core: an extension",
+        "reaches engine addresses through the bindings in wxl::game, never by including it.",
+        "",
+    ]
+
+    hook_total = sum(len(s["hooks"]) for s in api["scripts"])
+    object_members = sum(1 for _ in flatten(api["objects"])) - len(api["objects"])
+    binding_total = sum(1 for b in api["bindings"] for _ in flatten(b["items"]))
+
+    index = ["# WarcraftXL API index", ""] + intro
+    index += [
+        "Sections: events (%d), script hooks (%d types, %d hooks), extension API (%d), object"
+        % (len(api["events"]), len(api["scripts"]), hook_total, sum(1 for _ in flatten(api["framework"]["items"]))),
+        "handles (%d classes, %d members), game bindings (%d headers, %d symbols)."
+        % (len(api["objects"]), object_members, len(api["bindings"]), binding_total),
+        "",
+        "The full text of every entry below, with its parameters, is in llms-full.txt.",
+        "",
+        "## Events",
+        "",
+    ]
+    for e in api["events"]:
+        index.append("%-3d %-24s %-26s %s" % (e["id"], e["name"], e["args"], first_sentence(e["description"])))
+
+    index += ["", "## Script hooks", ""]
+    for s in api["scripts"]:
+        index.append("### wxl::" + s["name"])
+        for h in s["hooks"]:
+            index.append("    void %s%s" % (h["name"], h["params_tuple"]))
+        index.append("")
+
+    index += ["## Extension API", ""]
+    for it, name in flatten(api["framework"]["items"]):
+        index.append("%-56s %s" % (call_form(it, name), first_sentence(it["description"])))
+
+    index += ["", "## Object handles", ""]
+    for it, name in flatten(api["objects"]):
+        index.append("%-56s %s" % (call_form(it, name), first_sentence(it["description"])))
+
+    index += ["", "## Game bindings", ""]
+    for b in api["bindings"]:
+        index.append("### %s  (%s)" % (b["file"], b["namespace"] or "-"))
+        for it, name in flatten(b["items"]):
+            index.append("%-64s %s" % (call_form(it, name), first_sentence(it["description"])))
+        index.append("")
+
+    full = ["# WarcraftXL API reference", ""] + intro
+    full += ["## Events", "",
+             "An extension subscribes by id through WXL_Api::Subscribe, or overrides the matching",
+             "script hook, which is the same event with its args unpacked. Ids are the ABI and are",
+             "never renumbered.", ""]
+    for e in api["events"]:
+        full.append("### %s (id %d)" % (e["name"], e["id"]))
+        full.append(e["description"] or "(undocumented)")
+        if e.get("argsSignature"):
+            full.append("args: " + e["argsSignature"])
+        # The args struct's description opens by naming the events it serves, which the entry has
+        # already said; anything after that is its own and worth keeping.
+        extra = re.sub(r"^Args of [^.]*\.\s*", "", e.get("argsDescription") or "")
+        if extra:
+            full.append(extra)
+        full += param_lines(e.get("params"), None)
+        full.append("source: %s:%s" % (e["file"], e["line"]))
+        full.append("")
+
+    full += ["## Script hooks", ""]
+    for s in api["scripts"]:
+        full.append("### wxl::%s" % s["name"])
+        full.append(s.get("banner") or "")
+        if s.get("description") and s["description"] != s.get("banner"):
+            full.append(s["description"])
+        full.append("")
+        for h in s["hooks"]:
+            full.append("#### %s::%s" % (s["name"], h["name"]))
+            full.append("void %s%s override" % (h["name"], h["params_tuple"]))
+            full.append(h["description"] or "(undocumented)")
+            full += param_lines(h.get("params"), h.get("returns"))
+            full.append("source: %s:%s" % (h["file"], h["line"]))
+            full.append("")
+
+    def render_group(title, blurb, items):
+        out = ["## " + title, ""]
+        if blurb:
+            out += [blurb, ""]
+        for it, name in flatten(items):
+            out.append("### " + name + "   [" + it["kind"] + "]")
+            if it.get("signature"):
+                out.append(it["signature"])
+            out.append(it["description"] or "(undocumented)")
+            out += param_lines(it.get("params"), it.get("returns"))
+            out.append("source: %s:%s" % (it["file"], it["line"]))
+            out.append("")
+        return out
+
+    full += render_group("Extension API", api["framework"]["description"], api["framework"]["items"])
+    full += render_group("Object handles",
+                         "Handles over raw client pointers: one pointer, no ownership, methods over "
+                         "the bindings. The free functions they call stay available.", api["objects"])
+
+    full += ["## Game bindings", "",
+             "Typed, zero-overhead calls into engine functions and typed readers of engine objects,"
+             " one header per area.", ""]
+    for b in api["bindings"]:
+        full.append("### %s  (%s)" % (b["file"], b["namespace"] or "-"))
+        full.append(b["description"] or "")
+        full.append("")
+        for it, name in flatten(b["items"]):
+            full.append("#### " + name + "   [" + it["kind"] + "]")
+            if it.get("signature"):
+                full.append(it["signature"])
+            full.append(it["description"] or "(undocumented)")
+            full += param_lines(it.get("params"), it.get("returns"))
+            full.append("source: %s:%s" % (it["file"], it["line"]))
+            full.append("")
+
+    return "\n".join(index).rstrip() + "\n", "\n".join(full).rstrip() + "\n"
+
+
 def build_scripts(framework):
     classes = {it["name"]: it for it in framework["items"] if it["kind"] == "class"}
     scripts = []
@@ -710,13 +905,20 @@ def main():
             child.unlink()
     (OUT / "data.js").write_text("const WXL_API = " + json.dumps(api, ensure_ascii=False, separators=(",", ":"))
                                  + ";\n", encoding="utf-8")
-    for name in ("index.html", "style.css", "app.js"):
-        shutil.copyfile(ASSETS / "site" / name, OUT / name)
+    for asset in sorted((ASSETS / "site").iterdir()):
+        if asset.is_file():
+            shutil.copyfile(asset, OUT / asset.name)
+
+    index_txt, full_txt = render_llms(api)
+    (OUT / "llms.txt").write_text(index_txt, encoding="utf-8")
+    (OUT / "llms-full.txt").write_text(full_txt, encoding="utf-8")
 
     print("events: %d, hooks: %s, framework items: %d, objects: %d (%d members), binding files: %d (%d items)" % (
         len(events), ", ".join("%s %d" % (s["name"], len(s["hooks"])) for s in scripts),
         count_items(framework_items), len(objects), count_items(objects) - len(objects),
         len(bindings), sum(count_items(b["items"]) for b in bindings)))
+    print("llms.txt: %d KiB, llms-full.txt: %d KiB" % (
+        len(index_txt.encode("utf-8")) // 1024, len(full_txt.encode("utf-8")) // 1024))
     print("wrote " + str(OUT))
 
 

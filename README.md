@@ -101,6 +101,15 @@ Builds a local, offline reference from the doc comments already on the public he
 script hooks, the object handles, the game bindings). Regenerate it after changing one of those
 comments; nothing under `docs/site/` is committed.
 
+The same run writes two flat renderings beside it, for anything that reads rather than browses --
+an AI agent, a crawler, `curl` -- since the page builds itself from `data.js` at runtime and shows
+an empty document to a client that does not run JavaScript:
+
+| File | What it holds |
+|---|---|
+| `docs/site/llms.txt` | one line per symbol with its parameter list and first sentence |
+| `docs/site/llms-full.txt` | every entry in full: description, typed parameters, returns, source location |
+
 ## Install
 
 1. Place `WarcraftXL.dll` next to `Wow.exe` and load it into the client (import-table entry / loader).

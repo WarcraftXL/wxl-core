@@ -60,6 +60,40 @@ namespace wxl::offsets::engine::gxdevice
     // CGxDevice::v_table: the base class table a backend copies and overrides. The D3D9 table a render
     // hook walks is gx::kGxDeviceVTable.
     constexpr uintptr_t kBaseVTable = 0x00A2DDC0;
+    // CGxDeviceD3d9Ex::v_table, the second D3D-family table; the D3D9 one is gx::kGxDeviceVTable.
+    // (OpenGL has a third at 0x00A2E198, unnamed here because nothing in the core reaches for it.)
+    constexpr uintptr_t kD3d9ExVTable = 0x00A2F500;
+
+    // All four tables are exactly kVTableSlots entries and nothing precedes slot 0: the dword at
+    // `table + kVTableSlots * 4` is string data in every one (".\CGxDeviceD3d9Ex", "CGxDeviceD3d",
+    // "Unfreed texture "), and `table - 4` is not a code address, so there is no RTTI locator to
+    // carry along when copying one.
+    //
+    // **24 of the base table's slots are __purecall (0x0040BAA5)**, not 23: slots 1, 17, 20, 21, 22,
+    // 35, 36, 52, 59, 60, 64-67, 71, 72, 76-83. That is the reason kBaseVTable and kDeviceCtor
+    // cannot be used to inherit D3D behaviour -- there is no stock implementation behind those slots
+    // to forward to, and the 36 the D3D9 table overrides read fields (+0x397C the IDirect3DDevice9,
+    // +0x3980 the D3DCAPS9, the cached surfaces and the vertex-declaration cache) that the base
+    // constructor never fills. A backend that wants the stock D3D behaviour under its own table has
+    // to let kNewD3d build the object and then replace the vptr.
+    constexpr uintptr_t kPureCall = 0x0040BAA5;
+
+    // CGxDevice::NewD3d / NewD3d9Ex: the engine's own factories, and the only way to get a
+    // fully-formed CGxDeviceD3d. Nine instructions --
+    // `SMemAlloc(kD3d9ObjectSize, tag, 0x81, 0)` then a tail jump to the backend constructor, which
+    // returns `this`. __cdecl, no arguments, object in EAX, null when the allocation failed.
+    //
+    // The allocation line 0x81 matters: the matching SMemFree is the one inside vtable slot 8, so an
+    // object allocated any other way cannot be deleted through the engine's own path.
+    constexpr uintptr_t kNewD3d    = 0x00689EF0; // tag 0x00A2DFDC, ctor kD3d9Ctor
+    constexpr uintptr_t kNewD3d9Ex = 0x0068C220; // tag 0x00A2E2E8, ctor kD3d9ExCtor
+    using NewDeviceFn = void*(__cdecl*)();
+
+    // The backend constructors the factories tail-jump to. Each runs kDeviceCtor, installs its own
+    // table, writes kApi (1 or 2), zeroes its own fields, and ends with kDeviceCreatePools +
+    // kDeviceCreateStreamBufs -- the pair whose absence crashes the client on exit.
+    constexpr uintptr_t kD3d9Ctor   = 0x0068FD50;
+    constexpr uintptr_t kD3d9ExCtor = 0x006A1A90;
 
     // GxDevCreate(api, wndProc, context): stores the new device in gx::kGxDevicePtr and calls its
     // kSlotDeviceCreate; on failure deletes it through kSlotScalarDelete. Where a backend takes over.

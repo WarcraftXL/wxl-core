@@ -84,6 +84,32 @@ namespace wxl::offsets::engine::shader
     constexpr uintptr_t kShaderConstantsSet = 0x00408210;
     using ShaderConstantsSetHelperFn = void(__cdecl*)(int target, int startReg, const float* data, int numVec4);
 
+    // The profile tables the .bls path is built from: six entries, one per EGxShTarget, each a
+    // const char*[] indexed by that target's caps level. IShaderLoad formats
+    // "<dir>\<profileName[target][level]>\<name>.bls", so these strings ARE the folder names on
+    // disk -- vertex level 3 is "vs_3_0", pixel level 4 is "ps_3_0", pixel level 3 is "ps_2_0".
+    // Read out of the image rather than inferred.
+    constexpr uintptr_t kProfileTables = 0x00AD8890; // const char* const* [6], by EGxShTarget
+
+    // --- the shadow constant caches (CGxDevice::s_shadowConstants) -------------------------------
+    // Where ShaderConstantsSet puts a constant. One cache per target, each exactly 256 vec4
+    // registers, followed by the 8-byte dirty range the flush uploads from. The device constructor
+    // fills both with 0x7F7FFFFF and sets the range to [0, 255].
+    //
+    // The setter computes `base + reg * 16` and bounds-checks NOTHING -- its only tests are
+    // `target == 0` and `count == 0`. So a pixel write at register 256 lands on the pixel dirty
+    // pair and register 257 onward lands INSIDE the vertex cache. Anything substituting its own
+    // shaders owns that bound itself; ps_3_0's 224 float constants fit, but nothing enforces it.
+    constexpr uintptr_t kConstCachePixel  = 0x00C5DFE0; // 256 x C4Vector
+    constexpr uintptr_t kConstCacheVertex = 0x00C5EFE8; // 256 x C4Vector
+    constexpr uint32_t  kConstRegisters   = 256;        // per target, registers 0..255
+    constexpr size_t    kConstCacheBytes  = kConstRegisters * 16;
+    // The dirty range of each cache, {low, high} inclusive register indices, at the end of its block.
+    constexpr uintptr_t kConstDirtyPixel  = kConstCachePixel + kConstCacheBytes;  // 0x00C5EFE0
+    constexpr uintptr_t kConstDirtyVertex = kConstCacheVertex + kConstCacheBytes; // 0x00C5FFE8
+    /// Resolves a target's cache and dirty range for the flush. __thiscall, 23 bytes.
+    constexpr uintptr_t kShaderConstantsLock = 0x00683560;
+
     // --- selection-state globals (the live inputs the own stack reads instead of a positional slot) --
     constexpr uintptr_t kShadowTier          = 0x00D43010; // shadow tier, clamped 0..2
     constexpr uintptr_t kShadowGroup         = 0x00D43014; // pixel shadow group

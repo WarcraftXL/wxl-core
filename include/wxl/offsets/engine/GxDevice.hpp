@@ -387,7 +387,12 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kCaps328               = 0x328; // 0x328..0x338: D3D writes 0
     constexpr size_t kCaps338               = 0x338;
     constexpr size_t kCaps344               = 0x344; // D3D writes 1
-    constexpr size_t kCaps348               = 0x348; // D3D: 1 unless the pixel profile is ps_3_0
+    // ISetCaps' last act, literally `kCaps348 = kCaps34C = (pixelProfile != kPixelProfilePs30)`.
+    // Not cosmetic: CWorldScene::RenderChunks reads kCaps348 to decide whether the terrain colour
+    // travels as pixel constant c2 or as render state 10, and CDetailDoodad's constant setup and
+    // CShaderEffect::SetFogParams branch on it too. Anything that rewrites the pixel profile has to
+    // re-derive both, which the stock path does and the DeviceOverride path does not.
+    constexpr size_t kCaps348               = 0x348;
     constexpr size_t kCaps34C               = 0x34C; // same value as kCaps348
 
     // Profiles as kCapsShaderTarget stores them. A backend chooses which .bls family the engine loads
@@ -401,6 +406,44 @@ namespace wxl::offsets::engine::gxdevice
     constexpr uint32_t kPixelProfilePs30  = 4;
     constexpr unsigned kShTargetVertex    = 0;
     constexpr unsigned kShTargetPixel     = 4;
+
+    // --- where the caps block comes from, and what can rewrite it afterwards ---------------------
+    // ISetCaps derives the whole block from the adapter's D3DCAPS9 plus CheckDeviceFormat probes. It
+    // has exactly one caller each (inside the matching ICreateD3dDevice), and the first shader in the
+    // process is created a few statements after it returns -- which makes a post-call detour here the
+    // one point where the derived levels can be corrected before anything reads them.
+    //
+    // The pixel profile is clamped to kPixelProfilePs20 unless the vertex profile reached vs_3_0:
+    // ISetCaps ends with `if (pixel == 4 && vertex != 3) pixel = 3;`. CGxFormat's own caps fields can
+    // only ever LOWER a level (the test is `if (v != -1 && v <= current) current = v`).
+    constexpr uintptr_t kD3d9SetCaps   = 0x0068EE20; // CGxDeviceD3d::ISetCaps
+    constexpr uintptr_t kD3d9ExSetCaps = 0x006A0B40; // the D3D9Ex backend's own copy
+    using SetCapsFn = void(__fastcall*)(void* device, void* edx, const void* format);
+
+    // Vtable slot 28, shared by the D3D9 and D3D9Ex tables. Override 0 writes its payload straight
+    // into the pixel profile and does NOT re-derive kCaps348/kCaps34C. ConsoleDeviceInitialize runs
+    // it for every entry the hardware-detection row or -gxOverride set, after the device exists, so
+    // it can undo a profile correction made at ISetCaps time.
+    //
+    // It can only ever lower the profile: ConsoleGxOverride (0x007696D0) maps the user's number
+    // through a table reaching levels 1, 2, 3, 7, 8, 9, 10, 12 and 13 -- never 4. So there is no
+    // route to ps_3_0 through the CVar, only away from it.
+    constexpr uintptr_t kDeviceOverride       = 0x0069FF40;
+    constexpr unsigned  kOverridePixelProfile = 0; // the EGxOverride whose payload lands in kCapsShaderTarget[4]
+    using DeviceOverrideFn = void(__fastcall*)(void* device, void* edx, int index, uint32_t value);
+
+    // The adapter's own D3DCAPS9, copied onto the device object: hardware truth, as opposed to the
+    // derived block above. Named so a caller can gate on what the driver really reports without
+    // pulling in d3d9.h. Offsets inside it are D3DCAPS9 member indices 49, 50 and 51.
+    constexpr size_t kD3dCaps9                    = 0x3980;
+    constexpr size_t kCaps9VertexShaderVersion    = 0xC4;
+    constexpr size_t kCaps9MaxVertexShaderConst   = 0xC8;
+    constexpr size_t kCaps9PixelShaderVersion     = 0xCC;
+    // The version words ISetCaps itself compares against, as D3DVS_VERSION / D3DPS_VERSION build them.
+    constexpr uint32_t kVsVersionTag = 0xFFFE0000;
+    constexpr uint32_t kPsVersionTag = 0xFFFF0000;
+    constexpr uint32_t kVsVersion30  = 0xFFFE0300;
+    constexpr uint32_t kPsVersion30  = 0xFFFF0300;
 
     // --- CGxFormat (kFormatSize bytes) ------------------------------------------------------------------
     // Offsets INSIDE the format record. The active copy lives at the device's kFormat, so Gx.hpp's

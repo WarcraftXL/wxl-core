@@ -110,6 +110,56 @@ namespace wxl::offsets::engine::shader
     /// Resolves a target's cache and dirty range for the flush. __thiscall, 23 bytes.
     constexpr uintptr_t kShaderConstantsLock = 0x00683560;
 
+    // --- the shader-effect constant block (which engine register carries what) --------------------
+    // Register conventions are the engine's, not the backend's, so substituting a shader for a world
+    // effect means honouring them. This is the block the fog and alpha-test values are uploaded
+    // from: two adjacent vec4s, pushed through ShaderConstantsSet (slot 70) by the CShaderEffect
+    // setters below.
+    //
+    //   +0x00  PIXEL  c2  = (fogColor.r, fogColor.g, fogColor.b, alphaRef)
+    //   +0x10  VERTEX c30 = (fogScale, fogBias, fogExponent, 0)
+    //
+    // Two things about it are easy to get wrong, and both are read out of the image:
+    //
+    //  - the colour order. The source is a CImVector, which is BGRA in memory, and the setter writes
+    //    param[2], param[1], param[0] -- so the register receives R, G, B in xyz, each divided by
+    //    255. Taking the CImVector's own order would silently swap red and blue.
+    //  - the sharing. SetFogParams and SetAlphaRef write different components of the SAME pixel
+    //    register and each re-uploads the whole vec4, which is why an alpha reference lives in what
+    //    reads like a colour. A consumer of either value must expect the other to be refreshed
+    //    under it.
+    //
+    // The vertex half is the same fog one register along: the exponent is what the paired vertex
+    // shader raises its depth factor to (`mad r0.x, r0.z, c30.x, c30.y` then `pow r1.x, r0.x,
+    // c30.z`), and the result reaches the pixel shader as the FOG interpolator, saturated, 1 meaning
+    // unfogged.
+    constexpr uintptr_t kEffectConstants             = 0x00D43058;
+    constexpr size_t    kEffectConstFogColorAlphaRef = 0x00; // -> pixel c2
+    constexpr size_t    kEffectConstFogParams        = 0x10; // -> vertex c30
+    constexpr uint32_t  kEffectPixelRegFogColor      = 2;
+    constexpr uint32_t  kEffectVertexRegFogParams    = 30;
+
+    // Registers the paired vertex shaders read, confirmed in
+    // Shaders\Vertex\vs_3_0\MapObjDiffuse_T1.bls permutation 0 rather than inferred from a setter.
+    constexpr uint32_t kEffectVertexRegProjection = 2;  // c2..c5,   transpose(ProjNative)
+    constexpr uint32_t kEffectVertexRegWorldView  = 31; // c31..c33, three rows
+
+    /// CShaderEffect::SetFogParams(start, end, exponent, const CImVector* color). __cdecl. Writes
+    /// both halves of kEffectConstants and uploads the pixel one.
+    constexpr uintptr_t kEffectSetFogParams = 0x00873210;
+    /// CShaderEffect::SetAlphaRef(ref). __thiscall. `ref` is 0..1, NOT 0..255 -- the call sites
+    /// divide by 255 first. Writes kEffectConstants +0x0C and re-uploads pixel c2 whole.
+    constexpr uintptr_t kEffectSetAlphaRef = 0x00873BA0;
+    /// CShaderEffect::SetFogEnabled(on). __cdecl. Uploads vertex c30 on the programmable path.
+    constexpr uintptr_t kEffectSetFogEnabled = 0x00873390;
+    /// CShaderEffect::UpdateProjMatrix: transpose(ProjNative) into vertex c2..c5.
+    constexpr uintptr_t kEffectUpdateProjMatrix = 0x00872C10;
+    /// CShaderEffectManager::GetEffect(name) -> the effect object, looked up by the effect's name.
+    /// The effect-to-shader pairing is data rather than code: shaders\effects\*.wfx in the archives
+    /// is plain text, and it is what says which vertex shader sits opposite which pixel shader, and
+    /// what the fixed-function path does instead.
+    constexpr uintptr_t kEffectManagerGetEffect = 0x00876530;
+
     // --- selection-state globals (the live inputs the own stack reads instead of a positional slot) --
     constexpr uintptr_t kShadowTier          = 0x00D43010; // shadow tier, clamped 0..2
     constexpr uintptr_t kShadowGroup         = 0x00D43014; // pixel shadow group

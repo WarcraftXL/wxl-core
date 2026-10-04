@@ -321,6 +321,34 @@ namespace wxl::offsets::engine::gxdevice
         kPrimTriangleFan   = 5,
     };
 
+    // --- CGxBatch, the argument to the Draw slot ---------------------------------------------------
+    // 0x10 bytes, built on the CALLER's stack and never owned by the device -- so a backend that
+    // wants it past the call has to copy it. The D3D Draw (0x006A3620) reads exactly these four
+    // fields and nothing else; the UI batch builder at 0x00484B00 writes
+    // {kPrimTriangles, 0, indexCount, 0, vertexCount - 1}.
+    constexpr size_t kBatchSize    = 0x10;
+    constexpr size_t kBatchPrim    = 0x00; // uint32, an EGxPrim above
+    constexpr size_t kBatchStart   = 0x04; // uint32, first index, relative to the bound index buffer
+    constexpr size_t kBatchCount   = 0x08; // uint32, index count -- vertex count when not indexed
+    constexpr size_t kBatchMinVert = 0x0C; // uint16
+    constexpr size_t kBatchMaxVert = 0x0E; // uint16
+
+    // CGxDevice::PrimCalcCount(prim, count) -> primitive count. Whole body:
+    // `count / kPrimDivisors[prim] - kPrimAdjust[prim]`, with the division skipped when the divisor
+    // is 1. Both tables are six dwords indexed by EGxPrim, read out of .rdata:
+    //   divisors {1, 2, 1, 3, 1, 1}   adjust {0, 0, 1, 0, 2, 2}
+    // which is what turns an index count into a primitive count rather than the other way round --
+    // worth having named, because inverting it overstates a triangle list by 3x.
+    //
+    // Despite the CGxDevice:: name it takes NO `this`: the prologue is
+    // `mov eax,[ebp+0xC]` / `mov esi,[ebp+8]`, so both arguments come off the stack, and it is
+    // __stdcall (`ret 8`), not __thiscall. Calling it with a device in ecx would read `prim` from
+    // whatever the caller happened to push.
+    constexpr uintptr_t kPrimCalcCount = 0x00682F40;
+    constexpr uintptr_t kPrimDivisors  = 0x00AD8B4C; // uint32[6], by EGxPrim
+    constexpr uintptr_t kPrimAdjust    = 0x00AD8B64; // uint32[6], by EGxPrim
+    using PrimCalcCountFn = uint32_t(__stdcall*)(uint32_t prim, uint32_t count);
+
     // EGxVertexAttrib, which the attribute slots are indexed by.
     enum : unsigned
     {
@@ -623,7 +651,10 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kShaderTarget     = 0x24; // EGxShTarget
     constexpr size_t kShaderValid      = 0x2C; // what CGxShader::Valid returns
     constexpr size_t kShaderCreateTried = 0x30; // CGxShader::Valid calls IShaderCreate while 0
-    constexpr size_t kShaderHasCode    = 0x4C;
+    // +0x48..+0x54 is one TSFixedArray<uint8>: alloc +0x48, SIZE +0x4C, data +0x50, chunk +0x54.
+    // So +0x4C is a byte count, not a flag -- it was named kShaderHasCode, which read as a boolean
+    // and is how a consumer ends up testing a length for truthiness.
+    constexpr size_t kShaderCodeSize   = 0x4C; // bytes in kShaderCode; 0 means the record has none
     constexpr size_t kShaderCode       = 0x50; // the compiled bytecode
 
     // --- functions every stock backend shares ------------------------------------------------------------

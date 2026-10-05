@@ -271,6 +271,24 @@ namespace wxl::offsets::engine::gx
     constexpr size_t    kTexHandleNameField = 0x6C; // texture handle -> stored name (capped 0x104)
     using TextureCreateFn = void*(__cdecl*)(const char* fileName, uint32_t flags, int* status, uint32_t flags2);
 
+    // The handle is a CTexture (0x170 bytes, "HTEXTURE"), and the way back to it from the CGxTex it owns is
+    // the fill callback's userArg: for every file-loaded texture the engine passes the CTexture itself as
+    // userArg (PumpBlpTextureAsync 0x4B7BD0, CTextureBlob::CreateTexture 0x4C0710, CreateTgaTexture 0x4B95B0
+    // all call TextureAllocGxTex 0x4B6760 with `this`). The CGxTex has no back-pointer of its own, and the
+    // name GxTexCreate 0x681EE0 hands to the device is a literal "" -- so the only route is
+    //   fill in {kTexFillBlp, kTexFillBlob, kTexFillTga} && *(uint32*)userArg == kTexHandleVTable
+    //     -> name = (const char*)userArg + kTexHandleNameField
+    // The fill check comes first because other callers pass non-pointers as userArg: the solid-colour fill
+    // takes the colour value itself.
+    constexpr size_t    kTexHandleGxTex     = 0x44;       // CTexture -> CGxTex* (0 until loaded; 0 forever when atlas-packed)
+    constexpr uintptr_t kTexHandleVTable    = 0x009F13B4; // CTexture's vtable once constructed
+    constexpr uintptr_t kTexFillBlp         = 0x004B5E80; // UpdateBlpTextureAsync
+    constexpr uintptr_t kTexFillBlob        = 0x004C03C0; // UpdateBlobTexture (pre-packed texture cache)
+    constexpr uintptr_t kTexFillTga         = 0x004B7AA0; // UpdateTgaTexture
+    constexpr uintptr_t kTexFillSolid       = 0x006BFDA0; // GxuUpdateSingleColorTexture; userArg is the colour
+    constexpr uintptr_t kTexFillAtlas       = 0x004B5930; // the UI atlas fill; userArg is the atlas object
+    constexpr uintptr_t kTexFillParked      = 0x005EEB70; // nullsub: a CGxTex parked in CGxTexCache, userArg 0
+
     // Process-wide singleton the BLP decode writes per build (mip pointer table at the head of the buffer
     // it points to) and the upload reads. Not reentrancy-safe: a nested build during a force-wait rewrites
     // it under the outer build. kMipTablePtr holds the buffer pointer; the table is at *kMipTablePtr.

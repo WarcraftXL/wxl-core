@@ -155,7 +155,8 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kMatrixStackTop    = 0x00; // uint32 index, 0..3
     constexpr size_t kMatrixStackDirty  = 0x04; // uint8
     constexpr size_t kMatrixStackBase   = 0x08; // 4 x C44Matrix
-    constexpr size_t kMatrixStackFlags  = 0x108;
+    constexpr size_t kMatrixStackFlags  = 0x108; // uint32 per level
+    constexpr uint32_t kMatrixStackFlagIdentity = 0x1; // that level is identity; GxXformPush clears it, Identity() sets it
     constexpr unsigned kMatrixStackDepth = 4;
     constexpr unsigned kXformTex0        = 0;
     constexpr unsigned kXformWorld       = 8;
@@ -210,6 +211,7 @@ namespace wxl::offsets::engine::gxdevice
     constexpr unsigned kAttribCount     = 14;
     constexpr size_t kAttribBufs        = gx::kGxDeviceVertexStream; // + attribute * 4 -> CGxBuf*
     constexpr size_t kAttribEnabled     = 0x28A8; // bit per attribute
+    constexpr unsigned kAttribBitColor0 = 4;      // its Color0 bit: the fixed formats' masks are 0x11 PC, 0x51 PCT, 0x41 PT
     constexpr size_t kAttribChanged     = 0x28AC;
     constexpr size_t kVertexFormat      = 0x28B0; // EGxVertexBufferFormat, or kVertexFormatCustom
     constexpr size_t kVertexBuf         = 0x28B4; // the CGxBuf of a fixed format

@@ -221,7 +221,8 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kIndexBufChanged   = 0x28C0;
     constexpr uint32_t kVertexFormatCustom = 14;  // the slots describe the layout instead of a format
 
-    constexpr size_t kEmergencyLock     = 0x28D4; // + pool type * 0x14: a lock that had nowhere to go
+    constexpr size_t kEmergencyLockBlock = 0x28C4; // + pool type * 0x14: the EmergencyMem object IBufLock 0x68FB10 locks
+    constexpr size_t kEmergencyLock     = 0x28D4; // + pool type * 0x14: that object's +0x10 "in use" byte, read by IBufUnlock
 
     // The render states. kRsCount entries of kRsStride bytes live behind the POINTER at kRsTable --
     // value first, then the push depth it was saved at, then its dirty flag. kRsShadow is the

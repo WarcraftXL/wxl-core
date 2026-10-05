@@ -758,6 +758,24 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t    kEmergencyLockStride = 0x14;
     using EmergencyMemLockFn = void*(__fastcall*)(void* emergency, void* edx, uint32_t size);
 
+    // CGxPool::Invalidate (pool) 0x00688230 and CGxPool::Discard (pool) 0x00688260, __fastcall with
+    // the pool in ECX, plain `ret` (read from the bytes): both clear the valid byte (+0x1C) of every
+    // CGxBuf on the pool's list; Discard also rewinds the stream cursor (kPoolStreamCursor) to 0.
+    // D3D's IBufLock calls Discard when a stream lock wraps, IReleaseD3dPool calls Invalidate
+    // (decomp, read whole).
+    constexpr uintptr_t kPoolInvalidate = 0x00688230;
+    constexpr uintptr_t kPoolDiscard    = 0x00688260;
+    using PoolFn = void(__fastcall*)(void* pool);
+
+    // CGxDevice::ITexWHDStartEnd (this, tex, &w, &h, &start, &end) 0x006A5EF0, __thiscall,
+    // `ret 0x14` (read from the bytes): the size of the API texture's level 0 (the CGxTex size >>
+    // start), the first chain level the device keeps (kBaseMipLevel, clamped) and one past the
+    // last; one level when the filter has no mip mode or GenerateMips is set without SingleMip,
+    // `start + 1` with SingleMip. D3D's ITexCreate and ITexUpload both start with it (cgxdevice 4.5).
+    constexpr uintptr_t kITexWHDStartEnd = 0x006A5EF0;
+    using ITexWHDStartEndFn = void(__fastcall*)(void* device, void* edx, void* tex, uint32_t* width,
+                                                uint32_t* height, uint32_t* start, uint32_t* end);
+
     // GxTexCreate (w, h, format, flags, userArg, fill, CGxTex** out), __cdecl: the 2D wrapper that
     // checks the caps block and calls slot 57. GxTexUpdate (tex, minX, minY, maxX, maxY, immediate),
     // __cdecl: TexMarkForUpdate, which reaches slot 0 when immediate.

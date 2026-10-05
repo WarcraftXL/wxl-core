@@ -422,6 +422,10 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kD3dResolveSurface  = 0x3B44; // MSAA resolve surface for DeviceReadPixels (0x0068F6A0)
     constexpr size_t kD3dEventQuery      = 0x3B48; // IDirect3DQuery9, D3DQUERYTYPE_EVENT
     constexpr size_t kD3dPlaceholderTex  = 0x3B58; // 8x8 IDirect3DTexture9 made in ICreateD3dDevice (0x0068F3D0)
+    // Set to 1 by DeviceSetFormat (0x006904D0), DeviceWM focus-in (0x00690230) and CursorUnlock
+    // (0x0068E7E0): "the cursor must be re-applied". The one D3D-region field the engine's own reused
+    // code writes on a device that never creates D3D (docs/native-device-plan.md 1.4).
+    constexpr size_t kD3dCursorDirty     = 0x3B4C;
     static_assert(kD3dDevice == gx::kD3DDeviceField, "the D3D device pointer");
     static_assert(kD3dBackBuffer == gx::kBackBufferField, "the cached back buffer");
     static_assert(kD3dDepthStencil == gx::kDepthSurfaceField, "the cached depth-stencil surface");
@@ -703,4 +707,74 @@ namespace wxl::offsets::engine::gxdevice
     // CGxDevice::WaitForFPSCap (this): sleeps to honour maxfps / maxfpsbk (the latter while unfocused).
     constexpr uintptr_t kWaitForFpsCap = 0x006836D0;
     using WaitForFpsCapFn = void(__fastcall*)(void* device, void* edx);
+
+    // --- base-class functions a backend that is not D3D calls itself ---------------------------------
+    // Everything ICreateD3dDevice (0x0068F3D0) and the D3D scene slots do besides talking to D3D, read
+    // in the decompilation, so a native backend can do the same work through the engine's own code.
+
+    // CGxDevice::IRsForceUpdate (this): marks all 86 states dirty and inverts the hardware shadow so
+    // the next IRsSync sends every one. `ret`.
+    constexpr uintptr_t kIRsForceUpdate = 0x00685A70;
+    using IRsForceUpdateFn = void(__fastcall*)(void* device, void* edx);
+
+    // CGxDevice::IRsSync (this, int force), `ret 4`: walks the dirty list and calls slot 1 for each
+    // state whose app value differs from the shadow; force != 0 runs IRsForceUpdate first.
+    constexpr uintptr_t kIRsSync = 0x00685B50;
+    using IRsSyncFn = void(__fastcall*)(void* device, void* edx, int force);
+
+    // CGxDevice::InitLights (this): the four lights' default enables/ranges. `ret`.
+    constexpr uintptr_t kInitLights = 0x00682C50;
+    using InitLightsFn = void(__fastcall*)(void* device, void* edx);
+
+    // CGxDevice::ShaderConstantsClear (): both constant shadows to FLT_MAX and both dirty ranges to
+    // "everything", so every constant is re-sent once. No `this`, no arguments, `ret`. D3D runs it at
+    // the top of every frame (ISceneBegin 0x006A3350).
+    constexpr uintptr_t kShaderConstantsClear = 0x006833A0;
+    using ShaderConstantsClearFn = void(__cdecl*)();
+
+    // CGxDevice::DeviceScreenShot (this): sizes the shot from curWindow and calls slot 20 into the
+    // device's own array at kScreenshotWidth + 8. `ret`. D3D ScenePresent (0x006A3450) calls it when
+    // kScreenshotPending was set at entry.
+    constexpr uintptr_t kDeviceScreenShot = 0x006841D0;
+    using DeviceScreenShotFn = void(__fastcall*)(void* device, void* edx);
+
+    // CGxDevice::ClampRectToWindow (this, CiRect*), `ret 4`: clips the rect to curWindow in place.
+    // Both read-back slots start with it.
+    constexpr uintptr_t kClampRectToWindow = 0x00683CE0;
+    using ClampRectToWindowFn = void(__fastcall*)(void* device, void* edx, int32_t* rect);
+
+    // TSGrowableArray<CImVector>::SetCount (this, count), `ret 4`: grows (zero-filling) and sets the
+    // count. What D3D DeviceReadPixels (0x0068FED0) sizes its output with. The array is
+    // {capacity, count, data, chunk}.
+    constexpr uintptr_t kCImVectorArraySetCount = 0x00616CA0;
+    using CImVectorArraySetCountFn = void(__fastcall*)(void* array, void* edx, uint32_t count);
+    constexpr size_t kGrowableCount = 0x04;
+    constexpr size_t kGrowableData  = 0x08;
+
+    // EmergencyMem::Lock (this, size), `ret 4`: the scratch block a buffer lock returns when the
+    // backend has nowhere to put it. One per pool type at kEmergencyLock + type * kEmergencyLockStride.
+    constexpr uintptr_t kEmergencyMemLock   = 0x00685E90;
+    constexpr size_t    kEmergencyLockStride = 0x14;
+    using EmergencyMemLockFn = void*(__fastcall*)(void* emergency, void* edx, uint32_t size);
+
+    // GxTexCreate (w, h, format, flags, userArg, fill, CGxTex** out), __cdecl: the 2D wrapper that
+    // checks the caps block and calls slot 57. GxTexUpdate (tex, minX, minY, maxX, maxY, immediate),
+    // __cdecl: TexMarkForUpdate, which reaches slot 0 when immediate.
+    constexpr uintptr_t kGxTexCreate = 0x00681CB0;
+    using GxTexCreateFn = int(__cdecl*)(uint32_t width, uint32_t height, uint32_t format, uint32_t flags,
+                                        void* userArg, TexFillFn fill, void** out);
+    constexpr uintptr_t kGxTexUpdate = 0x00681F20;
+    using GxTexUpdateFn = void(__cdecl*)(void* tex, int32_t a, int32_t b, int32_t c, int32_t d, int immediate);
+
+    // The fill callback of ICreateD3dDevice's 8x8 placeholder (FUN_0068F370): cmd 0 fills a static
+    // 64-dword block with userArg, cmd 1 hands it out. D3D creates it with userArg 0xFF00FF00.
+    constexpr uintptr_t kPlaceholderTexFill = 0x0068F370;
+    constexpr uint32_t  kPlaceholderTexColor = 0xFF00FF00;
+
+    // CGxDevice::s_uiVertexShader (CGxShader*[2], ShaderCreate(..., "UI", 2)) and s_uiPixelShader
+    // (CGxShader*), created at the end of ICreateD3dDevice and released by IDestroyD3d through slot 69.
+    // kUiShaderName is the "UI" literal both ShaderCreate calls pass (.rdata, read from the bytes).
+    constexpr uintptr_t kUiVertexShader = 0x00C5DFD8;
+    constexpr uintptr_t kUiPixelShader  = 0x00C5FFFC;
+    constexpr uintptr_t kUiShaderName   = 0x009E3034;
 }

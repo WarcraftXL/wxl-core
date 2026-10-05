@@ -212,6 +212,7 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kAttribBufs        = gx::kGxDeviceVertexStream; // + attribute * 4 -> CGxBuf*
     constexpr size_t kAttribEnabled     = 0x28A8; // bit per attribute
     constexpr unsigned kAttribBitColor0 = 4;      // its Color0 bit: the fixed formats' masks are 0x11 PC, 0x51 PCT, 0x41 PT
+    constexpr unsigned kAttribBitNormal = 3;      // its Normal bit (EGxVertexAttrib 3): 0x19 PNC, 0x59 PNCT, 0xD9 PNCT2
     constexpr size_t kAttribChanged     = 0x28AC;
     constexpr size_t kVertexFormat      = 0x28B0; // EGxVertexBufferFormat, or kVertexFormatCustom
     constexpr size_t kVertexBuf         = 0x28B4; // the CGxBuf of a fixed format
@@ -405,6 +406,25 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kWindow           = 0x3968; // HWND
     constexpr size_t kWindowClassAtom  = 0x396C; // uint16, from kWindowClassCreate
     constexpr size_t kOwnsWindow       = 0x3970; // 1 when the device created the window itself
+
+    // The D3D backends' API objects (CGxDeviceD3d and CGxDeviceD3d9Ex, same place in both). The
+    // reference's layout table puts d3d9.dll's module, the IDirect3D9 and the IDirect3DDevice9 in
+    // the three dwords after kOwnsWindow; the surfaces are section 9.3's cached ones, and the
+    // placeholder is the 8x8 texture ITexForceRecreation (0x006A2AA0) points every dropped
+    // CGxTex's kTexApiObject at until ITexCreate runs again.
+    constexpr size_t kD3dModule          = 0x3974; // HMODULE of d3d9.dll
+    constexpr size_t kD3d9               = 0x3978; // IDirect3D9*
+    constexpr size_t kD3dDevice          = 0x397C; // IDirect3DDevice9*; = gx::kD3DDeviceField
+    constexpr size_t kD3dCaps            = 0x3980; // D3DCAPS9, the backend's copy
+    constexpr size_t kD3dOffscreenDepth  = 0x3B38; // depth surface for colour targets without a depth texture (0x006A7940)
+    constexpr size_t kD3dBackBuffer      = 0x3B3C; // GetRenderTarget(0) at IStateSetD3DDefaults; = gx::kBackBufferField
+    constexpr size_t kD3dDepthStencil    = 0x3B40; // GetDepthStencilSurface, the auto depth buffer; = gx::kDepthSurfaceField
+    constexpr size_t kD3dResolveSurface  = 0x3B44; // MSAA resolve surface for DeviceReadPixels (0x0068F6A0)
+    constexpr size_t kD3dEventQuery      = 0x3B48; // IDirect3DQuery9, D3DQUERYTYPE_EVENT
+    constexpr size_t kD3dPlaceholderTex  = 0x3B58; // 8x8 IDirect3DTexture9 made in ICreateD3dDevice (0x0068F3D0)
+    static_assert(kD3dDevice == gx::kD3DDeviceField, "the D3D device pointer");
+    static_assert(kD3dBackBuffer == gx::kBackBufferField, "the cached back buffer");
+    static_assert(kD3dDepthStencil == gx::kDepthSurfaceField, "the cached depth-stencil surface");
 
     // --- capabilities ---------------------------------------------------------------------------------
     // Filled by the D3D backend's ISetCaps (0x0068EE20) from D3DCAPS9 and CheckDeviceFormat. Engine
@@ -609,8 +629,8 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kTexFlags         = 0x2C; // CGxTexFlags
     constexpr size_t kTexUserArg       = 0x30; // handed back to the fill callback
     constexpr size_t kTexFillCallback  = 0x34; // fills the texels on upload; 0 = cannot update
-    constexpr size_t kTexApiObject     = 0x38;
-    constexpr size_t kTexApiObject2    = 0x3C;
+    constexpr size_t kTexApiObject     = 0x38; // D3D: IDirect3DTexture9*, IDirect3DCubeTexture9* for a cube map
+    constexpr size_t kTexApiObject2    = 0x3C; // always 0 on D3D; "created" is tested as +0x38 || +0x3C
     constexpr size_t kTexUpdatePending = 0x5A; // uint8
     constexpr size_t kTexNeedsRecreate = 0x5B; // uint8
     constexpr size_t kTexFlagsChanged  = 0x5C; // uint8

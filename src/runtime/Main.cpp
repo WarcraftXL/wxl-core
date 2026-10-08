@@ -48,8 +48,12 @@ namespace
         wxl::runtime::storage::Install();
 
         // Wait for the graphics device (and the window) before installing detours that publish the
-        // events runtime scripts subscribed to at load time.
-        for (int i = 0; i < kDeviceWaitTicks && !wxl::game::gx::RawDevice(); ++i)
+        // events runtime scripts subscribed to at load time. A device backend that creates no
+        // IDirect3DDevice9 never makes RawDevice() non-null; its device being up is the same
+        // moment for it (without this the wait ran its full 60 s). The D3D9 device is created
+        // before the context flag is set, so with D3D9 the first test is what ends the wait.
+        for (int i = 0; i < kDeviceWaitTicks && !wxl::game::gx::RawDevice()
+                        && !wxl::game::gx::DeviceUpWithoutD3d9(); ++i)
             Sleep(100);
 
         wxl::hook::InstallRegisteredFeatures(wxl::hook::Phase::Normal);

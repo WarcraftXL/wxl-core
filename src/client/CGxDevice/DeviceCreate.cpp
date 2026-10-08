@@ -100,14 +100,22 @@ namespace
         &ApiGetBaseVTable,
     };
 
-    /// True once the engine's constructor has run on @p dev: it links the pool list to itself.
+    /// True once the engine's constructor has run on @p dev: it links the pool list's terminator to
+    /// itself. The list's first dword is its link offset, which the constructor writes as 0, so it
+    /// says nothing; the terminator's prev and next links are never null on a constructed device.
     bool BaseRan(void* dev)
     {
-        return wxl::game::At<uintptr_t>(dev, devoff::kPoolList) != 0;
+        return wxl::game::At<uintptr_t>(dev, devoff::kPoolListPrev) != 0
+            && wxl::game::At<uintptr_t>(dev, devoff::kPoolListNext) != 0;
     }
 
     void* __cdecl hkDevCreate(int api, void* wndProc, void* context)
     {
+        // The client builds its device before it reaches the engine-init seam the extensions load
+        // from, so they are loaded here instead: a backend can only answer once its WXL_Load has
+        // registered the factory. Without one, everything below is the engine's own path.
+        wxl::runtime::extensions::EnsureLoaded();
+
         if (!g_factory) return g_origDevCreate(api, wndProc, context);
 
         WLOG_INFO("gx-device: GxDevCreate(api %d) offered to %s", api, g_backendName);
@@ -126,6 +134,11 @@ namespace
             void* vtable = *static_cast<void**>(dev);
             ApiInitBaseDevice(dev);
             *static_cast<void**>(dev) = vtable;
+        }
+        else
+        {
+            WLOG_INFO("gx-device: %s's device carries the base constructor (pool list linked), "
+                      "not run again", g_backendName);
         }
 
         // GxDevCreate's own sequence, in its own order.

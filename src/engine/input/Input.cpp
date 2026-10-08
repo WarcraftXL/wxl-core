@@ -16,6 +16,7 @@
 
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
+#include "engine/input/Input.hpp"
 
 #include "common/Log.hpp"
 #include "wxl/game/Pick.hpp"
@@ -106,6 +107,28 @@ namespace
 
         WLOG_INFO("input: window subclassed (hwnd=%p), OnInput live", g_hwnd);
         return true;
+    }
+}
+
+namespace wxl::input
+{
+    void FollowWindow(HWND hwnd)
+    {
+        if (!hwnd || hwnd == g_hwnd || !g_origWndProc) return;
+
+        const WNDPROC prev = reinterpret_cast<WNDPROC>(
+            SetWindowLongPtrA(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&WndProc)));
+        if (!prev)
+        {
+            WLOG_WARN("input: SetWindowLongPtr on the new window %p failed (%lu), OnInput stays on %p",
+                      hwnd, GetLastError(), g_hwnd);
+            return;
+        }
+        // The new window is the same class as the old one, so its procedure is the one chained to
+        // before; it is taken from the window anyway rather than assumed.
+        if (prev != &WndProc) g_origWndProc = prev;
+        WLOG_INFO("input: window subclass follows the device window %p -> %p", g_hwnd, hwnd);
+        g_hwnd = hwnd;
     }
 }
 

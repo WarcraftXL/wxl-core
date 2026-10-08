@@ -69,6 +69,15 @@ namespace wxl::offsets::game::unit
     // to misread as the same offset.
     constexpr size_t kUnitCharacterComponentField = 0xB4C;
 
+    // --- unit descriptor fields (the block kObjectHeaderField points at: 4 bytes a field) ---
+    // UNIT_FIELD_BOUNDINGRADIUS and UNIT_FIELD_COMBATREACH are fields 0x41 and 0x42 of the 3.3.5a
+    // update-field table (OBJECT_END 6 + 0x3B / 0x3C), UNIT_FIELD_MOUNTDISPLAYID field 0x45: floats,
+    // floats, a display id (0 not mounted). The GUID (field 0) and the type mask (field 2,
+    // kHeaderTypeField 0x08) above are the same block.
+    constexpr size_t kDescUnitBoundingRadius = 0x41 * 4;
+    constexpr size_t kDescUnitCombatReach    = 0x42 * 4;
+    constexpr size_t kDescUnitMountDisplayId = 0x45 * 4;
+
     // --- virtual slots shared by every object type ---
     // Every object type's descendants agree on this part of their vtable. Only these four are common:
     // past them the layouts diverge, and two of the slots below them are stubs on some types.

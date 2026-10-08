@@ -59,7 +59,8 @@ namespace wxl::events
     /**
      * Args of OnFrame.
      *
-     * @param void* device : the IDirect3DDevice9
+     * @param void* device : the IDirect3DDevice9; null when the device backend creates none (the
+     *        event then fires from GxScenePresent, before the backend presents)
      */
     struct FrameArgs          { void* device; };
 
@@ -74,13 +75,15 @@ namespace wxl::events
     /**
      * Args of OnEndScene.
      *
-     * @param void* device : the IDirect3DDevice9
+     * @param void* device : the IDirect3DDevice9; null when the device backend creates none (the
+     *        event then fires from GxScenePresent, the frame complete and not yet presented)
      */
     struct EndSceneArgs       { void* device; };
 
     /**
      * Args of OnDeviceLost and OnDeviceReset. A handler releases its D3DPOOL_DEFAULT resources on the
-     * first and recreates them on the second.
+     * first and recreates them on the second. Neither fires when the device backend creates no
+     * IDirect3DDevice9: such a device loses nothing on a resize or a format change.
      *
      * @param void* device : the IDirect3DDevice9
      * @param void* params : the D3DPRESENT_PARAMETERS the reset creates with

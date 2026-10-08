@@ -105,4 +105,29 @@ namespace wxl::offsets::game::groundeffect
 
     // Pool-dirty flag: setting 1 makes the next pool update free every chunk's grass and rebuild.
     constexpr uintptr_t kPoolDirtyFlag = 0x00D1C4C0;
+
+    // --- the two ground-effect tables ---
+    // Standard WowClientDB stores (layout in offsets/game/Dbc.hpp: minId +0x10, maxId +0x0C, the
+    // by-id row table +0x20). The per-chunk placement (kBuildChunkDetailDoodads) reads a cell's
+    // effect id out of its MCLY layer and looks it up in kTextureDb, range-checked against minId and
+    // maxId (0x007D391C..0x007D393E); kDoodadDb is the store whose Load names
+    // GroundEffectDoodad.dbc (0x006417E0).
+    constexpr uintptr_t kTextureDb = 0x00AD3AE8; // GroundEffectTexture.dbc
+    constexpr uintptr_t kDoodadDb  = 0x00AD3AC4; // GroundEffectDoodad.dbc
+
+    // GroundEffectTextureRec: id, doodadId[4], doodadWeight[4], density, terrainType. A density of 0
+    // is taken as 8 by the placement (0x007D394C).
+    constexpr uint32_t kTexRecDoodadIds    = 0x04; // uint32[4], GroundEffectDoodad ids, 0 = none
+    constexpr uint32_t kTexRecDoodadWeight = 0x14; // uint32[4], relative weights of those four
+    constexpr uint32_t kTexRecDensity      = 0x24; // uint32
+    constexpr uint32_t kTexRecTerrainType  = 0x28; // uint32, TerrainType.dbc id
+    constexpr unsigned kTexRecDoodads    = 4;
+
+    // GroundEffectDoodadRec: id, the model path (resolved to a char* at load), flags.
+    constexpr uint32_t kDoodadRecPath  = 0x04;
+    constexpr uint32_t kDoodadRecFlags = 0x08;
+
+    // A chunk's detail-doodad object (the `this` of kAddDetailDoodadInstance, made by the placement at
+    // 0x007D33D9): +0x98 names the chunk object it belongs to (written at 0x007D33E4).
+    constexpr uint32_t kDetailObjectChunk = 0x98;
 }

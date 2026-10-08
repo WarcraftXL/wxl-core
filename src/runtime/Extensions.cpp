@@ -18,6 +18,7 @@
 
 #include "wxl/PluginApi.h"
 
+#include "common/Config.hpp"
 #include "common/Log.hpp"
 #include "engine/events/Event.hpp"
 #include "engine/hook/Hook.hpp"
@@ -37,6 +38,10 @@ namespace wxl::runtime::extensions
 {
     namespace
     {
+        /// The one extension loaded ahead of the archive mounts when WXL_HOST is on.
+        constexpr const char* g_earlyFolder = "wxl-host-client";
+        bool                  g_earlyLoaded = false;
+
         // --- the service table --------------------------------------------------------------
         // Arguments arrive from a binary this build never saw, so a null or an out-of-range value is
         // ordinary input rather than a precondition an assert could enforce.
@@ -270,6 +275,7 @@ namespace wxl::runtime::extensions
                     WLOG_WARN("extensions: '%s' holds no %s.dll", folder.c_str(), folder.c_str());
                     continue;
                 }
+                if (folder == g_earlyFolder && g_earlyLoaded) continue;   // loaded ahead of the mounts
                 if (LoadOne(folder.c_str(), path)) ++loaded;
             }
 
@@ -279,29 +285,60 @@ namespace wxl::runtime::extensions
 
         game::boot::EngineInitFn g_origEngineInit = nullptr;
 
-        /**
-         * @brief Loads the extensions, then lets engine initialisation proceed.
-         *
-         * Loading here rather than from the deferred main thread is what makes the ordering a fact
-         * instead of a race: the client reaches this point on its own, before the reader queues and
-         * the texture scratch exist. The batch is enabled immediately because the core's own was
-         * armed back in DllMain, so nothing else will arm what the extensions just attached.
-         */
+        // --- the early load (WXL_HOST only) ---------------------------------------------------
+        // The engine mounts its archives in InitializeWowConfig, before every other seam that loads
+        // extensions. wxl-host-client must run before those mounts (the 64-bit host serves them), so
+        // with WXL_HOST on -- and only then -- that one extension is loaded at the function's entry,
+        // on the main thread and outside the loader lock, and "wxl.boot.premount" tells it so.
+        // Without the key nothing changes: this detour only calls through.
+
+        using InitializeWowConfigFn = void(__cdecl*)();
+        InitializeWowConfigFn g_origInitializeWowConfig = nullptr;
+        uint32_t              g_premount = 1;
+
+        void __cdecl InitializeWowConfigDetour()
+        {
+            static bool done = false;
+            if (!done && config::Env("WXL_HOST", false))
+            {
+                done = true;
+                const std::string path = std::string("Extensions\\") + g_earlyFolder + "\\" + g_earlyFolder + ".dll";
+                if (GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES)
+                {
+                    PublishInterface("wxl.boot.premount", 1, &g_premount);
+                    g_earlyLoaded = LoadOne(g_earlyFolder, path);
+                    hook::EnableAll();
+                    WLOG_INFO("extensions: '%s' loaded ahead of the archive mounts (WXL_HOST)", g_earlyFolder);
+                }
+            }
+            g_origInitializeWowConfig();
+        }
+
+        /// Lets engine initialisation proceed, the extensions loaded ahead of it.
         uint32_t __cdecl EngineInitDetour()
         {
-            static bool loaded = false;
-            if (!loaded)
-            {
-                loaded = true;
-                LoadAll();
-                hook::EnableAll();
-            }
+            EnsureLoaded();
             return g_origEngineInit();
         }
     }
 
+    void EnsureLoaded()
+    {
+        static bool loaded = false;
+        if (loaded) return;
+        loaded = true;
+        LoadAll();
+        // The core's own batch was armed back in DllMain, so nothing else will arm what the
+        // extensions just attached.
+        hook::EnableAll();
+    }
+
     bool InstallLoader()
     {
+        // Behind the archive guard (priority 0), which DllMain has already patched and enabled: a
+        // live chain's head cannot change hands, a later link can. The guard calls through to this
+        // link before the engine's body runs, so the early load still precedes every mount.
+        hookpoints::Attach("Io.InitializeWowConfig", &InitializeWowConfigDetour, &g_origInitializeWowConfig, 100);
         return hookpoints::Attach("Boot.EngineInit",
                              &EngineInitDetour, &g_origEngineInit);
     }

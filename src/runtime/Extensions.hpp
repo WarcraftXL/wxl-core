@@ -36,6 +36,20 @@ namespace wxl::runtime::extensions
     bool InstallLoader();
 
     /**
+     * @brief Loads the extensions now, on the first call; every later call returns at once.
+     *
+     * Two seams call it, whichever the client reaches first. GxDevCreate is the earlier one: the
+     * client's startup builds the graphics device (ConsoleDeviceInitialize, 0x0076AB80, called
+     * from 0x00406B28) before it even schedules the engine-initialisation callback (0x004047E0,
+     * pushed at 0x00406B4C), so a device factory, a caps detour or a shader detour attached from
+     * the engine-init seam would arrive after the device it was meant for. The engine-init seam
+     * stays the loader when the device-create feature is not installed.
+     *
+     * Main thread, outside the loader lock, in both cases.
+     */
+    void EnsureLoaded();
+
+    /**
      * @brief Publishes a service into the same interface table WXL_Api::PublishInterface writes.
      *
      * For a core-owned resource an extension must reach without a direct link -- today just the

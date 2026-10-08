@@ -53,6 +53,7 @@ WXL_HOOK_POINT("Lua.Execute",                                 lua::kFrameScriptE
 WXL_HOOK_POINT("Lua.FillScriptMethodTable",                   lua::kFillScriptMethodTable)
 WXL_HOOK_POINT("Lua.ValidateFunctionPointer",                 lua::kValidateFunctionPointer)
 WXL_HOOK_POINT("Lua.GetObjectThis",                           lua::kGetObjectThis)
+WXL_HOOK_POINT("Lua.InterfaceLoad",                           lua::kFrameXMLCreateFrames)
 
 // --- addon manifests and the interface signature ------------------------------------------
 WXL_HOOK_POINT("Addon.LoadAddOnInfo",                         addon::kLoadAddOnInfo)
@@ -77,6 +78,7 @@ WXL_HOOK_POINT("Mem.TextureCacheUpdate",                      mem::kTextureCache
 WXL_HOOK_POINT("Gx.DevCreate",                                devoff::kDevCreate)
 WXL_HOOK_POINT("Gx.SetDefaultWindow",                         gxoff::kDeviceSetDefWindow)
 WXL_HOOK_POINT("Gx.SceneClear",                               gxoff::kGxSceneClear)
+WXL_HOOK_POINT("Gx.ScenePresent",                             gxoff::kGxScenePresent)
 WXL_HOOK_POINT("Gx.ShaderUpdateProjMatrix",                   gxoff::kShaderUpdateProjMatrix)
 WXL_HOOK_POINT("Gx.WorldOnRender",                            gxoff::kWorldOnRender)
 WXL_HOOK_POINT("Gx.WorldRenderFinalize",                      gxoff::kWorldRenderFinalize)

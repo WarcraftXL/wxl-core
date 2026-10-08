@@ -195,7 +195,14 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kShaderTables      = 0x2668;
     constexpr size_t kShaderTableStride = 0x28;
 
-    constexpr size_t kPoolList          = 0x2760; // TSList of every CGxPool
+    // TSList of every CGxPool: {link offset, terminator {prev, next}}. The base constructor
+    // (kDeviceCtor, 0x00688D30..0x00688D41) writes the link offset as 0 -- the link is at the head of
+    // CGxPool -- and points the terminator at itself (prev = +0x2764, next = +0x2764 | 1). So the
+    // dword at kPoolList is 0 on a constructed device; the terminator's two links are what say the
+    // constructor ran (pools added later keep them non-null).
+    constexpr size_t kPoolList          = 0x2760;
+    constexpr size_t kPoolListPrev      = 0x2764; // terminator prev link: never 0 once constructed
+    constexpr size_t kPoolListNext      = 0x2768; // terminator next link (low bit 1 = terminator)
     constexpr size_t kLockedBuf         = 0x2778; // + pool type * 4: the CGxBuf currently locked
     constexpr size_t kStreamPools       = 0x2780; // + pool type * 4: the two default stream pools
     constexpr size_t kStreamBufs        = 0x2788; // + pool type * 4: their default CGxBufs
@@ -636,6 +643,9 @@ namespace wxl::offsets::engine::gxdevice
     constexpr size_t kTexFillCallback  = 0x34; // fills the texels on upload; 0 = cannot update
     constexpr size_t kTexApiObject     = 0x38; // D3D: IDirect3DTexture9*, IDirect3DCubeTexture9* for a cube map
     constexpr size_t kTexApiObject2    = 0x3C; // always 0 on D3D; "created" is tested as +0x38 || +0x3C
+    // The TSLink on the device's texture list (kTexList): the next CGxTex is at +0x44; a value with
+    // bit 0 set, or 0, ends the walk (ITexForceRecreation 0x006A2AA0, read from the bytes).
+    constexpr size_t kTexLinkNext      = 0x44;
     constexpr size_t kTexUpdatePending = 0x5A; // uint8
     constexpr size_t kTexNeedsRecreate = 0x5B; // uint8
     constexpr size_t kTexFlagsChanged  = 0x5C; // uint8

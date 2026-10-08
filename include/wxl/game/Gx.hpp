@@ -94,6 +94,20 @@ namespace wxl::game::gx
     { return Read<void*>(off::kGxDevicePtr); }
 
     /**
+     * @brief Whether the engine device is up and drawing with no IDirect3DDevice9 behind it.
+     *
+     * True only for a device backend that never creates one (wxl-vulkan-api's native device); then
+     * RawDevice() stays null for the whole session and the core's frame events come from its
+     * backend-neutral hook with a null device. Never true while RawDevice() is non-null.
+     * @return true when the device's context flag is set and RawDevice() is null.
+     */
+    inline bool DeviceUpWithoutD3d9()
+    {
+        void* g = RawGraphicsDevice();
+        return g && !RawDevice() && At<uint32_t>(g, off::kContextField) != 0;
+    }
+
+    /**
      * @brief Holds the engine's projection and view across a render that overwrites them.
      *
      * The world render sets both and leaves them set. In-world that is invisible, because the client's

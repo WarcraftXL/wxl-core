@@ -20,6 +20,7 @@
 #include "runtime/HookPoints.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
+#include "engine/input/Input.hpp"
 #include "wxl/game/Gx.hpp"
 #include "wxl/offsets/engine/Gx.hpp"
 
@@ -52,7 +53,10 @@ namespace
     off::WorldRenderFinalizeFn g_origWorldFinalize = nullptr;
     off::WorldOnRenderFn       g_origWorldScene    = nullptr;
     off::LiquidRenderPassFn    g_origLiquidRender  = nullptr;
+    off::GxScenePresentFn      g_origScenePresent  = nullptr;
     void*      g_hookedDevice  = nullptr;   // device whose vtable currently carries the render hooks
+    bool       g_sawD3d9       = false;     // an IDirect3DDevice9 existed: the vtable hooks own the frame events
+    bool       g_saidNeutral   = false;
 
     void EnsureDeviceHooks(IDirect3DDevice9* dev);   // defined after SwapVtbl
 
@@ -82,6 +86,52 @@ namespace
         ev::FrameArgs a{ dev };
         ev::Emit<ev::Event::OnFrame>(a);
         return g_origPresent(dev, src, dst, wnd, dirty);
+    }
+
+    /**
+     * @brief Detours GxScenePresent: the backend-neutral frame seam, live only without D3D9.
+     *
+     * With an IDirect3DDevice9 -- the stock backend, or any backend that makes one -- this only calls
+     * through: OnEndScene and OnFrame keep coming from the EndScene / Present swaps above, at their
+     * call sites and timing, and nothing fires twice. A device seen once marks the session as D3D9
+     * for good, so a D3D format change (which nulls the device between IDestroyD3d and the new
+     * CreateDevice) cannot make this path fire either.
+     *
+     * With none (a device backend that never creates one; its frame is its own slot 38), the frame
+     * is complete here and still open on the back buffer, so this emits OnEndScene, then OnFrame,
+     * with a null device -- the order and the "before the swap" place D3D's give them -- and then
+     * presents. OnDeviceLost / OnDeviceReset are not emitted on this path: their contract is the
+     * D3DPOOL_DEFAULT release around IDirect3DDevice9::Reset, and a device without D3D9 loses
+     * nothing on a resize or a format change. The input subclass follows the device window, which
+     * such a backend's format change recreates.
+     */
+    void __cdecl hkScenePresent()
+    {
+        if (!g_sawD3d9)
+        {
+            void* gfx = gx::RawGraphicsDevice();
+            if (gx::RawDevice()) g_sawD3d9 = true;
+            else if (gfx && wxl::game::At<uint32_t>(gfx, off::kContextField))
+            {
+                if (!g_saidNeutral)
+                {
+                    g_saidNeutral = true;
+                    WLOG_INFO("render: no IDirect3DDevice9 in this process; OnEndScene and OnFrame fire "
+                              "from GxScenePresent with a null device (OnDeviceLost/OnDeviceReset do "
+                              "not apply: nothing is lost on a resize)");
+                }
+                wxl::input::FollowWindow(wxl::game::At<HWND>(gfx, off::kWindowField));
+                {
+                    ev::EndSceneArgs a{ nullptr };
+                    ev::Emit<ev::Event::OnEndScene>(a);
+                }
+                {
+                    ev::FrameArgs a{ nullptr };
+                    ev::Emit<ev::Event::OnFrame>(a);
+                }
+            }
+        }
+        g_origScenePresent();
     }
 
     /**
@@ -261,8 +311,10 @@ namespace
                            &hkWorldScene, &g_origWorldScene);
         wxl::runtime::hookpoints::Attach("Gx.LiquidRenderPass",
                            &hkLiquidRender, &g_origLiquidRender);
+        wxl::runtime::hookpoints::Attach("Gx.ScenePresent",
+                           &hkScenePresent, &g_origScenePresent);
 
-        WLOG_INFO("render: hooks installed (EndScene, Present, Reset, WorldFinalize, WorldScenePass, LiquidRenderPass)");
+        WLOG_INFO("render: hooks installed (EndScene, Present, Reset, WorldFinalize, WorldScenePass, LiquidRenderPass, ScenePresent)");
         return true;
     }
 }

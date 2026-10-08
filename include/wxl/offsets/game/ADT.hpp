@@ -226,6 +226,12 @@ namespace wxl::offsets::game::adt
     constexpr size_t kOffChunkMcrf       = 0x134; // u32 refs: doodads first (nDoodadRefs) then wmos
     constexpr size_t kOffChunkMclq       = 0x138; // legacy liquid layers (hdr sizeLiquid > 8 gates)
     constexpr size_t kOffChunkMcse       = 0x13C; // sound emitters (hdr nSndEmitters gates)
+    // The per-cell ground-effect maps the detail-doodad placement (0x007D3390) reads, as pointers the
+    // sub-chunk walk sets: the predominant-layer map (uint16 per row, 2 bits per cell = the MCLY layer
+    // whose effect the cell shows, 0x007D38F2) and the no-effect map (uint8 per row, 1 bit per cell =
+    // no ground effect there, 0x007D38A4). In a stock MCNK they are the header's +0x40 and +0x50.
+    constexpr size_t kOffChunkEffectLayerMap = 0x114;
+    constexpr size_t kOffChunkNoEffectMap    = 0x118;
     // Primitive/draw-batch descriptor (the 145-vertex MCVT grid VB/IB) passed to the device Draw method.
     constexpr size_t kOffChunkDrawBatch  = 0x90;
     // Source of the tile tex-owner object: (*(chunkObj+0x20) & ~1) + 8.

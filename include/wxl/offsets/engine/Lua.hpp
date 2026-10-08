@@ -70,6 +70,12 @@ namespace wxl::offsets::engine::lua
     constexpr uintptr_t kLuaPushBoolean = 0x0084E4D0;
     using LuaPushBooleanFn = void(__cdecl*)(void* state, int value);
 
+    // lua_createtable(state, narr, nrec). __cdecl, [ebp+8] state: opens on luaC_checkGC (the
+    // l_G->totalbytes / GCthreshold compare at +0x44 / +0x40), then hands [ebp+0xc] and [ebp+0x10] to
+    // luaH_new and pushes the table.
+    constexpr uintptr_t kLuaCreateTable = 0x0084E6E0;
+    using LuaCreateTableFn = void(__cdecl*)(void* state, int arrayCount, int recordCount);
+
     // luaL_error(state, format, ...). __cdecl and variadic, caller-cleaned -- CSimpleFrame_SetScale
     // reaches it at 0x0049F8CB with 50 (the object name) / 68 <format> / 56 (the state) / E8 /
     // 83 C4 0C. IT DOES NOT RETURN: it raises, and the raise unwinds through longjmp, so a caller

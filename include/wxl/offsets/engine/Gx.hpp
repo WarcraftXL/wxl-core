@@ -83,6 +83,19 @@ namespace wxl::offsets::engine::gx
     constexpr size_t    kMasterEnableField = 0x2758;
     constexpr uintptr_t kDeviceSetDefWindow = 0x00684360; // resolution choke (create + every resize)
 
+    // GxScenePresent (), __cdecl, `ret`: flushes the Gxu draw list (GxuFlushDrawList 0x00682960,
+    // with 2 and a zero vector) and calls the engine device's slot 38 (ScenePresent). Every present of
+    // every backend goes through it (OnPaint 0x004A8720, the loading-screen progress bar 0x0040A990),
+    // which makes it the frame seam that does not depend on an IDirect3DDevice9 (read from the bytes).
+    constexpr uintptr_t kGxScenePresent = 0x00682A00;
+    using GxScenePresentFn = void(__cdecl*)();
+
+    // Engine device fields the backend-neutral frame hook reads. The context flag is non-zero while
+    // the device can draw (D3D clears it when the device is lost); the window is the HWND every stock
+    // backend keeps at the same place.
+    constexpr size_t    kContextField = 0xF58;
+    constexpr size_t    kWindowField  = 0x3968;
+
     // Engine render-target bind chokepoint: the world (and UI) bind their target through this method, which
     // bypasses the D3D9 device vtable, so the supersampling redirect must also hook it here.
     constexpr uintptr_t kGxDeviceVTable        = 0x00A2E718; // engine graphics-device vtable base

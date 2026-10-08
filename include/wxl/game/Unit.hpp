@@ -60,4 +60,37 @@ namespace wxl::game::unit
      */
     inline int Reaction(void* self, void* other)
     { return Native<off::ReactionFn>(off::kUnitReaction)(self, nullptr, other); }
+
+    /**
+     * @brief Reads the unit's bounding radius, the size its model is given by the server.
+     * @param unit  Unit object.
+     * @return Yards, or 0 for a null unit.
+     */
+    inline float BoundingRadius(void* unit)
+    {
+        const auto* header = unit ? reinterpret_cast<const uint8_t*>(static_cast<off::ObjectBase*>(unit)->header) : nullptr;
+        return header ? *reinterpret_cast<const float*>(header + off::kDescUnitBoundingRadius) : 0.0f;
+    }
+
+    /**
+     * @brief Reads the unit's combat reach.
+     * @param unit  Unit object.
+     * @return Yards, or 0 for a null unit.
+     */
+    inline float CombatReach(void* unit)
+    {
+        const auto* header = unit ? reinterpret_cast<const uint8_t*>(static_cast<off::ObjectBase*>(unit)->header) : nullptr;
+        return header ? *reinterpret_cast<const float*>(header + off::kDescUnitCombatReach) : 0.0f;
+    }
+
+    /**
+     * @brief Reads whether the unit is mounted.
+     * @param unit  Unit object.
+     * @return The mount's display id, 0 when not mounted (or a null unit).
+     */
+    inline uint32_t MountDisplayId(void* unit)
+    {
+        const auto* header = unit ? reinterpret_cast<const uint8_t*>(static_cast<off::ObjectBase*>(unit)->header) : nullptr;
+        return header ? *reinterpret_cast<const uint32_t*>(header + off::kDescUnitMountDisplayId) : 0u;
+    }
 }

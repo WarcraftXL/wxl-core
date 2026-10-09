@@ -164,6 +164,12 @@ namespace wxl::runtime::extensions
             &wxl::ui::c::Combo,
             &wxl::ui::c::CollapsingHeader,
             &wxl::ui::c::InputText,
+            &wxl::ui::c::TextWrapped,   // appended in WXL_Api order (after UiInputText) ...
+            &wxl::ui::c::SetPanelOpen,  // ... then UiSetPanelOpen / UiIsPanelOpen
+            &wxl::ui::c::IsPanelOpen,
+            &wxl::ui::c::PanelCount,    // ... then UiPanelCount / UiPanelTitle
+            &wxl::ui::c::PanelTitle,
+            &wxl::ui::c::TextColored,   // ... then UiTextColored
         };
 
         // --- loading --------------------------------------------------------------------------

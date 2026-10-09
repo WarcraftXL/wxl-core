@@ -252,6 +252,34 @@ typedef struct WXL_Api
      * @return non-zero on the frame the text changes.
      */
     int(__cdecl* UiInputText)(const char* label, char* buf, size_t bufSize);
+
+    /// Like UiText, but wraps at the window's right edge instead of running off it. Appended after
+    /// UiInputText -- check structSize before reading it if an older copy of this header may be in
+    /// play (same note as UiInputText above).
+    void(__cdecl* UiTextWrapped)(const char* text);
+
+    /**
+     * @brief Show or hide a registered panel by its title.
+     *
+     * Every panel starts visible, and its window has a close button that hides it. This is the
+     * programmatic side: a module that wants its panel hidden until asked for, a button in one panel
+     * that opens another, or a launcher that lists every panel (see UiPanelCount/UiPanelTitle).
+     * Unlike the drawing calls above, these are registry-only and may also be called from WXL_Load.
+     * A title that matches no panel is ignored (UiSetPanelOpen) or returns 0 (UiIsPanelOpen).
+     * Appended after UiTextWrapped -- check structSize before reading them.
+     */
+    void(__cdecl* UiSetPanelOpen)(const char* title, int open);
+    int(__cdecl* UiIsPanelOpen)(const char* title);
+
+    /// Registered panels, in registration order: how many, and the title of each (NULL out of
+    /// range). Registry-only, like UiSetPanelOpen.
+    int(__cdecl* UiPanelCount)(void);
+    const char*(__cdecl* UiPanelTitle)(int index);
+
+    /// Like UiText, in a colour: four floats in 0..1, red first (as UiColorEdit). Appended after
+    /// UiPanelTitle -- check structSize before reading it if an older copy of this header may be in
+    /// play (same note as UiInputText above).
+    void(__cdecl* UiTextColored)(const float rgba[4], const char* text);
 } WXL_Api;
 
 /// The two entry points as the core resolves them, by name, out of a loaded extension.

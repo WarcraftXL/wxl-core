@@ -39,6 +39,15 @@ namespace wxl::ui
      */
     void AddPanel(const char* title, PanelFn fn, void* user);
 
+    /// Show/hide a registered panel by title. A panel starts visible; its window's close button
+    /// hides it too. Registry-only -- safe from WXL_Load, unlike the drawing calls.
+    void SetPanelOpen(const char* title, bool open);
+    bool IsPanelOpen(const char* title);
+
+    /// Registered panels in registration order (title is null out of range). Registry-only.
+    int PanelCount();
+    const char* PanelTitle(int index);
+
     /// True while the overlay is open and taking input.
     bool IsOpen();
 
@@ -51,7 +60,13 @@ namespace wxl::ui
     {
         void __cdecl AddPanel(const char* title, void(__cdecl* fn)(void*), void* user);
         int  __cdecl IsOpen();
+        void __cdecl SetPanelOpen(const char* title, int open);
+        int  __cdecl IsPanelOpen(const char* title);
+        int  __cdecl PanelCount();
+        const char* __cdecl PanelTitle(int index);
         void __cdecl Text(const char* text);
+        void __cdecl TextWrapped(const char* text);
+        void __cdecl TextColored(const float rgba[4], const char* text);
         void __cdecl Separator();
         int  __cdecl Button(const char* label);
         int  __cdecl Checkbox(const char* label, int* value);

@@ -296,6 +296,19 @@ namespace wxl::offsets::engine::gx
     constexpr uint32_t  kMipScratchStockEdge = 0x400;    // shipped operand value at both sites
     constexpr uint32_t  kMipScratchWideEdge  = 0x800;    // widened capacity (2048 any-encoding chains)
 
+    // Async texture reads are admitted against a fixed in-flight byte budget. A new read starts at once
+    // only while its file fits in (budget - bytes in flight); otherwise it waits on a parked list that a
+    // per-frame pump retries with the same test. The shipped budget is 4 MB, so a larger file -- a 2048
+    // 32-bpp chain is ~22.4 MB, a 4096 one ~89.5 MB -- is never admitted and stays parked until something
+    // forces it (a loading screen, /reloadui, or a synchronous wait). Its model meanwhile never counts as
+    // drawable, so the unit is neither prepared nor drawn. Both sites are `mov r32, imm32` operands.
+    // The budget bounds bytes in flight, not their total: a forced read can still exceed it, after which
+    // the unsigned (budget - in flight) wraps and the pump admits every parked read, as stock does.
+    constexpr uintptr_t kTexReadBudgetRequestImm = 0x004B8B9C; // mov eax, imm32: start the read now or park it
+    constexpr uintptr_t kTexReadBudgetPumpImm    = 0x004B69ED; // mov esi, imm32: per-frame retry of parked reads
+    constexpr uint32_t  kTexReadBudgetStock      = 0x00400000; // shipped 4 MB at both sites
+    constexpr uint32_t  kTexReadBudgetWide       = 0x08000000; // 128 MB: one 4096 32-bpp chain at a time fits
+
     // Per-frame liquid render pass loop (this-in-ECX). Brackets every visible liquid instance of one pass;
     // both passes route through it (passType 0 main, 1 secondary). Runs late in the frame, after the liquid
     // textures are bound and the render queues flush, so the wave/ripple animation is already applied.

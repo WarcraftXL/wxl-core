@@ -17,6 +17,7 @@
 #include "common/Log.hpp"
 
 #include "common/Config.hpp"
+#include <share.h>
 
 #include <windows.h>
 #include <atomic>
@@ -131,7 +132,8 @@ namespace wxl::log
             }
         }
 
-        fopen_s(&g_file, path, "w");
+        // Shared read access, so the log can be read while the game runs; other writers stay excluded.
+        g_file = _fsopen(path, "w", _SH_DENYWR);
         if (g_file) setvbuf(g_file, nullptr, _IOFBF, 64 * 1024);
     }
 

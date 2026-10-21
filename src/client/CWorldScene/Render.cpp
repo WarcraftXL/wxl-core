@@ -65,7 +65,11 @@ namespace
     {
         ev::EndSceneArgs a{ dev };
         ev::Emit(ev::Event::OnEndScene, &a);
-        return g_origEndScene(dev);
+        const long result = g_origEndScene(dev);
+        // A subscriber that recorded a state block above has had the runtime rewrite the device's vtable slots;
+        // re-arm before Present, including at login, where no world frame is finalized.
+        EnsureDeviceHooks(static_cast<IDirect3DDevice9*>(dev));
+        return result;
     }
 
     /**
@@ -151,6 +155,8 @@ namespace
 
         ev::WorldRenderEndArgs a{ gx::RawDevice() };
         ev::Emit(ev::Event::OnWorldRenderEnd, &a);
+        // Likewise after the post-world subscribers, before the UI pass.
+        EnsureDeviceHooks(static_cast<IDirect3DDevice9*>(gx::RawDevice()));
     }
 
     /**
@@ -218,22 +224,35 @@ namespace
      * @brief Installs the render vtable hooks on the live device. Each device instance may carry its own
      *        vtable, so on a device recreate the swaps are gone; this re-applies them on the current device.
      *        The surviving world-render function-entry hook calls this each frame, so OnEndScene / OnFrame /
-     *        OnM2BatchDraw keep firing after a graphics restart. Guarded against a shared vtable: if it already
-     *        carries our hooks, re-swapping would capture our own hook as the "original" and recurse, so only
-     *        the device pointer is updated.
+     *        OnM2BatchDraw keep firing after a graphics restart.
+     *
+     *        Each slot is checked on every call, not only when the device changes: recording a state block
+     *        (BeginStateBlock ... EndStateBlock) makes the D3D9 runtime rewrite the device's vtable slots in
+     *        place, so an extension that records one drops our EndScene/Present/Reset hooks on the same device.
+     *        A slot that already holds our hook is left alone (re-swapping would capture our own hook as the
+     *        "original" and recurse), and so is a slot an outside party has since hooked over ours on this
+     *        device: that hook may chain through ours, and adopting it as our original would recurse too.
      * @param dev  the live D3D9 device.
      */
     void EnsureDeviceHooks(IDirect3DDevice9* dev)
     {
-        if (!dev || g_hookedDevice == dev) return;
+        if (!dev) return;
         void** vtbl = *reinterpret_cast<void***>(dev);
-        if (vtbl[off::vt::kPresent] != reinterpret_cast<void*>(&hkPresent))
+        const bool sameDevice = g_hookedDevice == dev;
+        bool changed = false;
+        auto ensure = [&](unsigned slot, auto hook, auto* original)
         {
-            SwapVtbl(vtbl, off::vt::kEndScene,             &hkEndScene, &g_origEndScene);
-            SwapVtbl(vtbl, off::vt::kPresent,              &hkPresent, &g_origPresent);
-            SwapVtbl(vtbl, off::vt::kReset,                &hkReset, &g_origReset);
-            WLOG_INFO("render: device hooks installed (dev=%p)", (void*)dev);
-        }
+            if (vtbl[slot] == reinterpret_cast<void*>(hook)) return;
+            if (sameDevice && *original && vtbl[slot] != reinterpret_cast<void*>(*original)) return;
+            SwapVtbl(vtbl, slot, hook, original);
+            changed = true;
+        };
+        ensure(off::vt::kEndScene, &hkEndScene, &g_origEndScene);
+        ensure(off::vt::kPresent,  &hkPresent,  &g_origPresent);
+        ensure(off::vt::kReset,    &hkReset,    &g_origReset);
+        static unsigned logged = 0;
+        if (changed && logged++ < 8)
+            WLOG_INFO("render: device hooks %s (dev=%p)", sameDevice ? "re-armed" : "installed", (void*)dev);
         g_hookedDevice = dev;
     }
 

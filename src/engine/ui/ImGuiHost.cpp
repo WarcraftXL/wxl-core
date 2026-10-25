@@ -401,6 +401,10 @@ namespace
         IDirect3DStateBlock9* block = nullptr;
         if (SUCCEEDED(dev->CreateStateBlock(D3DSBT_ALL, &block)) && block)
         {
+            // Record the device's current values before drawing. Without Capture, Apply() writes back wrong
+            // vertex shader float constants c128-c255 and pixel shader c128-c223 (copies of c0..) on GeForce
+            // and Radeon drivers alike, which the game's and extensions' shaders then read next frame.
+            block->Capture();
             ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
             block->Apply();
             block->Release();
